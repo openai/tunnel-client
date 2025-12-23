@@ -82,6 +82,73 @@ Depending on your rollout, OpenAI may either:
 1. **Create a tunnel for you** and provide the resulting `tunnel_id`, or
 2. Provide access to the **Tunnel Management API** so you can create it yourself.
 
+### Prerequisite: permission to manage tunnels
+
+Before you can create/update/delete tunnels via the **Tunnel Management API** (`/v1/tunnels*`), you must:
+
+- Use an **admin API key** (not the tunnel-client `CONTROL_PLANE_API_KEY`).
+- Have the **tunnel management permission** in your org/workspace context:
+  - **Organization-scoped**: `api.organization.tunnel.write`
+  - **Workspace-scoped**: `chatgpt.workspace.tunnel.write`
+
+If you do not have this permission, `POST /v1/tunnels` will fail with `403` (“missing tunnel management permission”). If your admin API key is not operating in an organization or workspace context, it will fail with `400` (“Tunnel must be created with an active organization or workspace context.”).
+
+If OpenAI has not already provisioned this permission for your admins, an org admin can grant it using Organization RBAC.
+
+#### Example (org-scoped): create a “Tunnel Managers” group and assign tunnel-write permission
+
+> These RBAC calls require an **org admin API key** with permission to manage groups/roles in your organization.
+
+**1) Create a group**
+
+```bash
+curl -X POST https://api.openai.com/v1/organization/groups \
+  -H "Authorization: Bearer $OPENAI_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "name": "Tunnel Managers"
+  }'
+```
+
+**2) Create a Role with Tunnel Permissions**
+
+```bash
+curl -X POST https://api.openai.com/v1/organization/roles \
+  -H "Authorization: Bearer $OPENAI_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "role_name": "API Tunnel Manager",
+      "permissions": [
+          "api.organization.tunnel.write"
+      ],
+      "description": "Allows managing organization tunnels"
+  }'
+```
+
+**3) Get the group id and role id from previous steps and assign the role to the group**
+
+```bash
+curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/roles \
+  -H "Authorization: Bearer $OPENAI_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "role_id": "<role_id>"
+  }'
+```
+
+**4) Add the admin user(s) to the group (Note you can also do this in https://platform.openai.com/settings/organization/people/groups)**
+
+```bash
+curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/users \
+  -H "Authorization: Bearer $OPENAI_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "user_id": "<user_id>"
+  }'
+```
+
+After this, the admin user(s) who will call `/v1/tunnels*` should have the tunnel management permission through group membership (you can also manage group membership via your organization admin UI/tooling).
+
 ### Tunnel Management API (admin endpoints)
 
 These endpoints manage **tunnel metadata** (they do not deploy the tunnel client for you):
@@ -92,11 +159,13 @@ These endpoints manage **tunnel metadata** (they do not deploy the tunnel client
 - **Update**: `POST /v1/tunnels/{tunnel_id}`
 - **Delete**: `DELETE /v1/tunnels/{tunnel_id}`
 
+**AuthZ note:** these endpoints require an **admin API key** and a principal with tunnel management permission (for example `api.organization.tunnel.write`) in the caller’s active org/workspace context.
+
 ### Example: create a tunnel
 
 ```bash
-curl -sS -X POST "<TUNNEL_MGMT_API_BASE_URL>/v1/tunnels" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+curl -X POST <TUNNEL_MGMT_API_BASE_URL>/v1/tunnels \
+  -H "Authorization: Bearer $OPENAI_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "BigCo Prod MCP Tunnel",
