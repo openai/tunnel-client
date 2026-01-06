@@ -28,6 +28,12 @@ func TestHarnessHandlesKeepalivePingEvents(t *testing.T) {
 		t,
 		[]harnesspkg.HarnessOption{
 			harnesspkg.WithScenarioTimeout(10 * time.Second),
+			harnesspkg.WithClientConfig(func(cfg *config.Config) {
+				// Give the control-plane poller more headroom so the initial poll
+				// (which dequeues initialize) does not time out under load before
+				// headers arrive, which would strand the script.
+				cfg.ControlPlane.PollTimeout = time.Second
+			}),
 		},
 		mockmcpserver.WithKeepalivePings(),
 	)
