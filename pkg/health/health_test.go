@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -61,6 +62,44 @@ func TestBuildHealthURLAssignsRandomPort(t *testing.T) {
 	})
 }
 
+func TestBuildHealthURLWithWildcardListenAddr(t *testing.T) {
+	t.Parallel()
+
+	t.Run("UsesResolvedListenerIP", func(t *testing.T) {
+		t.Parallel()
+
+		ln := listen(t, "tcp4", "127.0.0.1:0")
+		defer func() {
+			require.NoError(t, ln.Close())
+		}()
+
+		healthURL := mustBuildHealthURL(t, "0.0.0.0:0", ln.Addr())
+		parsed := parseURL(t, healthURL)
+
+		require.Equal(t, "127.0.0.1", parsed.Hostname())
+		require.Equal(t, portString(t, ln.Addr()), parsed.Port())
+	})
+
+	t.Run("DefaultsToLocalhostWhenListenerIPUnspecified", func(t *testing.T) {
+		t.Parallel()
+
+		ln := listen(t, "tcp4", "0.0.0.0:0")
+		defer func() {
+			require.NoError(t, ln.Close())
+		}()
+
+		tcpAddr := ln.Addr().(*net.TCPAddr)
+		healthURL := mustBuildHealthURL(t, "0.0.0.0:0", &net.TCPAddr{
+			IP:   net.IPv4zero,
+			Port: tcpAddr.Port,
+		})
+		parsed := parseURL(t, healthURL)
+
+		require.Equal(t, "localhost", parsed.Hostname())
+		require.Equal(t, portString(t, ln.Addr()), parsed.Port())
+	})
+}
+
 func TestBuildHealthURLRejectsNonTCPAddr(t *testing.T) {
 	t.Parallel()
 
@@ -74,6 +113,25 @@ func TestPreferredHealthHostUsesListenerIPWhenListenAddrHostUnspecified(t *testi
 
 	host := preferredHealthHost(":0", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
 	require.Equal(t, "127.0.0.1", host)
+}
+
+func TestPreferredHealthHostWithWildcardListenAddr(t *testing.T) {
+	t.Parallel()
+
+	ln := listen(t, "tcp4", "127.0.0.1:0")
+	defer func() {
+		require.NoError(t, ln.Close())
+	}()
+
+	host := preferredHealthHost("0.0.0.0:0", ln.Addr().(*net.TCPAddr))
+	require.Equal(t, "127.0.0.1", host)
+}
+
+func TestRemoveURLFileMissingDoesNotError(t *testing.T) {
+	t.Parallel()
+
+	service := &healthService{urlFile: filepath.Join(t.TempDir(), "health-url-does-not-exist")}
+	require.NoError(t, service.removeURLFile())
 }
 
 func TestIsUnspecifiedHost(t *testing.T) {
