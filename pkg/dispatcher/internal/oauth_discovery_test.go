@@ -99,6 +99,28 @@ func TestFetchOAuthMetadataRetriesOn5xxThenSucceeds(t *testing.T) {
 	require.EqualValues(t, 1, rootCalls)
 }
 
+func TestFetchOAuthMetadataAllFailuresReturnError(t *testing.T) {
+	t.Parallel()
+
+	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(errorServer.Close)
+
+	closedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	closedServer.Close()
+
+	closedURL, err := url.Parse(closedServer.URL + "/.well-known/oauth-protected-resource")
+	require.NoError(t, err)
+	errorURL, err := url.Parse(errorServer.URL + "/.well-known/oauth-protected-resource")
+	require.NoError(t, err)
+
+	client := &http.Client{Timeout: time.Second}
+
+	_, fetchErr := fetchOAuthMetadata(context.Background(), client, []*url.URL{closedURL, errorURL}, nil)
+	require.Error(t, fetchErr)
+}
+
 func TestFetchOAuthMetadataEmptyBodyIsError(t *testing.T) {
 	t.Parallel()
 
