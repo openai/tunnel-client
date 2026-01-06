@@ -20,15 +20,21 @@ var (
 )
 
 func init() {
+	initVersion(debug.ReadBuildInfo)
+}
+
+type readBuildInfoFunc func() (*debug.BuildInfo, bool)
+
+func initVersion(readBuildInfo readBuildInfoFunc) {
 	if GitSHA == "" {
-		GitSHA = detectBuildGitSHA()
+		GitSHA = detectBuildGitSHAFrom(readBuildInfo)
 	}
 	Version = buildVersion(semanticVersion, GitSHA)
 	UserAgent = userAgentPrefix + Version
 }
 
-func detectBuildGitSHA() string {
-	info, ok := debug.ReadBuildInfo()
+func detectBuildGitSHAFrom(readBuildInfo readBuildInfoFunc) string {
+	info, ok := readBuildInfo()
 	if !ok {
 		return ""
 	}
