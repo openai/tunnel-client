@@ -48,6 +48,7 @@ type poller struct {
 	queueFullDelay time.Duration
 	pollTimeout    time.Duration
 	metrics        *pollerMetrics
+	hadPollError   bool
 }
 
 // NewPoller builds a Poller with sensible defaults for retry and queue
@@ -133,6 +134,7 @@ func (p *poller) Run(ctx context.Context) {
 		cancel()
 		p.metrics.pollLatency.Record(ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(attribute.Bool("error", err != nil)))
 		if err != nil {
+			p.hadPollError = true
 			p.metrics.pollErrors.Add(ctx, 1, metric.WithAttributes(attribute.String(attributeKeyErrorKind, pollErrorKind(err))))
 			delay := p.backoff.Duration()
 			attrs := []any{
@@ -152,6 +154,15 @@ func (p *poller) Run(ctx context.Context) {
 				return
 			}
 			continue
+		}
+
+		if p.hadPollError {
+			attrs := []any{}
+			if tunnelServiceRequestID != "" {
+				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tunnelServiceRequestID.String()))
+			}
+			p.logger.InfoContext(ctx, "poller recovered; polling operational", attrs...)
+			p.hadPollError = false
 		}
 
 		p.backoff.Reset()

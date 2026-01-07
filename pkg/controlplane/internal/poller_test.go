@@ -2,9 +2,11 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -763,6 +765,61 @@ func (f *timeoutRecordingFetcher) Poll(ctx context.Context, limit int) ([]contro
 	f.callCount++
 	f.durations = append(f.durations, time.Since(start))
 	return nil, "", ctx.Err()
+}
+
+type sequenceFetcher struct {
+	mu     sync.Mutex
+	errs   []error
+	cancel context.CancelFunc
+}
+
+func (f *sequenceFetcher) Poll(ctx context.Context, limit int) ([]controlplane.PolledCommand, types.TunnelServiceRequestID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.errs) == 0 {
+		return nil, "", nil
+	}
+
+	err := f.errs[0]
+	f.errs = f.errs[1:]
+	if err == nil && f.cancel != nil {
+		f.cancel()
+	}
+	return nil, "", err
+}
+
+func TestPollerLogsRecoveryAfterError(t *testing.T) {
+	queue := &chanQueue{ch: make(chan controlplane.PolledCommand, 1)}
+	var output strings.Builder
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() {
+		_ = meterProvider.Shutdown(context.Background())
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	fetcher := &sequenceFetcher{
+		errs:   []error{errors.New("poll failed"), nil},
+		cancel: cancel,
+	}
+	poller, err := NewPoller(queue, fetcher, logger, meterProvider.Meter("test"), 25*time.Millisecond, time.Millisecond, 2*time.Millisecond)
+	if err != nil {
+		t.Fatalf("new poller: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		poller.Run(ctx)
+	}()
+	wg.Wait()
+
+	if !strings.Contains(output.String(), "poller recovered; polling operational") {
+		t.Fatalf("expected recovery log message, got %q", output.String())
+	}
 }
 
 func TestPollerPollsWithTimeoutAndRetries(t *testing.T) {
