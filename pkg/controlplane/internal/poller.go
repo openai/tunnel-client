@@ -145,7 +145,7 @@ func (p *poller) Run(ctx context.Context) {
 				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tunnelServiceRequestID.String()))
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
-				attrs = append(attrs, slog.Duration("poll_timeout", p.pollTimeout))
+				attrs = append(attrs, slog.Int64("poll_timeout_ms", p.pollTimeout.Milliseconds()))
 				p.logger.WarnContext(ctx, "poll timed out; backing off", attrs...)
 			} else {
 				p.logger.WarnContext(ctx, "poll failed; backing off", attrs...)
