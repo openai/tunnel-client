@@ -56,6 +56,26 @@ func (l *tunnelEventLogger) LogEvent(event fxevent.Event) {
 	}
 }
 
+func newRunCommand(lookupEnv func(string) (string, bool)) *cobra.Command {
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the tunnel client poller",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTunnel(cmd, lookupEnv)
+		},
+	}
+	config.RegisterFlags(runCmd.PersistentFlags())
+
+	runCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		config.WriteUsage(runCmd.PersistentFlags(), cmd.OutOrStdout())
+		return nil
+	})
+	runCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		config.WriteUsage(runCmd.PersistentFlags(), cmd.OutOrStdout())
+	})
+	return runCmd
+}
+
 func runTunnel(cmd *cobra.Command, lookupEnv func(string) (string, bool)) error {
 	cfg, err := config.LoadFromFlagSet(cmd.Flags(), lookupEnv)
 	if err != nil {

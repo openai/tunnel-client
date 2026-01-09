@@ -1,0 +1,152 @@
+package admin
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"go.openai.org/api/tunnel-client/pkg/config"
+)
+
+func TestAdminTunnelClientCreateAndGet(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/tunnels":
+			if got := r.Header.Get("Authorization"); got != "Bearer admin-key" {
+				t.Fatalf("unexpected Authorization header %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n","description":"d","creator":"u","organization_ids":["org1"],"workspace_ids":["ws1"]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels/tunnel_1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.AdminConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		AdminKey: "admin-key",
+	}
+	client, err := NewAdminTunnelClient(cfg)
+	if err != nil {
+		t.Fatalf("NewAdminTunnelClient: %v", err)
+	}
+
+	ctx := context.Background()
+
+	created, err := client.CreateTunnel(ctx, TunnelCreateRequest{Name: "n", Description: "d"})
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	if created.ID != "tunnel_1" || created.Creator != "u" {
+		t.Fatalf("unexpected create response %+v", created)
+	}
+
+	fetched, err := client.GetTunnel(ctx, "tunnel_1")
+	if err != nil {
+		t.Fatalf("GetTunnel: %v", err)
+	}
+	if fetched.Name != "n" {
+		t.Fatalf("unexpected get response %+v", fetched)
+	}
+}
+
+func TestAdminTunnelClientUpdateEncodesEmptySlices(t *testing.T) {
+	t.Parallel()
+
+	var captured struct {
+		Method string
+		Path   string
+		Body   map[string]any
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Method = r.Method
+		captured.Path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&captured.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"tunnel_2","name":"x"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.AdminConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		AdminKey: "key",
+	}
+	client, err := NewAdminTunnelClient(cfg)
+	if err != nil {
+		t.Fatalf("NewAdminTunnelClient: %v", err)
+	}
+
+	empty := []string{}
+	name := "new"
+	req := TunnelUpdateRequest{
+		Name:            &name,
+		OrganizationIDs: &empty,
+	}
+
+	if _, err := client.UpdateTunnel(context.Background(), "tunnel_2", req); err != nil {
+		t.Fatalf("UpdateTunnel: %v", err)
+	}
+
+	if captured.Method != http.MethodPost || captured.Path != "/v1/tunnels/tunnel_2" {
+		t.Fatalf("unexpected request %s %s", captured.Method, captured.Path)
+	}
+	if got := captured.Body["organization_ids"]; got == nil {
+		t.Fatalf("expected organization_ids to be present, got %#v", captured.Body)
+	}
+}
+
+func TestAdminTunnelClientErrorIncludesRequestID(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", "req_test_123")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.AdminConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		AdminKey: "key",
+	}
+	client, err := NewAdminTunnelClient(cfg)
+	if err != nil {
+		t.Fatalf("NewAdminTunnelClient: %v", err)
+	}
+
+	_, err = client.GetTunnel(context.Background(), "id")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if got := err.Error(); !containsAll(got, "500", "boom", "req_test_123") {
+		t.Fatalf("error missing request id or details: %s", got)
+	}
+}
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse url %q: %v", raw, err)
+	}
+	return parsed
+}

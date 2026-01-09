@@ -178,6 +178,44 @@ The response includes the new tunnel’s `id`. Use this as your **`tunnel_id`**.
 
 ---
 
+### CLI helper (preferred for quick setup)
+
+You can manage tunnels with the bundled `tunnel-client admin tunnels` commands instead of crafting raw `curl` requests.
+
+Prereqs:
+
+- Set an **admin key**: `export OPENAI_ADMIN_KEY=<admin key>`
+- Optional: override the control plane host (defaults to prod): `export CONTROL_PLANE_BASE_URL=https://api.openai.com`
+- Provide at least one scope flag: `--organization-id` and/or `--workspace-id` (duplicates are rejected).
+
+Examples:
+
+```bash
+# Create (requires at least one org/workspace id)
+bin/tunnel-client admin tunnels create \
+  --name "BigCo Prod MCP Tunnel" \
+  --description "Routes BigCo connector traffic to the on-prem MCP server" \
+  --workspace-id "<WORKSPACE_ID>"
+
+# List by workspace (exactly one filter required: org OR workspace OR tenant)
+bin/tunnel-client admin tunnels list --workspace-id "<WORKSPACE_ID>" --json
+
+# Get by id
+bin/tunnel-client admin tunnels get "<tunnel_id>"
+
+# Update (PUT-like replacement for org/workspace lists when flags are present)
+bin/tunnel-client admin tunnels update "<tunnel_id>" \
+  --name "Renamed Tunnel" \
+  --organization-id "<ORG_ID>"
+
+# Delete (requires --confirm)
+bin/tunnel-client admin tunnels delete "<tunnel_id>" --confirm
+```
+
+Use `--json` on any subcommand for structured output.
+
+---
+
 ## Step 2 — Configure the connector to use the OpenAI-hosted MCP tunnel URL
 
 When creating a connector in **ChatGPT**, you’ll be asked for the **MCP Server URL**.

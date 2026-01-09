@@ -8,6 +8,7 @@
 ## Commands
 
 - `run`: start the tunnel client poll loop.
+- `admin tunnels`: manage tunnel metadata via the admin API (`/v1/tunnels*`). Requires an admin key and org/workspace scope flags.
 - `tunnel-client` with no subcommand prints help and available commands.
 
 ## Control plane
@@ -96,6 +97,25 @@
 - **PID file (optional)**
   - Flag: `--pid.file`
   - Env: `PID_FILE`
+
+## Admin (tunnel management) flags
+
+Used with `tunnel-client admin tunnels ...`:
+
+- **Admin key**
+  - Flag: `--admin-key` (accepts raw value, `env:VAR`, or `file:/path`)
+  - Env: `OPENAI_ADMIN_KEY`
+  - Required.
+- **Org/workspace scope**
+  - Flags: `--organization-id`, `--workspace-id` (repeatable); at least one is required for `create`, and duplicates are rejected.
+- **Base URL**
+  - Flag: `--control-plane.base-url`
+  - Env: `CONTROL_PLANE_BASE_URL`
+  - Default: `https://api.openai.com`
+- **Output**
+  - Flag: `--json` (structured output)
+- **Delete safety**
+  - Flag: `--confirm` (required for `tunnels delete`)
 
 ## Example configurations
 
