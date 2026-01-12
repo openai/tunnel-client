@@ -15,6 +15,9 @@ const (
 	// ResponseTypeJSONRPCResponse indicates the payload carries a JSON-RPC
 	// response from the MCP server.
 	ResponseTypeJSONRPCResponse ResponseType = iota
+	// ResponseTypeJSONRPCNotification indicates the payload carries a JSON-RPC
+	// notification emitted by the MCP server.
+	ResponseTypeJSONRPCNotification
 	// ResponseTypeNotificationAcknowledgment indicates the payload acknowledges a
 	// notification that produced no JSON-RPC response body.
 	ResponseTypeNotificationAcknowledgment
@@ -52,6 +55,17 @@ func NewOAuthDiscoveryResponse(response json.RawMessage, code int, headers http.
 		headers:      cloneHeaders(headers),
 		responseCode: code,
 		responseType: ResponseTypeOAuthDiscovery,
+	}
+}
+
+// NewJSONRPCNotification constructs a TunnelResponse that forwards a JSON-RPC
+// notification payload emitted by the MCP server.
+func NewJSONRPCNotification(response json.RawMessage, code int, headers http.Header) *TunnelResponse {
+	return &TunnelResponse{
+		response:     response,
+		headers:      cloneHeaders(headers),
+		responseCode: code,
+		responseType: ResponseTypeJSONRPCNotification,
 	}
 }
 
@@ -96,6 +110,10 @@ func (t *TunnelResponse) Validate() error {
 	case ResponseTypeNotificationAcknowledgment:
 		if len(t.response) > 0 {
 			return errors.New("notification acknowledgments must not include a jsonrpc response")
+		}
+	case ResponseTypeJSONRPCNotification:
+		if len(t.response) == 0 {
+			return errors.New("jsonrpc notification is required")
 		}
 	case ResponseTypeOAuthDiscovery:
 		if len(t.response) == 0 {

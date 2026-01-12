@@ -203,6 +203,8 @@ func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.
 		payload.JSONResponse = rawResponse
 	}
 	switch response.Type() {
+	case types.ResponseTypeJSONRPCNotification:
+		payload.ResponseType = wiretypes.ResponsePayloadJSONRPCNotify
 	case types.ResponseTypeNotificationAcknowledgment:
 		payload.ResponseType = wiretypes.ResponsePayloadNotifyAck
 	case types.ResponseTypeOAuthDiscovery:

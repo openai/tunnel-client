@@ -598,6 +598,57 @@ func TestTunnelServiceClientPostResponseNotificationAck(t *testing.T) {
 	}
 }
 
+func TestTunnelServiceClientPostResponseJSONRPCNotification(t *testing.T) {
+	t.Parallel()
+
+	var seenBody []byte
+	server := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		seenBody, err = io.ReadAll(r.Body)
+		assert.NoError(t, err, "read request body")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	client, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		TunnelID: types.TunnelID("cli-tunnel"),
+		APIKey:   "test-api-key",
+	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
+		return
+	}
+
+	rawNotification, err := jsonrpc.EncodeMessage(&jsonrpc.Request{Method: "notifications/progress"})
+	if !assert.NoError(t, err, "EncodeMessage failed") {
+		return
+	}
+
+	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-notify-jsonrpc")
+	headers := http.Header{"Content-Type": []string{"application/json"}}
+
+	_, err = client.PostResponse(
+		ctx,
+		types.RequestID("notif-jsonrpc"),
+		types.NewJSONRPCNotification(rawNotification, http.StatusOK, headers),
+	)
+	assert.NoError(t, err, "PostResponse should allow JSON-RPC notifications")
+
+	var payload struct {
+		RequestID   string          `json:"request_id"`
+		RPCResp     json.RawMessage `json:"resp_json"`
+		RespHeaders http.Header     `json:"resp_headers"`
+		RespCode    int             `json:"resp_code"`
+		RespType    string          `json:"resp_type"`
+	}
+	if assert.NoError(t, json.Unmarshal(seenBody, &payload), "unmarshal request payload") {
+		assert.Equal(t, "notif-jsonrpc", payload.RequestID)
+		assert.JSONEq(t, `{"jsonrpc":"2.0","method":"notifications/progress"}`, string(payload.RPCResp))
+		assert.Equal(t, headers, payload.RespHeaders)
+		assert.Equal(t, http.StatusOK, payload.RespCode)
+		assert.Equal(t, string(wiretypes.ResponsePayloadJSONRPCNotify), payload.RespType)
+	}
+}
+
 func TestTunnelServiceClientExtraHeadersAreSent(t *testing.T) {
 	t.Parallel()
 
