@@ -20,12 +20,17 @@ type loggerParams struct {
 	Lifecycle     fx.Lifecycle
 	Config        *config.LoggingConfig
 	DefaultWriter io.Writer `optional:"true"`
+	Sink          Sink      `optional:"true"`
 }
 
 func newLogger(p loggerParams) (*slog.Logger, error) {
 	logger, closer, err := NewLogger(p.Config, p.DefaultWriter)
 	if err != nil {
 		return nil, err
+	}
+
+	if p.Sink != nil && logger != nil {
+		logger = slog.New(newTeeHandler(logger.Handler(), p.Sink))
 	}
 
 	if closer != nil {

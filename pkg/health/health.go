@@ -24,6 +24,10 @@ var HealthMuxModule = fx.Module(
 	"health",
 	fx.Provide(
 		fx.Annotate(
+			func() *http.ServeMux { return http.NewServeMux() },
+			fx.ResultTags(`name:"admin_mux"`),
+		),
+		fx.Annotate(
 			newHealthService,
 			fx.As(new(Service)),
 		),
@@ -51,15 +55,19 @@ type healthParams struct {
 	HealthConfig   *config.HealthConfig
 	Logger         *slog.Logger
 	MeterProvider  *sdkmetric.MeterProvider
+	AdminMux       *http.ServeMux `name:"admin_mux"`
 }
 
 func newHealthService(p healthParams) (*healthService, error) {
 	logger := p.Logger.With(tclog.FieldComponent, tclog.ComponentHealth)
 
-	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/healthz", okHandler("live"))
-	adminMux.HandleFunc("/readyz", okHandler("ready"))
-	adminMux.Handle("/metrics", p.MetricExporter)
+	if p.AdminMux == nil {
+		return nil, fmt.Errorf("health: admin mux is required")
+	}
+
+	p.AdminMux.HandleFunc("/healthz", okHandler("live"))
+	p.AdminMux.HandleFunc("/readyz", okHandler("ready"))
+	p.AdminMux.Handle("/metrics", p.MetricExporter)
 
 	meter := p.MeterProvider.Meter("health")
 	livenessGauge, err := meter.Int64ObservableGauge(
@@ -78,7 +86,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 	}
 
 	srv := &http.Server{
-		Handler:           adminMux,
+		Handler:           p.AdminMux,
 		ReadHeaderTimeout: 5 * time.Second,
 		Addr:              p.HealthConfig.ListenAddr,
 	}

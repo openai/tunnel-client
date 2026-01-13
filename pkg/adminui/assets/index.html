@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>tunnel-client</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div>
+        <h1>tunnel-client</h1>
+        <div class="muted small">Local admin UI • <span class="mono">/</span> and <span class="mono">/ui</span></div>
+      </div>
+      <div class="row small">
+        <span class="badge" id="badgeHealth">Health: …</span>
+        <span class="badge" id="badgeReady">Ready: …</span>
+        <span class="badge" id="badgeStream">Logs: …</span>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab" data-tab="overview" aria-selected="true">Overview</button>
+      <button class="tab" data-tab="metrics" aria-selected="false">Metrics</button>
+      <button class="tab" data-tab="logs" aria-selected="false">Logs</button>
+      <span style="flex: 1"></span>
+      <a class="small muted" href="/metrics" target="_blank" rel="noreferrer">open /metrics</a>
+    </div>
+
+    <section class="panel" id="panel-overview" aria-hidden="false">
+      <div class="grid">
+        <div class="card span-6">
+          <div class="muted small">Client</div>
+          <div class="kv" style="margin-top: 8px">
+            <div class="muted">Version</div><div class="mono" id="vVersion">—</div>
+            <div class="muted">Uptime</div><div class="mono" id="vUptime">—</div>
+            <div class="muted">Health addr</div><div class="mono" id="vHealthAddr">—</div>
+            <div class="muted">MCP server</div><div class="mono" id="vMcpUrl">—</div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div class="muted small">Control plane</div>
+          <div class="kv" style="margin-top: 8px">
+            <div class="muted">Base URL</div><div class="mono" id="vCpBase">—</div>
+            <div class="muted">Tunnel ID</div>
+            <div class="row" style="align-items: baseline">
+              <span class="mono" id="vTunnelId">—</span>
+              <button class="small" id="copyTunnelId">Copy</button>
+            </div>
+            <div class="muted">Poll timeout</div><div class="mono" id="vPollTimeout">—</div>
+            <div class="muted">Max inflight</div><div class="mono" id="vMaxInflight">—</div>
+          </div>
+        </div>
+
+        <div class="card span-12" id="warningsCard" style="display:none">
+          <div class="muted small">Warnings</div>
+          <div id="warnings" style="margin-top: 6px"></div>
+        </div>
+
+        <div class="card span-12">
+          <details>
+            <summary class="muted">Raw status JSON</summary>
+            <pre class="pre mono" id="statusJSON" style="margin-top: 10px"></pre>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-metrics" aria-hidden="true">
+      <div class="grid">
+        <div class="card span-6">
+          <div class="row">
+            <div>
+              <div class="muted small">Key metrics</div>
+              <div class="small muted">Extracted from <span class="mono">/metrics</span></div>
+            </div>
+            <span style="flex:1"></span>
+            <button id="refreshMetrics">Refresh</button>
+            <span id="metricsErr" class="muted small"></span>
+          </div>
+          <div class="kv" style="margin-top: 12px">
+            <div class="muted">Last poll success</div><div class="mono" id="mLastPoll">—</div>
+            <div class="muted">Queue</div><div class="mono" id="mQueue">—</div>
+            <div class="muted">Worker pool</div><div class="mono" id="mWorkers">—</div>
+            <div class="muted">Poll errors</div><div class="mono" id="mPollErrors">—</div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div class="muted small">About these metrics</div>
+          <div class="small" style="margin-top: 8px">
+            This is a light parse of Prometheus text format and may not show every series.
+            For full detail, open <a href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.
+          </div>
+          <details style="margin-top: 12px">
+            <summary class="muted">Raw metrics</summary>
+            <pre class="pre mono" id="metricsRaw" style="margin-top: 10px"></pre>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-logs" aria-hidden="true">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="row">
+            <div>
+              <div class="muted small">Logs</div>
+              <div class="small muted">Streaming from <span class="mono">/api/logs/stream</span> (SSE)</div>
+            </div>
+            <span style="flex:1"></span>
+            <label class="small"><input type="checkbox" id="autoscroll" checked /> autoscroll</label>
+            <label class="small"><input type="checkbox" id="showAttrs" /> show attrs</label>
+            <button id="pause">Pause</button>
+            <button id="clear">Clear</button>
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <input id="filter" placeholder="filter (substring)…" />
+            <select id="level">
+              <option value="all">level: all</option>
+              <option value="debug">level: debug+</option>
+              <option value="info">level: info+</option>
+              <option value="warn">level: warn+</option>
+              <option value="error">level: error</option>
+            </select>
+            <span id="logErr" class="muted small"></span>
+          </div>
+          <div class="logs mono" id="logs" style="margin-top: 12px"></div>
+        </div>
+      </div>
+    </section>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

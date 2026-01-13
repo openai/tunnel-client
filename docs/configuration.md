@@ -92,6 +92,19 @@
   - Env: `HEALTH_URL_FILE`
   - Use when binding to a random port (e.g., `:0`) and you need to publish the resolved base URL.
 
+## Embedded web UI (optional)
+
+The tunnel client can optionally serve a lightweight web UI from the same admin/health server.
+
+- **Enable UI**
+  - Flag: `--start-web-ui`
+  - Env: `START_WEB_UI`
+  - Default: `false`
+
+When enabled, the UI is available at:
+
+- `GET /` or `GET /ui`
+
 ## Process utilities
 
 - **PID file (optional)**

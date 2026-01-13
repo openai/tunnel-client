@@ -1,8 +1,11 @@
 package app
 
 import (
+	"errors"
+
 	"go.uber.org/fx"
 
+	"go.openai.org/api/tunnel-client/pkg/adminui"
 	"go.openai.org/api/tunnel-client/pkg/config"
 	controlplane "go.openai.org/api/tunnel-client/pkg/controlplane/fx"
 	"go.openai.org/api/tunnel-client/pkg/dispatcher"
@@ -16,6 +19,10 @@ import (
 // Options returns the Fx options required to wire the tunnel-client services.
 // Additional Fx options can be provided to customize the runtime.
 func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
+	if cfg == nil {
+		return append([]fx.Option{fx.Error(errors.New("tunnel-client config is nil"))}, opts...)
+	}
+
 	base := []fx.Option{
 		fx.Supply(
 			cfg,
@@ -24,6 +31,7 @@ func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
 			&cfg.Health,
 			&cfg.Process,
 			&cfg.MCP,
+			&cfg.AdminUI,
 		),
 		log.Module,
 		dispatcher.Module,
@@ -33,6 +41,10 @@ func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
 		process.Module,
 		health.HealthMuxModule,
 		fx.Invoke(func(health.Service) {}),
+	}
+
+	if cfg.AdminUI.Enabled {
+		base = append(base, adminui.Module)
 	}
 	return append(base, opts...)
 }
