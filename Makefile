@@ -18,13 +18,14 @@ ABS_BIN := $(abspath $(BIN))
 GIT_SHA    := $(if $(GIT_SHA),$(GIT_SHA),$(shell git rev-parse --short HEAD 2>/dev/null))
 LDFLAGS    := -X go.openai.org/api/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
 
-.PHONY: all help test clean build-image
+.PHONY: all help fmt test clean build-image
 
-all: clean test $(TARGET)
+all: clean fmt test $(TARGET)
 
 help:
 	@echo "Available targets:"
 	@echo "  all           - Build the tunnel-client binary (default)"
+	@echo "  fmt           - Run go fmt and fail if files are modified"
 	@echo "  $(TARGET)     - Build the tunnel-client binary"
 	@echo "  test          - Run tests"
 	@echo "  clean         - Remove built binaries"
@@ -44,6 +45,19 @@ help:
 
 test:
 	go test -race ./...
+
+fmt:
+	@before=$$(mktemp); \
+	after=$$(mktemp); \
+	git diff -- . > $$before; \
+	go fmt ./...; \
+	git diff -- . > $$after; \
+	if ! cmp -s $$before $$after; then \
+		echo "go fmt updated files; please commit formatting changes."; \
+		rm -f $$before $$after; \
+		exit 1; \
+	fi; \
+	rm -f $$before $$after
 
 $(TARGET): clean | $(dir $(BIN))
 	CGO_ENABLED=$(if $(CGO_ENABLED),$(CGO_ENABLED),0) go build -o $(BIN) -ldflags "$(LDFLAGS)" $(GO_PACKAGE)
