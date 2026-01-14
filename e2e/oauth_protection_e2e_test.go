@@ -43,7 +43,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 			}`),
 			initHeaders,
 		),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: initUnauthID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -63,12 +63,12 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 					target.Fatalf("unauthorized init missing resp_json payload")
 				}
 			},
-		},
+		}},
 	}
 
 	oauthDiscovery := mocktunnelservice.CommandResponse{
 		Command: mocktunnelservice.NewOAuthDiscoveryCommand(discoveryID, nil),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: discoveryID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -88,7 +88,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 					target.Fatalf("oauth discovery missing payload")
 				}
 			},
-		},
+		}},
 	}
 
 	authHeaders := initHeaders.Clone()
@@ -105,7 +105,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 			}`),
 			authHeaders,
 		),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: initAuthID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -122,7 +122,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 					target.Fatalf("authorized init status = %d", resp.ResponseCode)
 				}
 			},
-		},
+		}},
 	}
 
 	toolHeaders := authHeaders.Clone()
@@ -141,7 +141,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 			}`),
 			toolHeaders,
 		),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: toolRequestID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -158,7 +158,7 @@ func TestSecureMCPServerOAuthProtection(t *testing.T) {
 					target.Fatalf("tool status = %d", resp.ResponseCode)
 				}
 			},
-		},
+		}},
 	}
 
 	h := harnesspkg.NewHarness(

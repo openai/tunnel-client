@@ -23,7 +23,7 @@ func ExampleNewMockTunnelService_basic() {
 					json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"ping"}`),
 					nil,
 				),
-				Expected: ExpectedResponse{RequestID: "cmd-1"},
+				ExpectedResponses: []ExpectedResponse{{RequestID: "cmd-1"}},
 			},
 		),
 	)
@@ -43,7 +43,7 @@ func ExampleMockTunnelService_sessionPropagation() {
 					json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"init"}`),
 					nil,
 				),
-				Expected: ExpectedResponse{RequestID: "cmd-1"},
+				ExpectedResponses: []ExpectedResponse{{RequestID: "cmd-1"}},
 			},
 			CommandResponse{
 				Command: NewCommand(
@@ -51,7 +51,7 @@ func ExampleMockTunnelService_sessionPropagation() {
 					json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"ping"}`),
 					nil,
 				),
-				Expected: ExpectedResponse{RequestID: "cmd-2"},
+				ExpectedResponses: []ExpectedResponse{{RequestID: "cmd-2"}},
 			},
 		),
 	)

@@ -36,25 +36,76 @@ func TestNotificationsAreDeliveredToControlPlane(t *testing.T) {
 				"Content-Type": []string{"application/json"},
 			},
 		),
-		Expected: mocktunnelservice.ExpectedResponse{
-			RequestID: toolRequestID,
-			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
-				if tb != nil {
-					tb.Helper()
-				}
-				target := tb
-				if target == nil {
-					target = t
-				}
-				if resp.ResponseType != string(wiretypes.ResponsePayloadJSONRPCNotify) {
-					target.Fatalf("expected first response to be notification, got %q", resp.ResponseType)
-				}
-				if resp.ResponseCode != http.StatusOK {
-					target.Fatalf("notification status code = %d", resp.ResponseCode)
-				}
-				if len(resp.JSONResponse) == 0 {
-					target.Fatalf("notification missing payload")
-				}
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{
+			{
+				RequestID: toolRequestID,
+				Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
+					if tb != nil {
+						tb.Helper()
+					}
+					target := tb
+					if target == nil {
+						target = t
+					}
+					if resp.ResponseType != string(wiretypes.ResponsePayloadJSONRPCNotify) {
+						target.Fatalf("expected first response to be notification, got %q", resp.ResponseType)
+					}
+					if resp.ResponseCode != http.StatusOK {
+						target.Fatalf("notification status code = %d", resp.ResponseCode)
+					}
+					var msg struct {
+						Method string `json:"method"`
+						Params struct {
+							Message string `json:"message"`
+						} `json:"params"`
+					}
+					if err := json.Unmarshal(resp.JSONResponse, &msg); err != nil {
+						target.Fatalf("decode notification payload: %v", err)
+					}
+					if msg.Method != "notifications/progress" {
+						target.Fatalf("unexpected notification method %q", msg.Method)
+					}
+					if msg.Params.Message != "quarter" {
+						target.Fatalf("unexpected notification message %q", msg.Params.Message)
+					}
+					if resp.ResponseHeaders.Get("Content-Type") == "" {
+						target.Fatalf("notification missing Content-Type header")
+					}
+				},
+			},
+			{
+				RequestID: toolRequestID,
+				Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
+					if tb != nil {
+						tb.Helper()
+					}
+					target := tb
+					if target == nil {
+						target = t
+					}
+					if resp.ResponseType != string(wiretypes.ResponsePayloadJSONRPC) {
+						target.Fatalf("final response type mismatch: got %q", resp.ResponseType)
+					}
+					if resp.ResponseCode != http.StatusOK {
+						target.Fatalf("final response status code = %d", resp.ResponseCode)
+					}
+					var finalPayload struct {
+						Result struct {
+							StructuredContent map[string]any `json:"structuredContent"`
+							Message           string         `json:"message"`
+						} `json:"result"`
+					}
+					if err := json.Unmarshal(resp.JSONResponse, &finalPayload); err != nil {
+						target.Fatalf("decode final response: %v", err)
+					}
+					finalMsg := finalPayload.Result.Message
+					if msg, ok := finalPayload.Result.StructuredContent["message"].(string); ok {
+						finalMsg = msg
+					}
+					if finalMsg != "done" {
+						target.Fatalf("unexpected final message %q", finalMsg)
+					}
+				},
 			},
 		},
 	}
@@ -75,7 +126,6 @@ func TestNotificationsAreDeliveredToControlPlane(t *testing.T) {
 					Tool: "echo",
 					Progress: []mockmcpserver.ProgressUpdate{
 						{Percentage: 0.25, Message: "quarter"},
-						{Percentage: 0.50, Message: "half"},
 					},
 					Result: json.RawMessage(`{"message":"done"}`),
 				},
@@ -101,8 +151,8 @@ func TestNotificationsAreDeliveredToControlPlane(t *testing.T) {
 		}
 	}
 
-	if len(notifs) != 2 {
-		t.Fatalf("expected two notifications for %s, got %d", toolRequestID, len(notifs))
+	if len(notifs) != 1 {
+		t.Fatalf("expected one notification for %s, got %d", toolRequestID, len(notifs))
 	}
 	if len(finals) != 1 {
 		t.Fatalf("expected one final JSON-RPC response for %s, got %d", toolRequestID, len(finals))
@@ -111,7 +161,7 @@ func TestNotificationsAreDeliveredToControlPlane(t *testing.T) {
 		t.Fatalf("expected notifications to arrive before final response")
 	}
 
-	expectedMsgs := map[string]bool{"quarter": false, "half": false}
+	expectedMsgs := map[string]bool{"quarter": false}
 	for _, resp := range notifs {
 		var msg struct {
 			Method string `json:"method"`

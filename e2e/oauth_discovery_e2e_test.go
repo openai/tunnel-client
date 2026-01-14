@@ -19,7 +19,7 @@ func TestHarnessHandlesOAuthDiscoveryCommand(t *testing.T) {
 
 	oauthCommand := mocktunnelservice.CommandResponse{
 		Command: mocktunnelservice.NewOAuthDiscoveryCommand(requestID, nil),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: requestID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -43,7 +43,7 @@ func TestHarnessHandlesOAuthDiscoveryCommand(t *testing.T) {
 					target.Fatalf("oauth discovery payload missing resource: %v", payload)
 				}
 			},
-		},
+		}},
 	}
 
 	h := harnesspkg.NewHarness(

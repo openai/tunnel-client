@@ -67,7 +67,7 @@ func runSimpleToolScenarioWithHarnessOptions(
 			}`),
 			nil,
 		),
-		Expected: mocktunnelservice.ExpectedResponse{
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: toolRequestID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
 				if tb != nil {
@@ -87,7 +87,7 @@ func runSimpleToolScenarioWithHarnessOptions(
 					target.Fatalf("tool call missing resp_json payload")
 				}
 			},
-		},
+		}},
 	}
 
 	mcpOpts := []mockmcpserver.Option{

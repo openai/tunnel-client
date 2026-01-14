@@ -61,8 +61,7 @@ func WithSessionHeaderPropagation() Option {
 	}
 }
 
-// ExpectedResponse defines the sequence of POST /v1/tunnel/{tunnel_id}/response payloads
-// the mock should receive.
+// ExpectedResponse defines one expected POST /v1/tunnel/{tunnel_id}/response payload.
 type ExpectedResponse struct {
 	RequestID   string
 	Headers     http.Header
@@ -164,18 +163,28 @@ type polledCommandEnvelope struct {
 
 // CommandResponse ties a polled command to the response the mock expects.
 type CommandResponse struct {
-	Command        json.RawMessage
-	CommandMutator CommandMutator
-	Expected       ExpectedResponse
+	Command           json.RawMessage
+	CommandMutator    CommandMutator
+	ExpectedResponses []ExpectedResponse
 }
 
 type scriptedCommand struct {
-	command   json.RawMessage
-	expected  ExpectedResponse
-	mutator   CommandMutator
-	delivered bool
-	completed bool
-	responses int
+	command       json.RawMessage
+	expected      []ExpectedResponse
+	responseIndex int
+	mutator       CommandMutator
+	delivered     bool
+	completed     bool
+}
+
+func (s *scriptedCommand) remainingResponses() int {
+	if s.completed {
+		return 0
+	}
+	if s.responseIndex >= len(s.expected) {
+		return 0
+	}
+	return len(s.expected) - s.responseIndex
 }
 
 // MockTunnelService simulates the subset of tunnel-service endpoints the control-plane client calls.
@@ -258,20 +267,28 @@ func (m *MockTunnelService) appendCommandResponses(commands ...CommandResponse) 
 		if cmd == nil {
 			m.failf("command payload must be non-nil")
 		}
-		expected := entry.Expected
+		expectedResponses := entry.ExpectedResponses
+		if len(expectedResponses) == 0 {
+			m.failf("expected responses must be non-empty")
+		}
 		mutator := entry.CommandMutator
 		if m.autoSessionMutators {
 			if mutator == nil {
 				mutator = m.defaultSessionCommandMutator()
 			}
-			if expected.PostProcess == nil {
+		}
+		normalizedExpected := make([]ExpectedResponse, len(expectedResponses))
+		for i, resp := range expectedResponses {
+			expected := resp
+			if m.autoSessionMutators && expected.PostProcess == nil {
 				expected.PostProcess = m.defaultSessionPostProcessor()
 			}
+			if expected.Headers != nil {
+				expected.Headers = cloneHeader(expected.Headers)
+			}
+			normalizedExpected[i] = expected
 		}
-		if expected.Headers != nil {
-			expected.Headers = cloneHeader(expected.Headers)
-		}
-		slot := &scriptedCommand{command: cmd, expected: expected, mutator: mutator}
+		slot := &scriptedCommand{command: cmd, expected: normalizedExpected, mutator: mutator}
 		m.script = append(m.script, slot)
 	}
 	m.signalStateChangeLocked()
@@ -363,7 +380,7 @@ func (m *MockTunnelService) Close() {
 				remainingCmd++
 			}
 			if !slot.completed {
-				remainingExp++
+				remainingExp += slot.remainingResponses()
 			}
 		}
 		m.script = nil
@@ -446,7 +463,7 @@ func (m *MockTunnelService) pendingWork() (int, int) {
 			continue
 		}
 		if !slot.completed {
-			pendingResp++
+			pendingResp += slot.remainingResponses()
 		}
 	}
 	return pendingCmd, pendingResp
@@ -582,7 +599,7 @@ func (m *MockTunnelService) handleResponse(w http.ResponseWriter, r *http.Reques
 	matched := slot != nil
 	var expected ExpectedResponse
 	if matched {
-		expected = slot.expected
+		expected = slot.expected[slot.responseIndex]
 	}
 	record := ReceivedResponse{
 		RequestID:       payload.RequestID,
@@ -597,27 +614,25 @@ func (m *MockTunnelService) handleResponse(w http.ResponseWriter, r *http.Reques
 		if expected.RequestID != "" && expected.RequestID != payload.RequestID {
 			m.failf("response out of order: got %q want %q", payload.RequestID, expected.RequestID)
 		}
-		if slot.responses == 0 {
-			if expected.Headers != nil && !headersEqual(expected.Headers, payload.ResponseHeaders) {
-				m.failf("unexpected resp_headers for %q: got=%v want=%v", payload.RequestID, payload.ResponseHeaders, expected.Headers)
-			}
-			if expected.Assert != nil {
-				if tb, ok := m.tb.Load().(testing.TB); ok && tb != nil {
-					tb.Helper()
-					expected.Assert(tb, record)
-				} else {
-					expected.Assert(nil, record)
-				}
-			}
-			if expected.PostProcess != nil {
-				expected.PostProcess(record, m.storage)
+		if expected.Headers != nil && !headersEqual(expected.Headers, payload.ResponseHeaders) {
+			m.failf("unexpected resp_headers for %q: got=%v want=%v", payload.RequestID, payload.ResponseHeaders, expected.Headers)
+		}
+		if expected.Assert != nil {
+			if tb, ok := m.tb.Load().(testing.TB); ok && tb != nil {
+				tb.Helper()
+				expected.Assert(tb, record)
+			} else {
+				expected.Assert(nil, record)
 			}
 		}
-		slot.responses++
-		if payload.ResponseType != wiretypes.ResponsePayloadJSONRPCNotify {
+		if expected.PostProcess != nil {
+			expected.PostProcess(record, m.storage)
+		}
+		slot.responseIndex++
+		if slot.responseIndex >= len(slot.expected) {
 			slot.completed = true
-			m.signalStateChangeLocked()
 		}
+		m.signalStateChangeLocked()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -657,6 +672,10 @@ func (m *MockTunnelService) nextResponseSlotLocked() *scriptedCommand {
 		if slot.completed {
 			continue
 		}
+		if slot.remainingResponses() == 0 {
+			slot.completed = true
+			continue
+		}
 		if !slot.delivered {
 			return nil
 		}
@@ -692,13 +711,11 @@ func (m *MockTunnelService) initializationPhaseCommandResponses() []CommandRespo
 			initializationRequestPayload(),
 			initializationRequestHeaders(),
 		),
-		Expected: ExpectedResponse{
-			RequestID: initializationCommandRequestID,
-			Assert:    assertInitializationResponse,
-			PostProcess: func(resp ReceivedResponse, storage SharedStorage) {
-				sessionCapture(resp, storage)
-			},
-		},
+		ExpectedResponses: []ExpectedResponse{{
+			RequestID:   initializationCommandRequestID,
+			Assert:      assertInitializationResponse,
+			PostProcess: func(resp ReceivedResponse, storage SharedStorage) { sessionCapture(resp, storage) },
+		}},
 	}
 	notification := CommandResponse{
 		Command: NewCommand(
@@ -706,10 +723,10 @@ func (m *MockTunnelService) initializationPhaseCommandResponses() []CommandRespo
 			initializedNotificationPayload(),
 			initializedNotificationHeaders(),
 		),
-		Expected: ExpectedResponse{
+		ExpectedResponses: []ExpectedResponse{{
 			RequestID: initializedNotificationRequestID,
 			Assert:    assertInitializedNotificationResponse,
-		},
+		}},
 	}
 	return []CommandResponse{initialize, notification}
 }

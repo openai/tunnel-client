@@ -28,7 +28,7 @@ func TestMockTunnelServiceUsage(t *testing.T) {
 				"created_at":"2025-01-01T00:00:00Z",
 				"headers":{"X-Test-Header":["alpha"]}
 			}`),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-1",
 					Headers: http.Header{
 						"Content-Type": {"application/json"},
@@ -42,7 +42,7 @@ func TestMockTunnelServiceUsage(t *testing.T) {
 							tb.Fatalf("unexpected resp_code %d", resp.ResponseCode)
 						}
 					},
-				},
+				}},
 			},
 			CommandResponse{
 				Command: NewCommand(
@@ -50,7 +50,7 @@ func TestMockTunnelServiceUsage(t *testing.T) {
 					json.RawMessage(`{"jsonrpc":"2.0","method":"notifications/ping","params":{"message":"hi"}}`),
 					nil,
 				),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-2",
 					Assert: func(tb testing.TB, resp ReceivedResponse) {
 						if tb != nil {
@@ -63,7 +63,7 @@ func TestMockTunnelServiceUsage(t *testing.T) {
 							tb.Fatalf("notification ack should not include resp_json, got %s", string(resp.JSONResponse))
 						}
 					},
-				},
+				}},
 			},
 		),
 	)
@@ -405,6 +405,9 @@ func TestMockTunnelServiceWaitUntilIdle(t *testing.T) {
 
 	mock.appendCommandResponses(CommandResponse{
 		Command: NewCommand("cmd-1", json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), nil),
+		ExpectedResponses: []ExpectedResponse{{
+			RequestID: "cmd-1",
+		}},
 	})
 
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -483,15 +486,15 @@ func TestMockTunnelServiceBlocksUntilResponseBeforeDeliveringNextCommand(t *test
 		WithCommandResponses(
 			CommandResponse{
 				Command: NewCommand("cmd-1", json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), nil),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-1",
-				},
+				}},
 			},
 			CommandResponse{
 				Command: NewCommand("cmd-2", json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"ping"}`), nil),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-2",
-				},
+				}},
 			},
 		),
 	)
@@ -630,15 +633,15 @@ func TestMockTunnelServiceSharedStorage(t *testing.T) {
 		WithCommandResponses(
 			CommandResponse{
 				Command: NewCommand("cmd-1", json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"init"}`), nil),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-1",
-				},
+				}},
 			},
 			CommandResponse{
 				Command: NewCommand("cmd-2", json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"ping"}`), nil),
-				Expected: ExpectedResponse{
+				ExpectedResponses: []ExpectedResponse{{
 					RequestID: "cmd-2",
-				},
+				}},
 			},
 		),
 	)
