@@ -18,13 +18,14 @@ ABS_BIN := $(abspath $(BIN))
 GIT_SHA    := $(if $(GIT_SHA),$(GIT_SHA),$(shell git rev-parse --short HEAD 2>/dev/null))
 LDFLAGS    := -X go.openai.org/api/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
 
-.PHONY: all help fmt test clean build-image
+.PHONY: all help fmt test clean build-image mod-tidy
 
-all: clean fmt test $(TARGET)
+all: clean mod-tidy fmt test $(TARGET)
 
 help:
 	@echo "Available targets:"
 	@echo "  all           - Build the tunnel-client binary (default)"
+	@echo "  mod-tidy      - Run go mod tidy and fail if go.mod/go.sum change"
 	@echo "  fmt           - Run go fmt and fail if files are modified"
 	@echo "  $(TARGET)     - Build the tunnel-client binary"
 	@echo "  test          - Run tests"
@@ -45,6 +46,13 @@ help:
 
 test:
 	go test -race ./...
+
+mod-tidy:
+	go mod tidy
+	@git diff --exit-code -- go.mod go.sum || { \
+		echo "go mod tidy updated go.mod/go.sum; please commit changes."; \
+		exit 1; \
+	}
 
 fmt:
 	@before=$$(mktemp); \
