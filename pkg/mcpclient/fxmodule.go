@@ -12,6 +12,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 	"go.openai.org/api/tunnel-client/pkg/version"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -186,7 +187,7 @@ func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *config.LoggingConfig
 	//   1. Forwarding injects headers before anything else touches the request.
 	//   2. Logging wraps otel instrumentation so raw dumps include forwarded headers.
 	//   3. otelhttp instrumentation sits closest to the network to record final calls.
-	base := http.DefaultTransport
+	base := tctransport.CloneDefault()
 	base = otelhttp.NewTransport(
 		base,
 		otelhttp.WithMeterProvider(meterProvider),

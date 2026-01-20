@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 )
 
 type controlPlaneRoundTripper struct {
@@ -17,7 +19,7 @@ type controlPlaneRoundTripper struct {
 
 func newControlPlaneRoundTripper(base http.RoundTripper, apiKey, userAgent string, extraHeaders map[string]string, logger *slog.Logger) http.RoundTripper {
 	if base == nil {
-		base = http.DefaultTransport
+		base = tctransport.CloneDefault()
 	}
 	return &controlPlaneRoundTripper{
 		base:         base,

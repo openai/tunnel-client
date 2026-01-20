@@ -21,6 +21,7 @@ import (
 	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
 	"go.openai.org/api/tunnel-client/pkg/types"
 	"go.openai.org/api/tunnel-client/pkg/version"
@@ -163,7 +164,7 @@ func buildControlPlaneHTTPTransport(cfg *config.ControlPlaneConfig, logger *slog
 	//   1. Control-plane round tripper applies auth headers before anything else.
 	//   2. Logging wraps otel instrumentation so dumps include the final headers.
 	//   3. otelhttp instrumentation sits closest to the network for accurate metrics.
-	base := http.DefaultTransport
+	base := tctransport.CloneDefault()
 	base = otelhttp.NewTransport(
 		base,
 		otelhttp.WithMeterProvider(meterProvider),
