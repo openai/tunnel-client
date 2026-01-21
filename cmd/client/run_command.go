@@ -21,14 +21,16 @@ type tunnelEventLogger struct {
 	logger        *slog.Logger
 	cfg           *config.ControlPlaneConfig
 	metadataState *controlplane.MetadataState
+	mcpConfig     *config.MCPConfig
 }
 
-func newTunnelEventLogger(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState) fxevent.Logger {
+func newTunnelEventLogger(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState, mcpConfig *config.MCPConfig) fxevent.Logger {
 	return &tunnelEventLogger{
 		SlogLogger:    &fxevent.SlogLogger{Logger: logger},
 		logger:        logger,
 		cfg:           cfg,
 		metadataState: metadataState,
+		mcpConfig:     mcpConfig,
 	}
 }
 
@@ -44,11 +46,23 @@ func (l *tunnelEventLogger) LogEvent(event fxevent.Event) {
 				metaDescription = metadata.Description
 			}
 		}
+		oauthDiscoveryURLs := make([]string, 0)
+		if l.mcpConfig != nil {
+			priority := 1
+			for _, metadataURL := range l.mcpConfig.OAuthResourceMetadataURLs {
+				if metadataURL == nil {
+					continue
+				}
+				oauthDiscoveryURLs = append(oauthDiscoveryURLs, fmt.Sprintf("%d:%s", priority, metadataURL.String()))
+				priority++
+			}
+		}
 		l.logger.Info("🟢 tunnel-client started",
 			slog.String("tunnel_id", l.cfg.TunnelID.String()),
 			slog.String("tunnel_url", tunnelURL),
 			slog.String("name", metaName),
 			slog.String("description", metaDescription),
+			slog.Any("oauth_discovery_urls", oauthDiscoveryURLs),
 			slog.String("version", version.Version),
 		)
 	} else {
@@ -84,8 +98,8 @@ func runTunnel(cmd *cobra.Command, lookupEnv func(string) (string, bool)) error 
 
 	fxApp := app.New(cfg,
 		fx.Provide(func() io.Writer { return cmd.OutOrStdout() }),
-		fx.WithLogger(func(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState) fxevent.Logger {
-			return newTunnelEventLogger(logger, cfg, metadataState)
+		fx.WithLogger(func(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState, mcpConfig *config.MCPConfig) fxevent.Logger {
+			return newTunnelEventLogger(logger, cfg, metadataState, mcpConfig)
 		}),
 	)
 	fxApp.Run()

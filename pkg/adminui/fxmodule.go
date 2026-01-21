@@ -50,6 +50,7 @@ type statusResponse struct {
 	ControlPlaneMaxInflight int                          `json:"control_plane_max_inflight,omitempty"`
 	ControlPlanePollTimeout string                       `json:"control_plane_poll_timeout,omitempty"`
 	MCPServerURL            string                       `json:"mcp_server_url,omitempty"`
+	MCPResourceMetadataURLs []string                     `json:"mcp_resource_metadata_urls,omitempty"`
 	RawHTTPLoggingEnabled   bool                         `json:"raw_http_logging_enabled"`
 	TunnelMetadata          *controlplane.TunnelMetadata `json:"tunnel_metadata,omitempty"`
 	MetadataError           string                       `json:"tunnel_metadata_error,omitempty"`
@@ -118,6 +119,15 @@ func buildStatus(p routeParams) statusResponse {
 	}
 	if p.MCPConfig != nil && p.MCPConfig.ServerURL != nil {
 		out.MCPServerURL = p.MCPConfig.ServerURL.String()
+	}
+	if p.MCPConfig != nil && len(p.MCPConfig.OAuthResourceMetadataURLs) > 0 {
+		out.MCPResourceMetadataURLs = make([]string, 0, len(p.MCPConfig.OAuthResourceMetadataURLs))
+		for _, url := range p.MCPConfig.OAuthResourceMetadataURLs {
+			if url == nil {
+				continue
+			}
+			out.MCPResourceMetadataURLs = append(out.MCPResourceMetadataURLs, url.String())
+		}
 	}
 	if p.LoggingConfig != nil {
 		out.RawHTTPLoggingEnabled = p.LoggingConfig.HTTPRawUnsafe

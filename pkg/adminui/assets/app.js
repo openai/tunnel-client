@@ -89,6 +89,20 @@
     });
   }
 
+  function renderOAuthMetadataUrls(urls) {
+    const list = $("vOAuthMetadataUrls");
+    list.textContent = "";
+    if (!urls || urls.length === 0) {
+      list.textContent = "—";
+      return;
+    }
+    urls.forEach((url, idx) => {
+      const div = document.createElement("div");
+      div.textContent = `${idx + 1}. ${url}`;
+      list.appendChild(div);
+    });
+  }
+
   async function refreshStatus() {
     try {
       const s = await fetchJSON("/api/status");
@@ -98,6 +112,7 @@
       $("vUptime").textContent = fmtUptime(s.uptime_seconds || 0);
       $("vHealthAddr").textContent = s.health_listen_addr || "—";
       $("vMcpUrl").textContent = s.mcp_server_url || "—";
+      renderOAuthMetadataUrls(s.mcp_resource_metadata_urls);
       $("vCpBase").textContent = s.control_plane_base_url || "—";
       $("vTunnelId").textContent = s.control_plane_tunnel_id || "—";
       $("vPollTimeout").textContent = s.control_plane_poll_timeout || "—";
