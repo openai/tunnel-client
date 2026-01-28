@@ -73,7 +73,9 @@ func TestAppBoots(t *testing.T) {
 
 	require.NotNil(t, svc)
 
-	baseURL := "http://" + svc.Addr()
+	addr, err := svc.Addr(2 * time.Second)
+	require.NoError(t, err)
+	baseURL := "http://" + addr
 
 	client := &http.Client{Timeout: 2 * time.Second}
 

@@ -36,3 +36,23 @@ func TestRegistryRejectsPlaintextWhenDisallowed(t *testing.T) {
 	_, err = NewRegistry(false, []Target{{Label: "auth", BaseURL: parsed}})
 	require.Error(t, err)
 }
+
+func TestSummarizeTargets(t *testing.T) {
+	urlA, err := url.Parse("https://example.com/base")
+	require.NoError(t, err)
+	urlB, err := url.Parse("https://example.org")
+	require.NoError(t, err)
+
+	registry, err := NewRegistry(true, []Target{
+		{Label: "auth", Description: "Auth server", BaseURL: urlA},
+		{Label: "idp", Description: "Identity", BaseURL: urlB},
+	})
+	require.NoError(t, err)
+
+	summary := registry.SummarizeTargets()
+
+	require.Equal(t, []map[string]string{
+		{"label": "auth", "url": "https://example.com/base", "desc": "Auth server"},
+		{"label": "idp", "url": "https://example.org/", "desc": "Identity"},
+	}, summary)
+}

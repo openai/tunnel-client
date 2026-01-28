@@ -244,3 +244,24 @@ func hasTraversal(rawPath string) bool {
 	}
 	return false
 }
+
+// SummarizeTargets returns a stable, log-friendly projection of targets.
+func (r *Registry) SummarizeTargets() []map[string]string {
+	if r == nil {
+		return nil
+	}
+	targets := r.Targets()
+	out := make([]map[string]string, 0, len(targets))
+	for _, t := range targets {
+		base := ""
+		if t.BaseURL != nil {
+			base = t.BaseURL.String()
+		}
+		out = append(out, map[string]string{
+			"label": t.Label,
+			"url":   base,
+			"desc":  t.Description,
+		})
+	}
+	return out
+}

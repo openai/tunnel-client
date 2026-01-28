@@ -61,6 +61,26 @@ type statusResponse struct {
 	Warnings                []string                     `json:"warnings,omitempty"`
 }
 
+type guardedMux struct {
+	mux         *http.ServeMux
+	allowRemote bool
+}
+
+func (g guardedMux) Handle(pattern string, h http.Handler) {
+	g.mux.Handle(pattern, g.guard(h))
+}
+
+func (g guardedMux) HandleFunc(pattern string, fn func(http.ResponseWriter, *http.Request)) {
+	g.Handle(pattern, http.HandlerFunc(fn))
+}
+
+func (g guardedMux) guard(h http.Handler) http.Handler {
+	if g.allowRemote {
+		return h
+	}
+	return localOnly(h)
+}
+
 func registerRoutes(p routeParams) error {
 	if p.AdminMux == nil {
 		return fmt.Errorf("adminui: admin mux is required")
@@ -80,26 +100,24 @@ func registerRoutes(p routeParams) error {
 		},
 	})
 
-	guard := func(h http.Handler) http.Handler {
-		if p.AdminUIConfig != nil && p.AdminUIConfig.AllowRemote {
-			return h
-		}
-		return localOnly(h)
+	gmux := guardedMux{
+		mux:         p.AdminMux,
+		allowRemote: p.AdminUIConfig != nil && p.AdminUIConfig.AllowRemote,
 	}
 
-	p.AdminMux.Handle("/", guard(http.HandlerFunc(handleIndex)))
-	p.AdminMux.Handle("/assets/", guard(handleAssets()))
-	p.AdminMux.Handle("/api/status", guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	gmux.HandleFunc("/", handleIndex)
+	gmux.Handle("/assets/", handleAssets())
+	gmux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildStatus(p))
-	})))
-	p.AdminMux.Handle("/api/oauth", guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})
+	gmux.HandleFunc("/api/oauth", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildOAuthStatus(p))
-	})))
-	p.AdminMux.Handle("/api/logs", guard(http.HandlerFunc(handleLogsJSON(p.Buffer))))
-	p.AdminMux.Handle("/api/logs/stream", guard(http.HandlerFunc(handleLogsStream(p.Buffer, streamCtx))))
-	p.AdminMux.Handle("/favicon.ico", guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})
+	gmux.HandleFunc("/api/logs", handleLogsJSON(p.Buffer))
+	gmux.HandleFunc("/api/logs/stream", handleLogsStream(p.Buffer, streamCtx))
+	gmux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	})
 
 	// Record a single startup line in the in-memory buffer so the UI isn't empty.
 	if p.Logger != nil {
@@ -123,7 +141,9 @@ func buildStatus(p routeParams) statusResponse {
 	}
 
 	if p.HealthService != nil {
-		out.HealthListenAddr = p.HealthService.Addr()
+		if addr, err := p.HealthService.Addr(0); err == nil {
+			out.HealthListenAddr = addr
+		}
 	}
 	if p.ControlPlane != nil {
 		if p.ControlPlane.BaseURL != nil {

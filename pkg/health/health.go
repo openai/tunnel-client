@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
@@ -36,16 +37,61 @@ var HealthMuxModule = fx.Module(
 
 // Service exposes the tunnel client's health server functionality.
 type Service interface {
-	Addr() string
+	// Addr returns the bound listener address. It waits up to the provided
+	// timeout for the listener to bind; timeout <= 0 performs a non-blocking
+	// check. Returns an error if the address is still unavailable.
+	Addr(timeout time.Duration) (string, error)
 }
 
 type healthService struct {
 	server  *http.Server
 	urlFile string
+	boundCh chan struct{}
+	boundMu sync.Once
 }
 
-func (s *healthService) Addr() string {
-	return s.server.Addr
+func (s *healthService) Addr(timeout time.Duration) (string, error) {
+	if s == nil {
+		return "", errors.New("health: service is nil")
+	}
+	if s.boundCh == nil {
+		if s.server.Addr == "" {
+			return "", errors.New("health: address unavailable")
+		}
+		return s.server.Addr, nil
+	}
+	if timeout <= 0 {
+		select {
+		case <-s.boundCh:
+			if s.server.Addr == "" {
+				return "", errors.New("health: address unavailable")
+			}
+			return s.server.Addr, nil
+		default:
+			return "", errors.New("health: address unavailable")
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-s.boundCh:
+		if s.server.Addr == "" {
+			return "", errors.New("health: address unavailable")
+		}
+		return s.server.Addr, nil
+	case <-timer.C:
+		return "", fmt.Errorf("health: address unavailable after %s", timeout)
+	}
+}
+
+func (s *healthService) markBound() {
+	if s == nil || s.boundCh == nil {
+		return
+	}
+	s.boundMu.Do(func() {
+		close(s.boundCh)
+	})
 }
 
 type healthParams struct {
@@ -90,7 +136,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 		ReadHeaderTimeout: 5 * time.Second,
 		Addr:              p.HealthConfig.ListenAddr,
 	}
-	service := &healthService{server: srv}
+	service := &healthService{server: srv, boundCh: make(chan struct{})}
 
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -109,6 +155,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 				return err
 			}
 			srv.Addr = ln.Addr().String()
+			service.markBound()
 			if p.HealthConfig.URLFile != "" {
 				healthURL, err := buildHealthURL(p.HealthConfig.ListenAddr, ln.Addr())
 				if err != nil {

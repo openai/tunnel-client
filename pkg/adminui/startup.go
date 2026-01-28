@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"go.uber.org/fx"
 
@@ -47,10 +48,23 @@ func registerStartup(p startupParams) error {
 
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			baseURL := buildAdminBaseURL(p.HealthConfig.ListenAddr, p.HealthService.Addr())
+			boundAddr := ""
+			if p.HealthService != nil {
+				addr, err := p.HealthService.Addr(2 * time.Second)
+				if err != nil {
+					return fmt.Errorf("adminui: health address unavailable: %w", err)
+				}
+				boundAddr = addr
+			}
+			baseURL := buildAdminBaseURL(p.HealthConfig.ListenAddr, boundAddr)
 			if baseURL == "" {
-				logger.WarnContext(ctx, "web UI enabled but health URL could not be determined", slog.String("health_addr", p.HealthService.Addr()))
-				return nil
+				healthAddr := ""
+				if p.HealthService != nil {
+					if addr, err := p.HealthService.Addr(0); err == nil {
+						healthAddr = addr
+					}
+				}
+				return fmt.Errorf("adminui: health URL could not be determined (health_addr=%s)", healthAddr)
 			}
 
 			uiURL := baseURL + "/ui"
