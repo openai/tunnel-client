@@ -59,6 +59,8 @@ const (
 
 const _ = uint(maxControlPlaneMaxInFlight - defaultControlPlaneMaxInFlight)
 
+var harpoonLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
 var (
 	errMissingControlPlaneAPIKey = errors.New("control plane API key is required; set --control-plane.api-key (env:/file:) or CONTROL_PLANE_API_KEY or OPENAI_API_KEY")
 	tunnelIDPattern              = regexp.MustCompile(`^tunnel_[a-z0-9]{32}$`)
@@ -883,6 +885,9 @@ func parseHarpoonTarget(raw string, allowPlaintext bool) (HarpoonTarget, error) 
 	urlRaw := values["url"]
 	if label == "" || urlRaw == "" {
 		return HarpoonTarget{}, fmt.Errorf("invalid harpoon target %q: label and url are required", raw)
+	}
+	if !harpoonLabelPattern.MatchString(label) {
+		return HarpoonTarget{}, fmt.Errorf("invalid harpoon target %q: label must match %s", raw, harpoonLabelPattern.String())
 	}
 	parsed, err := parseURL(urlRaw)
 	if err != nil {

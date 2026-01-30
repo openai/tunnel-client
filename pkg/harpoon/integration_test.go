@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 // toolCallTestCase defines a test case for calling a harpoon tool via MCP.
@@ -334,6 +335,16 @@ func TestHarpoonToolSchemas(t *testing.T) {
 		_ = session.Close()
 	}()
 
+	init := session.InitializeResult()
+	require.NotNil(t, init)
+	require.NotNil(t, init.ServerInfo)
+	require.Equal(t, "harpoon", init.ServerInfo.Name)
+	require.Equal(t, "Harpoon (Constrained HTTP Client)", init.ServerInfo.Title)
+	require.Equal(t, version.Version, init.ServerInfo.Version)
+	require.Contains(t, init.Instructions, "constrained outbound HTTP client")
+	require.Contains(t, init.Instructions, "allowlisted targets")
+	require.Contains(t, init.Instructions, "cannot reach arbitrary hosts")
+
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
 
@@ -356,9 +367,62 @@ func TestHarpoonToolSchemas(t *testing.T) {
 		"type": "object",
 		"required": ["label", "method"],
 		"properties": {
-			"label": {"type": "string"},
-			"method": {"type": "string", "enum": ["GET", "POST", "PUT"]},
-			"headers": {"type": "object", "default": {}}
+			"label": {
+				"type": "string",
+				"description": "Allowlisted target label",
+				"pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+				"minLength": 1,
+				"maxLength": 64
+			},
+			"method": {
+				"type": "string",
+				"description": "HTTP method for the outbound request",
+				"enum": ["GET", "POST", "PUT"]
+			},
+			"path": {
+				"type": "string",
+				"description": "Relative path to append to the target base URL",
+				"pattern": "^[^#]*$"
+			},
+			"headers": {
+				"type": "object",
+				"description": "HTTP headers to include in the request",
+				"default": {},
+				"propertyNames": {
+					"type": "string",
+					"pattern": "^[!#$%&'*+.^_\u0060|~0-9A-Za-z-]+$"
+				}
+			},
+			"body": {
+				"type": "string",
+				"description": "Request body as a raw string"
+			},
+			"timeout_ms": {
+				"type": "integer",
+				"description": "Request timeout in milliseconds",
+				"minimum": 100,
+				"maximum": 120000,
+				"default": 30000
+			},
+			"max_response_bytes": {
+				"type": "integer",
+				"description": "Maximum response bytes to read",
+				"minimum": 1,
+				"maximum": 102400,
+				"default": 102400
+			},
+			"follow_redirects": {
+				"type": "boolean",
+				"description": "Whether to follow HTTP redirects",
+				"default": true
+			},
+			"max_redirects": {
+				"type": "integer",
+				"description": "Maximum redirects to follow when follow_redirects is true",
+				"minimum": 0,
+				"maximum": 5,
+				"default": 5
+			}
 		}
 	}`)
 	requireToolSchemaSubset(t, callTarget.InputSchema, expectedCallTargetInput)
@@ -366,17 +430,43 @@ func TestHarpoonToolSchemas(t *testing.T) {
 	expectedCallTargetOutput := json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"status_code": {"type": "integer"},
-			"headers": {"type": "object"},
-			"body_base64": {"type": "string"},
-			"body_size_bytes": {"type": "integer"},
-			"truncated": {"type": "boolean"}
+			"status_code": {
+				"type": "integer",
+				"description": "HTTP status code returned by the target.",
+				"minimum": 100,
+				"maximum": 599
+			},
+			"headers": {
+				"type": "object",
+				"description": "Response headers returned by the target.",
+				"propertyNames": {
+					"type": "string",
+					"pattern": "^[!#$%&'*+.^_\u0060|~0-9A-Za-z-]+$"
+				}
+			},
+			"body_base64": {
+				"type": "string",
+				"description": "Base64-encoded response body bytes.",
+				"contentEncoding": "base64"
+			},
+			"body_size_bytes": {
+				"type": "integer",
+				"description": "Number of bytes in body_base64.",
+				"minimum": 0,
+				"maximum": 102400
+			},
+			"truncated": {
+				"type": "boolean",
+				"description": "Whether the response body was truncated."
+			}
 		}
 	}`)
 	requireToolSchemaSubset(t, callTarget.OutputSchema, expectedCallTargetOutput)
 
 	expectedListTargetsInput := json.RawMessage(`{
-		"type": "object"
+		"type": "object",
+		"title": "List Harpoon targets",
+		"description": "List available allowlisted targets."
 	}`)
 	requireToolSchemaSubset(t, listTargets.InputSchema, expectedListTargetsInput)
 
@@ -388,8 +478,25 @@ func TestHarpoonToolSchemas(t *testing.T) {
 				"items": {
 					"type": "object",
 					"properties": {
-						"label": {"type": "string"},
-						"allowed_methods": {"type": "array", "items": {"type": "string"}}
+						"label": {
+							"type": "string",
+							"description": "Target label.",
+							"pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+							"minLength": 1,
+							"maxLength": 64
+						},
+						"description": {
+							"type": "string",
+							"description": "Target description."
+						},
+						"allowed_methods": {
+							"type": "array",
+							"description": "HTTP methods permitted for this target",
+							"items": {
+								"type": "string",
+								"enum": ["GET", "POST", "PUT"]
+							}
+						}
 					}
 				}
 			}

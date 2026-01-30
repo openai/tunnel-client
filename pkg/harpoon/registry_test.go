@@ -56,3 +56,17 @@ func TestSummarizeTargets(t *testing.T) {
 		{"label": "idp", "url": "https://example.org/", "desc": "Identity"},
 	}, summary)
 }
+
+func TestRegistryRespectsLimit(t *testing.T) {
+	parsed, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+
+	registry, err := NewRegistryWithLimit(true, []Target{{Label: "auth", BaseURL: parsed}}, 2)
+	require.NoError(t, err)
+
+	err = registry.RegisterTarget(Target{Label: "metrics", BaseURL: parsed})
+	require.NoError(t, err)
+
+	err = registry.RegisterTarget(Target{Label: "logs", BaseURL: parsed})
+	require.Error(t, err)
+}

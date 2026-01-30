@@ -7,9 +7,12 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 var labelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+const defaultRegistryLimit = 10000
 
 // Target describes a registered outbound HTTP target.
 type Target struct {
@@ -21,14 +24,25 @@ type Target struct {
 // Registry stores allowed targets keyed by label.
 type Registry struct {
 	allowPlaintext bool
+	limit          int
+	mu             sync.RWMutex
 	targets        map[string]Target
 	ordered        []Target
 }
 
-// NewRegistry constructs a registry seeded with the provided targets.
+// NewRegistry constructs a registry seeded with the provided targets and a default limit.
 func NewRegistry(allowPlaintext bool, targets []Target) (*Registry, error) {
+	return NewRegistryWithLimit(allowPlaintext, targets, defaultRegistryLimit)
+}
+
+// NewRegistryWithLimit constructs a registry with a maximum number of targets.
+func NewRegistryWithLimit(allowPlaintext bool, targets []Target, limit int) (*Registry, error) {
+	if limit <= 0 {
+		return nil, errors.New("harpoon: registry limit must be positive")
+	}
 	registry := &Registry{
 		allowPlaintext: allowPlaintext,
+		limit:          limit,
 		targets:        make(map[string]Target, len(targets)),
 		ordered:        make([]Target, 0, len(targets)),
 	}
@@ -73,10 +87,6 @@ func (r *Registry) RegisterTarget(target Target) error {
 	if hasTraversal(target.BaseURL.Path) {
 		return fmt.Errorf("harpoon: target %q base URL contains invalid path segments", label)
 	}
-	if _, exists := r.targets[label]; exists {
-		return fmt.Errorf("harpoon: duplicate target label %q", label)
-	}
-
 	normalized := *target.BaseURL
 	if normalized.Path == "" {
 		normalized.Path = "/"
@@ -89,6 +99,14 @@ func (r *Registry) RegisterTarget(target Target) error {
 		Description: strings.TrimSpace(target.Description),
 		BaseURL:     &normalized,
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.targets[label]; exists {
+		return fmt.Errorf("harpoon: duplicate target label %q", label)
+	}
+	if len(r.targets) >= r.limit {
+		return fmt.Errorf("harpoon: registry limit %d exceeded", r.limit)
+	}
 	r.targets[label] = cleanTarget
 	r.ordered = append(r.ordered, cleanTarget)
 	return nil
@@ -99,6 +117,8 @@ func (r *Registry) Targets() []Target {
 	if r == nil {
 		return nil
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Target, len(r.ordered))
 	copy(out, r.ordered)
 	return out
@@ -110,6 +130,8 @@ func (r *Registry) Lookup(label string) (Target, bool) {
 		return Target{}, false
 	}
 	label = strings.TrimSpace(label)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	target, ok := r.targets[label]
 	return target, ok
 }
@@ -147,6 +169,8 @@ func (r *Registry) AllowsURL(candidate *url.URL) bool {
 	if hasTraversal(candidate.Path) {
 		return false
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	for _, target := range r.targets {
 		if sameOrigin(candidate, target.BaseURL) && hasPathPrefix(target.BaseURL.Path, candidate.Path) {
 			return true

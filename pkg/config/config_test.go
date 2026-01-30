@@ -268,6 +268,27 @@ func TestLoadParsesHarpoonTargetsFromFlags(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidHarpoonTargetLabel(t *testing.T) {
+	args := []string{"--harpoon-target", "label=Auth-Prod,url=https://example.com,desc=Auth server"}
+	lookup := map[string]string{
+		"CONTROL_PLANE_TUNNEL_ID": envTunnelID,
+		"CONTROL_PLANE_API_KEY":   "control-key",
+		"LOG_FORMAT":              "struct-text",
+		"MCP_SERVER_URL":          "https://mcp.example",
+	}
+
+	_, err := Load(args, func(key string) (string, bool) {
+		val, ok := lookup[key]
+		return val, ok
+	})
+	if err == nil {
+		t.Fatalf("expected error loading invalid harpoon target label")
+	}
+	if !strings.Contains(err.Error(), "label must match") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadParsesHarpoonAdditionalTransport(t *testing.T) {
 	args := []string{"--harpoon-additional-transport", "http-streamable"}
 	lookup := map[string]string{

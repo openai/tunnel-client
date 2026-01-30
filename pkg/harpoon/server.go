@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,6 +21,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	"go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (
@@ -27,6 +29,7 @@ const (
 	minTimeout          = 100 * time.Millisecond
 	maxTimeout          = 120 * time.Second
 	maxBodyLogFieldName = "response_bytes"
+	headerNamePattern   = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
 )
 
 var (
@@ -35,10 +38,8 @@ var (
 		http.MethodPost: {},
 		http.MethodPut:  {},
 	}
-	listTargetsSchema       = &jsonschema.Schema{Type: "object"}
+	listTargetsSchema       = buildListTargetsInputSchema()
 	listTargetsOutputSchema = buildListTargetsOutputSchema()
-	callTargetSchema        = buildCallTargetSchema()
-	callTargetOutputSchema  = buildCallTargetOutputSchema()
 )
 
 // Server provides MCP tools for constrained HTTP access.
@@ -51,33 +52,91 @@ type Server struct {
 }
 
 type callTargetRequest struct {
-	Label            string            `json:"label"`
-	Path             string            `json:"path"`
-	Method           string            `json:"method"`
-	Headers          map[string]string `json:"headers,omitempty"`
-	Body             string            `json:"body,omitempty"`
-	TimeoutMS        *int              `json:"timeout_ms,omitempty"`
-	MaxResponseBytes *int              `json:"max_response_bytes,omitempty"`
-	FollowRedirects  *bool             `json:"follow_redirects,omitempty"`
-	MaxRedirects     *int              `json:"max_redirects,omitempty"`
+	Label            string            `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Allowlisted target label"`
+	Path             string            `json:"path,omitempty" jsonschema:"pattern=^[^#]*$,description=Relative path to append to the target base URL"`
+	Method           string            `json:"method" jsonschema:"enum=GET,enum=POST,enum=PUT,description=HTTP method for the outbound request"`
+	Headers          map[string]string `json:"headers,omitempty" jsonschema:"description=HTTP headers to include in the request"`
+	Body             string            `json:"body,omitempty" jsonschema:"description=Request body as a raw string"`
+	TimeoutMS        *int              `json:"timeout_ms,omitempty" jsonschema:"description=Request timeout in milliseconds"`
+	MaxResponseBytes *int              `json:"max_response_bytes,omitempty" jsonschema:"description=Maximum response bytes to read"`
+	FollowRedirects  *bool             `json:"follow_redirects,omitempty" jsonschema:"description=Whether to follow HTTP redirects"`
+	MaxRedirects     *int              `json:"max_redirects,omitempty" jsonschema:"description=Maximum redirects to follow when follow_redirects is true"`
 }
 
 type callTargetResponse struct {
-	StatusCode int                 `json:"status_code"`
-	Headers    map[string][]string `json:"headers,omitempty"`
-	BodyBase64 string              `json:"body_base64,omitempty"`
-	BodySize   int                 `json:"body_size_bytes"`
-	Truncated  bool                `json:"truncated,omitempty"`
+	StatusCode int                 `json:"status_code" jsonschema:"description=HTTP status code returned by the target."`
+	Headers    map[string][]string `json:"headers,omitempty" jsonschema:"description=Response headers returned by the target."`
+	BodyBase64 string              `json:"body_base64,omitempty" jsonschema:"description=Base64-encoded response body bytes." jsonschema_extras:"contentEncoding=base64"`
+	BodySize   int                 `json:"body_size_bytes" jsonschema:"description=Number of bytes in body_base64."`
+	Truncated  bool                `json:"truncated,omitempty" jsonschema:"description=Whether the response body was truncated."`
 }
 
 type listTargetsResponse struct {
-	Targets []targetInfo `json:"targets"`
+	Targets []targetInfo `json:"targets" jsonschema:"description=Allowlisted targets."`
 }
 
 type targetInfo struct {
-	Label          string   `json:"label"`
-	Description    string   `json:"description,omitempty"`
-	AllowedMethods []string `json:"allowed_methods"`
+	Label          string   `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
+	Description    string   `json:"description,omitempty" jsonschema:"description=Target description."`
+	AllowedMethods []string `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
+}
+
+func (callTargetRequest) JSONSchemaExtend(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	schema.Title = "Call Harpoon target"
+	schema.Description = "Call an allowlisted HTTP target by label."
+	if schema.Properties == nil {
+		return
+	}
+	if headersSchema, ok := schema.Properties.Get("headers"); ok && headersSchema != nil {
+		headersSchema.Default = map[string]string{}
+		if headersSchema.PropertyNames == nil {
+			headersSchema.PropertyNames = &jsonschema.Schema{Type: "string"}
+		}
+		headersSchema.PropertyNames.Pattern = headerNamePattern
+	}
+	if timeoutSchema, ok := schema.Properties.Get("timeout_ms"); ok && timeoutSchema != nil {
+		timeoutSchema.Minimum = jsonNumber(int(minTimeout.Milliseconds()))
+		timeoutSchema.Maximum = jsonNumber(int(maxTimeout.Milliseconds()))
+		timeoutSchema.Default = jsonNumber(int(defaultTimeout.Milliseconds()))
+	}
+	if followSchema, ok := schema.Properties.Get("follow_redirects"); ok && followSchema != nil {
+		followSchema.Default = true
+	}
+}
+
+func (callTargetResponse) JSONSchemaExtend(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	schema.Title = "Harpoon call result"
+	schema.Description = "Response details from the target."
+	if schema.Properties == nil {
+		return
+	}
+	if statusSchema, ok := schema.Properties.Get("status_code"); ok && statusSchema != nil {
+		statusSchema.Minimum = jsonNumber(100)
+		statusSchema.Maximum = jsonNumber(599)
+	}
+	if headersSchema, ok := schema.Properties.Get("headers"); ok && headersSchema != nil {
+		if headersSchema.PropertyNames == nil {
+			headersSchema.PropertyNames = &jsonschema.Schema{Type: "string"}
+		}
+		headersSchema.PropertyNames.Pattern = headerNamePattern
+	}
+	if sizeSchema, ok := schema.Properties.Get("body_size_bytes"); ok && sizeSchema != nil {
+		sizeSchema.Minimum = jsonNumber(0)
+	}
+}
+
+func (listTargetsResponse) JSONSchemaExtend(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	schema.Title = "Harpoon target list"
+	schema.Description = "Allowlisted targets available to call_target."
 }
 
 // NewServer constructs a harpoon MCP server.
@@ -106,28 +165,45 @@ func NewServer(cfg *config.HarpoonConfig, registry *Registry, buffer *CallBuffer
 // MCPServer builds an MCP server with harpoon tools registered.
 func (s *Server) MCPServer() *mcp.Server {
 	serverOptions := &mcp.ServerOptions{
+		Instructions: "Harpoon provides a constrained outbound HTTP client. Use list_targets to see allowlisted targets and call_target to make GET/POST/PUT requests with strict size, timeout, and redirect limits. Harpoon cannot reach arbitrary hosts or paths outside the configured allowlist.",
 		Capabilities: &mcp.ServerCapabilities{
 			Tools: &mcp.ToolCapabilities{ListChanged: false},
 		},
 	}
-	server := mcp.NewServer(&mcp.Implementation{Name: "harpoon", Version: "1.0.0"}, serverOptions)
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "harpoon",
+		Title:   "Harpoon (Constrained HTTP Client)",
+		Version: version.Version,
+	}, serverOptions)
+	openWorldFalse := false
+	openWorldTrue := true
 	mcp.AddTool(server, &mcp.Tool{
-		Name:         "list_targets",
-		Description:  "List available harpoon targets by label.",
+		Name:        "list_targets",
+		Title:       "List Harpoon targets",
+		Description: "List available Harpoon targets by label.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+			OpenWorldHint:  &openWorldFalse,
+		},
 		InputSchema:  listTargetsSchema,
 		OutputSchema: listTargetsOutputSchema,
 	}, s.listTargetsHandler())
 	mcp.AddTool(server, &mcp.Tool{
-		Name:         "call_target",
-		Description:  "Call an allowlisted HTTP target by label.",
-		InputSchema:  callTargetSchema,
-		OutputSchema: callTargetOutputSchema,
+		Name:        "call_target",
+		Title:       "Call Harpoon target",
+		Description: "Call an allowlisted HTTP target by label.",
+		Annotations: &mcp.ToolAnnotations{
+			OpenWorldHint: &openWorldTrue,
+		},
+		InputSchema:  buildCallTargetSchema(s.cfg),
+		OutputSchema: buildCallTargetOutputSchema(s.cfg),
 	}, s.callTargetHandler())
 	return server
 }
 
-func (s *Server) listTargetsHandler() mcp.ToolHandlerFor[map[string]any, map[string]any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+func (s *Server) listTargetsHandler() mcp.ToolHandlerFor[map[string]any, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
 		resp := s.listTargets()
 		structured := map[string]any{"targets": resp.Targets}
 		payload, err := json.Marshal(resp)
@@ -138,8 +214,8 @@ func (s *Server) listTargetsHandler() mcp.ToolHandlerFor[map[string]any, map[str
 	}
 }
 
-func (s *Server) callTargetHandler() mcp.ToolHandlerFor[map[string]any, map[string]any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+func (s *Server) callTargetHandler() mcp.ToolHandlerFor[map[string]any, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 		var params callTargetRequest
 		if err := decodeArguments(args, &params); err != nil {
 			return toolErrorResult("", "invalid parameters"), nil, nil
@@ -474,36 +550,23 @@ func decodeArguments(args map[string]any, out any) error {
 	return json.Unmarshal(payload, out)
 }
 
-func buildCallTargetSchema() *jsonschema.Schema {
+func buildCallTargetSchema(cfg *config.HarpoonConfig) *jsonschema.Schema {
 	reflector := &jsonschema.Reflector{DoNotReference: true}
 	schema := reflector.Reflect(callTargetRequest{})
 	if schema.Type == "" {
 		schema.Type = "object"
 	}
-	schema.Required = []string{"label", "method"}
-	if schema.Properties != nil {
-		if headersSchema, ok := schema.Properties.Get("headers"); ok && headersSchema != nil {
-			headersSchema.Default = map[string]string{}
-		}
-		if methodSchema, ok := schema.Properties.Get("method"); ok && methodSchema != nil {
-			allowed := allowedMethodsList()
-			enum := make([]any, len(allowed))
-			for i, method := range allowed {
-				enum[i] = method
-			}
-			methodSchema.Enum = enum
-		}
-	}
+	applyCallTargetSchemaBounds(schema, cfg)
 	return schema
 }
 
-func buildCallTargetOutputSchema() *jsonschema.Schema {
+func buildCallTargetOutputSchema(cfg *config.HarpoonConfig) *jsonschema.Schema {
 	reflector := &jsonschema.Reflector{DoNotReference: true}
 	schema := reflector.Reflect(callTargetResponse{})
 	if schema.Type == "" {
 		schema.Type = "object"
 	}
-	schema.Required = nil
+	applyCallTargetOutputSchemaBounds(schema, cfg)
 	return schema
 }
 
@@ -513,8 +576,52 @@ func buildListTargetsOutputSchema() *jsonschema.Schema {
 	if schema.Type == "" {
 		schema.Type = "object"
 	}
-	schema.Required = nil
 	return schema
+}
+
+func buildListTargetsInputSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "object",
+		Title:       "List Harpoon targets",
+		Description: "List available allowlisted targets.",
+	}
+}
+
+func applyCallTargetSchemaBounds(schema *jsonschema.Schema, cfg *config.HarpoonConfig) {
+	if schema == nil || schema.Properties == nil {
+		return
+	}
+	maxResponseBytes := config.DefaultHarpoonMaxResponseBytes
+	if cfg != nil && cfg.MaxResponseBytes > 0 {
+		maxResponseBytes = cfg.MaxResponseBytes
+	}
+	maxRedirects := config.DefaultHarpoonMaxRedirects
+	if cfg != nil && cfg.MaxRedirects > 0 {
+		maxRedirects = cfg.MaxRedirects
+	}
+	if maxResponseSchema, ok := schema.Properties.Get("max_response_bytes"); ok && maxResponseSchema != nil {
+		maxResponseSchema.Minimum = jsonNumber(1)
+		maxResponseSchema.Maximum = jsonNumber(maxResponseBytes)
+		maxResponseSchema.Default = jsonNumber(maxResponseBytes)
+	}
+	if maxRedirectsSchema, ok := schema.Properties.Get("max_redirects"); ok && maxRedirectsSchema != nil {
+		maxRedirectsSchema.Minimum = jsonNumber(0)
+		maxRedirectsSchema.Maximum = jsonNumber(maxRedirects)
+		maxRedirectsSchema.Default = jsonNumber(maxRedirects)
+	}
+}
+
+func applyCallTargetOutputSchemaBounds(schema *jsonschema.Schema, cfg *config.HarpoonConfig) {
+	if schema == nil || schema.Properties == nil {
+		return
+	}
+	maxResponseBytes := config.DefaultHarpoonMaxResponseBytes
+	if cfg != nil && cfg.MaxResponseBytes > 0 {
+		maxResponseBytes = cfg.MaxResponseBytes
+	}
+	if sizeSchema, ok := schema.Properties.Get("body_size_bytes"); ok && sizeSchema != nil {
+		sizeSchema.Maximum = jsonNumber(maxResponseBytes)
+	}
 }
 
 type toolError struct {
@@ -581,6 +688,10 @@ func classifyRequestError(err error) string {
 		return "redirect blocked"
 	}
 	return "request failed"
+}
+
+func jsonNumber(value int) json.Number {
+	return json.Number(strconv.Itoa(value))
 }
 
 type callRecordInput struct {
