@@ -116,6 +116,35 @@ func TestStdioCommandTransportRequestsShutdownOnExit(t *testing.T) {
 	require.NoError(t, hook.OnStop(stopCtx))
 }
 
+func TestStdioCommandTransportRuntimeInfo(t *testing.T) {
+	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
+	t.Setenv("TEST_HELPER_MODE", "wait")
+
+	lifecycle := &stubLifecycle{}
+	shutdowner := &stubShutdowner{}
+	transport := newStdioCommandTransport(slog.New(slog.NewTextHandler(io.Discard, nil)), lifecycle, shutdowner)
+
+	commandArgs := helperCommandArgs()
+	cfg := &config.MCPConfig{
+		Command:     strings.Join(commandArgs, " "),
+		CommandArgs: commandArgs,
+	}
+	_, err := transport.Transport(cfg)
+	require.NoError(t, err)
+	require.Len(t, lifecycle.hooks, 1)
+
+	hook := lifecycle.hooks[0]
+	require.NoError(t, hook.OnStart(context.Background()))
+
+	info := transport.StdioRuntimeInfo()
+	require.Equal(t, cfg.Command, info.Command)
+	require.Greater(t, info.PID, 0)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, hook.OnStop(stopCtx))
+}
+
 func helperCommandArgs() []string {
 	return []string{os.Args[0], "-test.run=TestHelperProcess"}
 }

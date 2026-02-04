@@ -15,6 +15,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/health"
 	"go.openai.org/api/tunnel-client/pkg/httpguard"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
 	"go.openai.org/api/tunnel-client/pkg/oauth"
 	"go.openai.org/api/tunnel-client/pkg/version"
 )
@@ -47,6 +48,7 @@ type routeParams struct {
 	OAuthState    *oauth.DiscoveryState
 	HarpoonBuffer *harpoon.CallBuffer
 	HarpoonReg    *harpoon.Registry
+	StdioInfo     mcpclient.StdioRuntimeInfoProvider `optional:"true"`
 }
 
 type statusResponse struct {
@@ -60,6 +62,7 @@ type statusResponse struct {
 	ControlPlanePollTimeout string                       `json:"control_plane_poll_timeout,omitempty"`
 	MCPServerURL            string                       `json:"mcp_server_url,omitempty"`
 	MCPResourceMetadataURLs []string                     `json:"mcp_resource_metadata_urls,omitempty"`
+	Channels                []ChannelStatus              `json:"channels,omitempty"`
 	RawHTTPLoggingEnabled   bool                         `json:"raw_http_logging_enabled"`
 	TunnelMetadata          *controlplane.TunnelMetadata `json:"tunnel_metadata,omitempty"`
 	MetadataError           string                       `json:"tunnel_metadata_error,omitempty"`
@@ -157,6 +160,7 @@ func buildStatus(p routeParams) statusResponse {
 			out.MCPResourceMetadataURLs = append(out.MCPResourceMetadataURLs, url.String())
 		}
 	}
+	out.Channels = BuildChannelStatuses(p.MCPConfig, p.HarpoonReg, p.StdioInfo)
 	if p.LoggingConfig != nil {
 		out.RawHTTPLoggingEnabled = p.LoggingConfig.HTTPRawUnsafe
 		if p.LoggingConfig.HTTPRawUnsafe {

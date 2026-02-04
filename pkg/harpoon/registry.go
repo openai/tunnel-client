@@ -128,6 +128,16 @@ func (r *Registry) Targets() []Target {
 	return out
 }
 
+// Count reports the number of registered targets.
+func (r *Registry) Count() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.targets)
+}
+
 // Lookup returns the target for a label.
 func (r *Registry) Lookup(label string) (Target, bool) {
 	if r == nil {

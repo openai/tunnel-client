@@ -37,9 +37,6 @@ func TestNewMcpClient_DefaultTransport(t *testing.T) {
 		t.Fatalf("expected client to be non-nil")
 	}
 
-	if outputs.ForwardingTransport == nil {
-		t.Fatalf("expected transport to enable forwarding; got <nil>")
-	}
 	if _, ok := outputs.Transport.(*mcp.StreamableClientTransport); !ok {
 		t.Fatalf("expected raw transport to be *mcp.StreamableClientTransport; got %T", outputs.Transport)
 	}
@@ -67,10 +64,6 @@ func TestNewMcpClient_LoggingTransport(t *testing.T) {
 	outputs, err := newMcpClient(params)
 	if err != nil {
 		t.Fatalf("newMcpClient returned error: %v", err)
-	}
-
-	if outputs.ForwardingTransport == nil {
-		t.Fatalf("expected transport to enable forwarding; got <nil>")
 	}
 
 	loggingTransport, ok := outputs.Transport.(*mcp.LoggingTransport)
@@ -128,9 +121,6 @@ func TestNewMcpClient_LoggingTransportRequiresDebugLevel(t *testing.T) {
 		t.Fatalf("newMcpClient returned error: %v", err)
 	}
 
-	if outputs.ForwardingTransport == nil {
-		t.Fatalf("expected transport to enable forwarding; got <nil>")
-	}
 	if _, ok := outputs.Transport.(*mcp.StreamableClientTransport); !ok {
 		t.Fatalf("expected raw transport to be streamable; got %T", outputs.Transport)
 	}

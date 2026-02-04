@@ -33,49 +33,54 @@ type TunnelResponse struct {
 	headers      http.Header
 	responseCode int
 	responseType ResponseType
+	channel      Channel
 }
 
 // NewTunnelResponse constructs a TunnelResponse, defensively copying the
 // provided headers map so callers can mutate their copy without affecting the
 // payload delivered to tunnel-service.
-func NewTunnelResponse(response json.RawMessage, code int, headers http.Header) *TunnelResponse {
+func NewTunnelResponse(channel Channel, response json.RawMessage, code int, headers http.Header) *TunnelResponse {
 	return &TunnelResponse{
 		response:     response,
 		headers:      cloneHeaders(headers),
 		responseCode: code,
 		responseType: ResponseTypeJSONRPCResponse,
+		channel:      channel,
 	}
 }
 
 // NewOAuthDiscoveryResponse constructs a TunnelResponse representing OAuth
 // metadata fetched from the MCP server.
-func NewOAuthDiscoveryResponse(response json.RawMessage, code int, headers http.Header) *TunnelResponse {
+func NewOAuthDiscoveryResponse(channel Channel, response json.RawMessage, code int, headers http.Header) *TunnelResponse {
 	return &TunnelResponse{
 		response:     response,
 		headers:      cloneHeaders(headers),
 		responseCode: code,
 		responseType: ResponseTypeOAuthDiscovery,
+		channel:      channel,
 	}
 }
 
 // NewJSONRPCNotification constructs a TunnelResponse that forwards a JSON-RPC
 // notification payload emitted by the MCP server.
-func NewJSONRPCNotification(response json.RawMessage, code int, headers http.Header) *TunnelResponse {
+func NewJSONRPCNotification(channel Channel, response json.RawMessage, code int, headers http.Header) *TunnelResponse {
 	return &TunnelResponse{
 		response:     response,
 		headers:      cloneHeaders(headers),
 		responseCode: code,
 		responseType: ResponseTypeJSONRPCNotification,
+		channel:      channel,
 	}
 }
 
 // NewNotificationAck constructs a TunnelResponse representing a successful
 // acknowledgement of a JSON-RPC notification (which carries no response body).
-func NewNotificationAck(code int, headers http.Header) *TunnelResponse {
+func NewNotificationAck(channel Channel, code int, headers http.Header) *TunnelResponse {
 	return &TunnelResponse{
 		headers:      cloneHeaders(headers),
 		responseCode: code,
 		responseType: ResponseTypeNotificationAcknowledgment,
+		channel:      channel,
 	}
 }
 
@@ -98,6 +103,14 @@ func (t *TunnelResponse) ResponseCode() int {
 // Headers returns a defensive copy of the response headers map.
 func (t *TunnelResponse) Headers() http.Header {
 	return cloneHeaders(t.headers)
+}
+
+// Channel returns the channel name to report back to the control plane.
+func (t *TunnelResponse) Channel() Channel {
+	if t == nil {
+		return ""
+	}
+	return t.channel
 }
 
 // Validate returns an error if the response is structurally invalid.
@@ -125,6 +138,11 @@ func (t *TunnelResponse) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown response type %d", t.responseType)
+	}
+	if t.channel != "" {
+		if _, err := NormalizeChannel(t.channel.String()); err != nil {
+			return err
+		}
 	}
 	return nil
 }

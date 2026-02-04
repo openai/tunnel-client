@@ -219,6 +219,36 @@ h1 {
   margin: 6px 0 0 0;
   max-height: 260px;
 }
+
+.channel-expand-cell {
+  width: 96px;
+}
+
+.channel-expand {
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+
+.channel-detail-row td {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+}
+
+.channel-detail-wrap {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+}
+
+.channel-detail-kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 12px;
+}
+
 a { color: inherit; }
 
 button, input, select, label { font: inherit; }
@@ -411,5 +441,9 @@ button:hover, .tab:hover { border-color: rgba(127,127,127,.55); }
 @media (max-width: 720px) {
   .harpoon-call-header {
     grid-template-columns: 26px 1fr;
+  }
+
+  .channel-detail-kv {
+    grid-template-columns: 1fr;
   }
 }

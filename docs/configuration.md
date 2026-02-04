@@ -67,9 +67,20 @@
 - Forwards inbound `Authorization` headers and discovery GETs through the tunnel-client; discovery payload `resource` and `WWW-Authenticate resource_metadata` are rewritten to tunnel-service URLs for the same `tunnel_id`.
 - The authorization server is not tunneled. If it is only reachable on-prem/behind a firewall and not accessible from the internet or the tunnel-client host, the OAuth flow can fail.
 
+## Channels
+
+`tunnel-client` supports two logical channels:
+
+- `main`: always configured from the MCP settings above.
+- `harpoon`: enabled only when Harpoon has at least one registered target (see Harpoon config below).
+
+All response payloads posted to `/v1/tunnel/{tunnel_id}/response` include the resolved `channel` value.
+
 ## Harpoon MCP (outbound HTTP allowlist)
 
 `harpoon` is an embedded MCP server that exposes an allowlisted, buffered HTTP client with labeled targets.
+
+Harpoon’s channel (`harpoon`) is considered enabled only when at least one target is registered. If there are no targets, `harpoon` commands return `unsupported_channel`.
 
 - **Target mappings**
   - Flag (repeatable): `--harpoon-target="label=auth,url=https://auth.example.com,desc=Auth server"`

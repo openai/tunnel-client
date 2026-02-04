@@ -183,7 +183,7 @@ func runOAuthMetadataDiscoveryPass(
 		}
 
 		attempts[i].Selected = true
-		return types.NewOAuthDiscoveryResponse(body, resp.StatusCode, resp.Header), candidate.URL, discoveryFailureTypeNotApplicable, nil
+		return types.NewOAuthDiscoveryResponse(types.DefaultChannel, body, resp.StatusCode, resp.Header), candidate.URL, discoveryFailureTypeNotApplicable, nil
 	}
 
 	return nil, nil, failureType, lastErr

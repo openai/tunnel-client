@@ -17,6 +17,7 @@ type identifiers struct {
 	tunnelServiceRequestID       types.TunnelServiceRequestID
 	shardToken                   string
 	rpcRequestID                 *jsonrpc.ID
+	channel                      types.Channel
 }
 
 // ContextWithSessionID returns a child context that stores the provided MCP session identifier.
@@ -86,6 +87,18 @@ func ContextWithRPCRequestID(ctx context.Context, requestID jsonrpc.ID) context.
 	})
 }
 
+// ContextWithChannel returns a child context that stores the provided channel name.
+//
+// An empty channel name leaves the context unchanged.
+func ContextWithChannel(ctx context.Context, channel types.Channel) context.Context {
+	return withIdentifiers(ctx, func(ids *identifiers) {
+		if channel == "" {
+			return
+		}
+		ids.channel = channel
+	})
+}
+
 // SessionIDFromContext extracts the MCP session identifier stored in the context, if present.
 func SessionIDFromContext(ctx context.Context) (string, bool) {
 	ids, ok := identifiersFromContext(ctx)
@@ -140,6 +153,15 @@ func RPCRequestIDFromContext(ctx context.Context) (jsonrpc.ID, bool) {
 		return jsonrpc.ID{}, false
 	}
 	return *ids.rpcRequestID, true
+}
+
+// ChannelFromContext extracts the channel stored in the context, if present.
+func ChannelFromContext(ctx context.Context) (types.Channel, bool) {
+	ids, ok := identifiersFromContext(ctx)
+	if !ok || ids.channel == "" {
+		return "", false
+	}
+	return ids.channel, true
 }
 
 func withIdentifiers(ctx context.Context, update func(*identifiers)) context.Context {

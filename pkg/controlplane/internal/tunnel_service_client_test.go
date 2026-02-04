@@ -266,15 +266,17 @@ func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 	rawResponse := encodeResponse(t, response)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 
 	headers := http.Header{
 		"Mcp-Session-Id": {"abc123"},
 	}
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, headers)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID(requestID),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, headers),
+		resp,
 	)
 	if !assert.NoError(t, err, "PostResponse failed") {
 		return
@@ -285,6 +287,7 @@ func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 
 	var payload struct {
 		RequestID   string          `json:"request_id"`
+		Channel     string          `json:"channel"`
 		RPCResp     json.RawMessage `json:"resp_json"`
 		RespHeaders http.Header     `json:"resp_headers"`
 		RespCode    int             `json:"resp_code"`
@@ -293,6 +296,7 @@ func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 
 	if assert.NoError(t, json.Unmarshal(seenBody, &payload), "unmarshal request payload") {
 		assert.Equal(t, requestID, payload.RequestID, "unexpected request_id")
+		assert.Equal(t, types.DefaultChannel.String(), payload.Channel, "unexpected channel")
 		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"1","result":{"ok":true}}`, string(payload.RPCResp), "unexpected rpc_resp")
 		assert.Equal(t, headers, payload.RespHeaders, "unexpected resp_headers")
 		assert.Equal(t, http.StatusOK, payload.RespCode, "unexpected resp_code")
@@ -333,7 +337,8 @@ func TestTunnelServiceClientPostResponseOAuthDiscovery(t *testing.T) {
 	require.NoError(t, err, "NewTunnelServiceClient failed")
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
-	resp := types.NewOAuthDiscoveryResponse(json.RawMessage(`{"resource":"https://example.com"}`), http.StatusOK, http.Header{
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
+	resp := types.NewOAuthDiscoveryResponse(types.DefaultChannel, json.RawMessage(`{"resource":"https://example.com"}`), http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
 	})
 
@@ -345,6 +350,7 @@ func TestTunnelServiceClientPostResponseOAuthDiscovery(t *testing.T) {
 
 	var payload struct {
 		RequestID   string          `json:"request_id"`
+		Channel     string          `json:"channel"`
 		RPCResp     json.RawMessage `json:"resp_json"`
 		RespHeaders http.Header     `json:"resp_headers"`
 		RespCode    int             `json:"resp_code"`
@@ -353,10 +359,53 @@ func TestTunnelServiceClientPostResponseOAuthDiscovery(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(seenBody, &payload), "unmarshal request payload")
 	require.Equal(t, requestID, payload.RequestID, "unexpected request_id")
+	require.Equal(t, types.DefaultChannel.String(), payload.Channel, "unexpected channel")
 	require.JSONEq(t, `{"resource":"https://example.com"}`, string(payload.RPCResp), "unexpected payload")
 	require.Equal(t, http.StatusOK, payload.RespCode, "unexpected resp_code")
 	require.Equal(t, string(wiretypes.ResponsePayloadOAuth), payload.RespType, "unexpected resp_type")
 	require.Equal(t, http.Header{"Content-Type": []string{"application/json"}}, payload.RespHeaders)
+}
+
+func TestTunnelServiceClientPostResponsePrefersResponseChannel(t *testing.T) {
+	t.Parallel()
+
+	const (
+		tunnelID   = "cli-tunnel"
+		apiKey     = "test-api-key"
+		requestID  = "req-channel-response"
+		shardToken = "shard-channel-response"
+		channel    = types.ChannelHarpoon
+	)
+
+	var seenBody []byte
+
+	server := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		seenBody = body
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	client, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		TunnelID: types.TunnelID(tunnelID),
+		APIKey:   apiKey,
+	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	require.NoError(t, err, "NewTunnelServiceClient failed")
+
+	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
+
+	resp := types.NewNotificationAck(channel, http.StatusOK, http.Header{})
+	_, err = client.PostResponse(ctx, types.RequestID(requestID), resp)
+	require.NoError(t, err, "PostResponse failed")
+
+	var payload struct {
+		RequestID string `json:"request_id"`
+		Channel   string `json:"channel"`
+	}
+	require.NoError(t, json.Unmarshal(seenBody, &payload), "unmarshal request payload")
+	require.Equal(t, requestID, payload.RequestID)
+	require.Equal(t, channel.String(), payload.Channel)
 }
 
 func TestTunnelServiceClientPostResponsePropagatesClientRequestID(t *testing.T) {
@@ -393,6 +442,7 @@ func TestTunnelServiceClientPostResponsePropagatesClientRequestID(t *testing.T) 
 	}
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 	ctx = tunnelctx.ContextWithControlPlaneCommandRequestID(ctx, types.ControlPlaneRequestID(controlPlaneRequestID))
 	response := &jsonrpc.Response{
 		ID:     id,
@@ -400,10 +450,11 @@ func TestTunnelServiceClientPostResponsePropagatesClientRequestID(t *testing.T) 
 	}
 	rawResponse := encodeResponse(t, response)
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, nil)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID(requestID),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, nil),
+		resp,
 	)
 	if !assert.NoError(t, err, "PostResponse failed") {
 		return
@@ -445,16 +496,18 @@ func TestTunnelServiceClientPostResponsePropagatesShardToken(t *testing.T) {
 	}
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 	response := &jsonrpc.Response{
 		ID:     id,
 		Result: json.RawMessage(`{"ok":true}`),
 	}
 	rawResponse := encodeResponse(t, response)
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, nil)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID(requestID),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, nil),
+		resp,
 	)
 	if !assert.NoError(t, err, "PostResponse failed") {
 		return
@@ -490,10 +543,11 @@ func TestTunnelServiceClientPostResponseRequiresShardToken(t *testing.T) {
 	}
 	rawResponse := encodeResponse(t, response)
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, nil)
 	_, err = client.PostResponse(
-		context.Background(),
+		tunnelctx.ContextWithChannel(context.Background(), types.DefaultChannel),
 		types.RequestID("req-missing-shard"),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, nil),
+		resp,
 	)
 	assert.Error(t, err, "PostResponse should require a shard token")
 }
@@ -520,11 +574,13 @@ func TestTunnelServiceClientPostResponseTreatsNotFoundAsSuccess(t *testing.T) {
 	rawResponse := encodeResponse(t, response)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-404")
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, nil)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID("request-404"),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, nil),
+		resp,
 	)
 	assert.NoError(t, err, "PostResponse should treat 404 as success")
 }
@@ -546,14 +602,16 @@ func TestTunnelServiceClientPostResponseSurfacingNonSuccess(t *testing.T) {
 	}
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-502")
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 	rawResponse := encodeResponse(t, &jsonrpc.Response{
 		Result: json.RawMessage(`{"ok":true}`),
 	})
 
+	resp := types.NewTunnelResponse(types.DefaultChannel, rawResponse, http.StatusOK, nil)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID("request-502"),
-		types.NewTunnelResponse(rawResponse, http.StatusOK, nil),
+		resp,
 	)
 	assert.Error(t, err, "PostResponse should propagate non-200/404 errors")
 	assert.ErrorContains(t, err, "unexpected status 502")
@@ -580,11 +638,13 @@ func TestTunnelServiceClientPostResponseNotificationAck(t *testing.T) {
 	}
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-notif")
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
+	notificationAck := types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{})
 
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID("notif-req"),
-		types.NewNotificationAck(http.StatusOK, nil),
+		notificationAck,
 	)
 	assert.NoError(t, err, "PostResponse should allow notification acknowledgements")
 
@@ -624,12 +684,14 @@ func TestTunnelServiceClientPostResponseJSONRPCNotification(t *testing.T) {
 	}
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-notify-jsonrpc")
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 	headers := http.Header{"Content-Type": []string{"application/json"}}
 
+	resp := types.NewJSONRPCNotification(types.DefaultChannel, rawNotification, http.StatusOK, headers)
 	_, err = client.PostResponse(
 		ctx,
 		types.RequestID("notif-jsonrpc"),
-		types.NewJSONRPCNotification(rawNotification, http.StatusOK, headers),
+		resp,
 	)
 	assert.NoError(t, err, "PostResponse should allow JSON-RPC notifications")
 
@@ -1214,6 +1276,7 @@ func TestTunnelServiceClientPostResponseValidatesArgs(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-required")
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
 
 	_, err = client.PostResponse(ctx, "", &types.TunnelResponse{})
 	require.Error(t, err)
@@ -1222,6 +1285,11 @@ func TestTunnelServiceClientPostResponseValidatesArgs(t *testing.T) {
 	_, err = client.PostResponse(ctx, types.RequestID("req"), nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "response is required")
+
+	resp := types.NewNotificationAck("", http.StatusOK, http.Header{})
+	_, err = client.PostResponse(tunnelctx.ContextWithShardToken(context.Background(), "shard-required"), types.RequestID("req"), resp)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "channel is required")
 }
 
 func TestTunnelServiceClientPostResponseErrorsWithoutShardToken(t *testing.T) {
@@ -1239,9 +1307,9 @@ func TestTunnelServiceClientPostResponseErrorsWithoutShardToken(t *testing.T) {
 	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err)
 
-	resp := types.NewNotificationAck(http.StatusOK, http.Header{})
-
-	_, err = client.PostResponse(context.Background(), types.RequestID("req"), resp)
+	resp := types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{})
+	ctx := tunnelctx.ContextWithChannel(context.Background(), types.DefaultChannel)
+	_, err = client.PostResponse(ctx, types.RequestID("req"), resp)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "shard token is required")
 }
@@ -1265,7 +1333,8 @@ func TestTunnelServiceClientPostResponseReturnsTunnelServiceRequestIDFromHeader(
 	require.NoError(t, err)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-token")
-	resp := types.NewNotificationAck(http.StatusOK, http.Header{})
+	ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
+	resp := types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{})
 
 	got, err := client.PostResponse(ctx, types.RequestID("req"), resp)
 	require.NoError(t, err)

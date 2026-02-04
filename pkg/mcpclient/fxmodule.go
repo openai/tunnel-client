@@ -26,6 +26,8 @@ var Module = fx.Module(
 	"mcpclient",
 	fx.Provide(
 		newMcpClient,
+		newStdioCommandTransportProvider,
+		newStdioRuntimeInfoProvider,
 		fx.Annotate(newStreamableTransportProvider, fx.ResultTags(`group:"mcp_transport_providers"`)),
 		fx.Annotate(newInjectableTransportProvider, fx.ResultTags(`group:"mcp_transport_providers"`)),
 		fx.Annotate(newStdioTransportProvider, fx.ResultTags(`group:"mcp_transport_providers"`)),
@@ -48,10 +50,9 @@ type clientParams struct {
 type clientOutputs struct {
 	fx.Out
 
-	Client              *mcp.Client
-	Transport           mcp.Transport
-	ForwardingTransport ForwardingTransport
-	HTTPClient          *http.Client `name:"mcp_client"`
+	Client     *mcp.Client
+	Transport  mcp.Transport
+	HTTPClient *http.Client `name:"mcp_client"`
 }
 
 type runnerParams struct {
@@ -100,10 +101,9 @@ func newMcpClient(p clientParams) (clientOutputs, error) {
 	}
 
 	return clientOutputs{
-		Client:              mcpClient,
-		Transport:           mcpTransport,
-		ForwardingTransport: NewForwardingTransport(mcpTransport),
-		HTTPClient:          httpClient,
+		Client:     mcpClient,
+		Transport:  mcpTransport,
+		HTTPClient: httpClient,
 	}, nil
 }
 

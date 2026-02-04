@@ -38,7 +38,6 @@
             <div class="muted">Version</div><div class="mono" id="vVersion">—</div>
             <div class="muted">Uptime</div><div class="mono" id="vUptime">—</div>
             <div class="muted">Health addr</div><div class="mono" id="vHealthAddr">—</div>
-            <div class="muted">MCP server</div><div class="mono" id="vMcpUrl">—</div>
           </div>
         </div>
         <div class="card span-6">
@@ -60,6 +59,23 @@
         <div class="card span-12" id="warningsCard" style="display:none">
           <div class="muted small">Warnings</div>
           <div id="warnings" style="margin-top: 6px"></div>
+        </div>
+
+        <div class="card span-12">
+          <div class="muted small">Channels</div>
+          <table class="oauth-table" style="margin-top: 12px">
+            <thead>
+              <tr>
+                <th class="channel-expand-cell"></th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Server</th>
+                <th>Transport</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody id="channelsRows"></tbody>
+          </table>
         </div>
 
         <div class="card span-12">

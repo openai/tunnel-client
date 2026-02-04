@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/harpoon"
 	"go.openai.org/api/tunnel-client/pkg/mcpclient"
 	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
 	"go.openai.org/api/tunnel-client/pkg/types"
@@ -79,7 +80,7 @@ func TestProcessorForwardResponses(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          processorLogger,
-		Transport:       forwardingTransport,
+		ChannelBindings: newTestChannelBindings(forwardingTransport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, 2*time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -155,7 +156,7 @@ func TestProcessorAddsDefaultAcceptHeaderWhenMissing(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          processorLogger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -196,7 +197,7 @@ func TestProcessorRejectsUnsupportedChannel(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       &stubForwardingTransport{},
+		ChannelBindings: newTestChannelBindings(&stubForwardingTransport{}),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -215,7 +216,7 @@ func TestProcessorRejectsUnsupportedChannel(t *testing.T) {
 		polledAt:   time.Now(),
 		headers:    http.Header{},
 		shardToken: "shard-unsupported",
-		channel:    "harpoon",
+		channel:    types.Channel("unknown"),
 	}
 
 	err = processor.Process(context.Background(), cmd)
@@ -237,12 +238,162 @@ func TestProcessorRejectsUnsupportedChannel(t *testing.T) {
 		if dp.Value != 1 {
 			continue
 		}
-		if val, ok := dp.Attributes.Value(attribute.Key("channel")); ok && val.AsString() == "harpoon" {
+		if val, ok := dp.Attributes.Value(attribute.Key("channel")); ok && val.AsString() == "unknown" {
 			found = true
 			break
 		}
 	}
 	require.True(t, found, "unsupported channel metric missing channel attribute")
+}
+
+func TestProcessorRoutesHarpoonChannel(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	responder := newRecordingResponder()
+
+	registry := newTestHarpoonRegistry(t)
+
+	id, err := jsonrpc.MakeID("harpoon-route")
+	require.NoError(t, err)
+
+	mainTransport := &countingForwardingTransport{}
+	harpoonConn := &stubMCPConnection{
+		readMsg: &jsonrpc.Response{
+			ID:     id,
+			Result: json.RawMessage(`{"ok":true}`),
+		},
+	}
+	harpoonTransport := &countingMCPTransport{conn: harpoonConn}
+	bindings := newTestChannelBindings(mainTransport)
+	bindings[types.ChannelHarpoon] = ChannelBinding{
+		Transport:     mcpclient.NewForwardingTransport(harpoonTransport),
+		Priority:      0,
+		Routable:      func() bool { return registry.Count() > 0 },
+		SupportsMCP:   true,
+		SupportsOAuth: false,
+	}
+
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: bindings,
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, time.Second),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   newTestMeterProvider(t),
+	})
+	require.NoError(t, err)
+
+	cmd := &fakePolledCommand{
+		id:         types.RequestID("harpoon-request"),
+		message:    &jsonrpc.Request{ID: id, Method: "ping"},
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		headers:    http.Header{},
+		shardToken: "shard-harpoon",
+		channel:    types.ChannelHarpoon,
+	}
+
+	require.NoError(t, processor.Process(context.Background(), cmd))
+	_ = responder.waitForResponse(t)
+
+	require.EqualValues(t, 1, harpoonTransport.calls.Load())
+	require.EqualValues(t, 0, mainTransport.calls.Load())
+}
+
+func TestProcessorRejectsHarpoonChannelWithoutTargets(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	responder := newRecordingResponder()
+
+	emptyRegistry, err := harpoon.NewRegistry(logger, false, nil)
+	require.NoError(t, err)
+
+	harpoonTransport := &countingMCPTransport{}
+	bindings := newTestChannelBindings(&stubForwardingTransport{})
+	bindings[types.ChannelHarpoon] = ChannelBinding{
+		Transport:     mcpclient.NewForwardingTransport(harpoonTransport),
+		Priority:      0,
+		Routable:      func() bool { return emptyRegistry.Count() > 0 },
+		SupportsMCP:   true,
+		SupportsOAuth: false,
+	}
+
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: bindings,
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, time.Second),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   newTestMeterProvider(t),
+	})
+	require.NoError(t, err)
+
+	id, err := jsonrpc.MakeID("harpoon-disabled")
+	require.NoError(t, err)
+
+	cmd := &fakePolledCommand{
+		id:         types.RequestID("harpoon-disabled"),
+		message:    &jsonrpc.Request{ID: id, Method: "ping"},
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		headers:    http.Header{},
+		shardToken: "shard-harpoon-disabled",
+		channel:    types.ChannelHarpoon,
+	}
+
+	err = processor.Process(context.Background(), cmd)
+	require.Error(t, err)
+
+	_ = responder.waitForResponse(t)
+	require.EqualValues(t, 0, harpoonTransport.calls.Load())
+}
+
+func TestProcessorRejectsHarpoonOAuthDiscovery(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	responder := newRecordingResponder()
+
+	registry := newTestHarpoonRegistry(t)
+	harpoonTransport := &countingMCPTransport{}
+	bindings := newTestChannelBindings(&stubForwardingTransport{})
+	bindings[types.ChannelHarpoon] = ChannelBinding{
+		Transport:     mcpclient.NewForwardingTransport(harpoonTransport),
+		Priority:      0,
+		Routable:      func() bool { return registry.Count() > 0 },
+		SupportsMCP:   true,
+		SupportsOAuth: false,
+	}
+
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: bindings,
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, time.Second),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   newTestMeterProvider(t),
+	})
+	require.NoError(t, err)
+
+	cmd := &fakeOauthDiscoveryCommand{
+		id:         types.RequestID("harpoon-oauth"),
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		headers:    http.Header{},
+		shardToken: "shard-harpoon-oauth",
+		channel:    types.ChannelHarpoon,
+	}
+
+	err = processor.Process(context.Background(), cmd)
+	require.Error(t, err)
+
+	_ = responder.waitForResponse(t)
+	require.EqualValues(t, 0, harpoonTransport.calls.Load())
 }
 
 func TestProcessorStreamableNotificationsBeforeResponse(t *testing.T) {
@@ -305,7 +456,7 @@ func TestProcessorStreamableNotificationsBeforeResponse(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          processorLogger,
-		Transport:       forwardingTransport,
+		ChannelBindings: newTestChannelBindings(forwardingTransport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, 5*time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -406,7 +557,7 @@ func TestProcessorAcknowledgesNotifications(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          processorLogger,
-		Transport:       forwardingTransport,
+		ChannelBindings: newTestChannelBindings(forwardingTransport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, 2*time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -483,7 +634,7 @@ func TestProcessorLogsIncludeRequestAndSessionID(t *testing.T) {
 			meterProvider := newTestMeterProvider(t)
 			processor, err := NewProcessor(processorParams{
 				Logger:          logger,
-				Transport:       transport,
+				ChannelBindings: newTestChannelBindings(transport),
 				TunnelResponder: responder,
 				MCPConfig:       newTestMCPConfig(t, time.Second),
 				OAuthHTTPClient: &http.Client{},
@@ -542,7 +693,7 @@ func TestProcessorPreservesSSEContentTypeHeader(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -596,7 +747,7 @@ func TestProcessorOverridesNonStreamingContentTypeHeader(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -649,7 +800,7 @@ func TestProcessorForwardsNotificationsWithJSONContentType(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -708,7 +859,7 @@ func TestProcessorReturnsErrorResponseOnWriteFailure(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -760,7 +911,7 @@ func TestProcessorPropagatesControlPlaneCommandRequestID(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -817,7 +968,7 @@ func TestProcessorRecordsEndToEndLatency(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -892,7 +1043,7 @@ func TestProcessorRecordsNotificationLatency(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -960,7 +1111,7 @@ func TestProcessorConnectFailureDoesNotRecordLatency(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1004,7 +1155,7 @@ func TestProcessorRejectsNonRequestJSONRPCMessage(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1042,7 +1193,7 @@ func TestProcessorRejectsNilCommand(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1072,7 +1223,7 @@ func TestProcessorRejectsUnknownPolledCommandType(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1117,25 +1268,25 @@ func TestNewProcessorValidationErrors(t *testing.T) {
 	}{
 		{
 			name:   "nil_logger",
-			params: processorParams{Logger: nil, Transport: transport, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
+			params: processorParams{Logger: nil, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
 		},
 		{
-			name:   "nil_transport",
-			params: processorParams{Logger: logger, Transport: nil, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
+			name:   "nil_channel_bindings",
+			params: processorParams{Logger: logger, ChannelBindings: nil, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
 		},
 		{
 			name:   "nil_responder",
-			params: processorParams{Logger: logger, Transport: transport, TunnelResponder: nil, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
+			params: processorParams{Logger: logger, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: nil, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
 		},
 		{
 			name:   "nil_mcp_config",
-			params: processorParams{Logger: logger, Transport: transport, TunnelResponder: responder, MCPConfig: nil, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
+			params: processorParams{Logger: logger, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: responder, MCPConfig: nil, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
 		},
 		{
 			name: "non_positive_ttl",
 			params: processorParams{
 				Logger:          logger,
-				Transport:       transport,
+				ChannelBindings: newTestChannelBindings(transport),
 				TunnelResponder: responder,
 				MCPConfig: func() *config.MCPConfig {
 					cfg := *validMCP
@@ -1149,27 +1300,107 @@ func TestNewProcessorValidationErrors(t *testing.T) {
 		},
 		{
 			name:   "nil_control_plane_cfg",
-			params: processorParams{Logger: logger, Transport: transport, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: nil, MeterProvider: meterProvider},
+			params: processorParams{Logger: logger, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: nil, MeterProvider: meterProvider},
 		},
 		{
 			name:   "nil_meter_provider",
-			params: processorParams{Logger: logger, Transport: transport, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: nil},
+			params: processorParams{Logger: logger, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: validOAuthClient, ControlPlaneCfg: validControlPlane, MeterProvider: nil},
 		},
 		{
 			name:   "nil_oauth_http_client",
-			params: processorParams{Logger: logger, Transport: transport, TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: nil, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
+			params: processorParams{Logger: logger, ChannelBindings: newTestChannelBindings(transport), TunnelResponder: responder, MCPConfig: validMCP, OAuthHTTPClient: nil, ControlPlaneCfg: validControlPlane, MeterProvider: meterProvider},
 		},
 		{
 			name: "missing_mcp_server_url",
 			params: processorParams{
 				Logger:          logger,
-				Transport:       transport,
+				ChannelBindings: newTestChannelBindings(transport),
 				TunnelResponder: responder,
 				MCPConfig: func() *config.MCPConfig {
 					cfg := *validMCP
 					cfg.ServerURL = nil
 					return &cfg
 				}(),
+				OAuthHTTPClient: validOAuthClient,
+				ControlPlaneCfg: validControlPlane,
+				MeterProvider:   meterProvider,
+			},
+		},
+		{
+			name: "duplicate_default_channel",
+			params: processorParams{
+				Logger: logger,
+				ChannelBindings: map[types.Channel]ChannelBinding{
+					types.DefaultChannel: {
+						Transport:     transport,
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: true,
+					},
+					types.Channel(" MAIN "): {
+						Transport:     &stubForwardingTransport{},
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: false,
+					},
+					types.ChannelHarpoon: {
+						Transport:     &stubForwardingTransport{},
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: false,
+					},
+				},
+				TunnelResponder: responder,
+				MCPConfig:       validMCP,
+				OAuthHTTPClient: validOAuthClient,
+				ControlPlaneCfg: validControlPlane,
+				MeterProvider:   meterProvider,
+			},
+		},
+		{
+			name: "nil_named_channel_transport",
+			params: processorParams{
+				Logger: logger,
+				ChannelBindings: map[types.Channel]ChannelBinding{
+					types.DefaultChannel: {
+						Transport:     transport,
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: true,
+					},
+					types.ChannelHarpoon: {
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: false,
+					},
+				},
+				TunnelResponder: responder,
+				MCPConfig:       validMCP,
+				OAuthHTTPClient: validOAuthClient,
+				ControlPlaneCfg: validControlPlane,
+				MeterProvider:   meterProvider,
+			},
+		},
+		{
+			name: "non_main_supports_oauth",
+			params: processorParams{
+				Logger: logger,
+				ChannelBindings: map[types.Channel]ChannelBinding{
+					types.DefaultChannel: {
+						Transport:     transport,
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: true,
+					},
+					types.ChannelHarpoon: {
+						Transport:     &stubForwardingTransport{},
+						Priority:      0,
+						SupportsMCP:   true,
+						SupportsOAuth: true,
+					},
+				},
+				TunnelResponder: responder,
+				MCPConfig:       validMCP,
 				OAuthHTTPClient: validOAuthClient,
 				ControlPlaneCfg: validControlPlane,
 				MeterProvider:   meterProvider,
@@ -1203,7 +1434,7 @@ func TestProcessorReturnsBadGatewayOnWriteErrorWithoutStatusCode(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1237,7 +1468,7 @@ func TestProcessorNotificationAckPostFailureIsReturned(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1277,7 +1508,7 @@ func TestProcessorForwardResponsesStopsOnEOF(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1322,7 +1553,7 @@ func TestProcessorForwardResponsesStopsOnNilMessage(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1365,7 +1596,7 @@ func TestProcessorForwardResponsesStopsOnConnectionClosed(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1411,7 +1642,7 @@ func TestProcessorForwardResponsesStopsOnEncodeError(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1454,7 +1685,7 @@ func TestProcessorForwardResponsesStopsOnReadError(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1499,7 +1730,7 @@ func TestProcessorForwardResponsesPostFailureStopsForwarding(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1563,7 +1794,7 @@ func TestProcessorForwardResponsesForwardsUpstreamNotificationRequests(t *testin
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1621,7 +1852,7 @@ func TestProcessorForwardResponsesStopsOnNonResponseMessage(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1668,7 +1899,7 @@ func TestProcessorForwardResponsesStopsOnIDMismatch(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1713,7 +1944,7 @@ func TestProcessorForwardResponsesStopsWhenConnectionTTLReached(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, 15*time.Millisecond),
 		OAuthHTTPClient: &http.Client{},
@@ -1756,7 +1987,7 @@ func TestProcessorErrorResponsePostFailureIsReturned(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1804,7 +2035,7 @@ func TestProcessorOAuthDiscoveryPostFailureIsReturned(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       cfg,
 		OAuthHTTPClient: &http.Client{},
@@ -1835,7 +2066,7 @@ func TestProcessorRequiresShardToken(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1882,7 +2113,7 @@ func TestProcessorHandlesOAuthDiscoveryCommand(t *testing.T) {
 	}
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       cfg,
 		OAuthHTTPClient: &http.Client{},
@@ -1934,7 +2165,7 @@ func TestProcessorNormalizesZeroStatusCodeForJSONRPCResponses(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -1980,7 +2211,7 @@ func TestProcessorNormalizesZeroStatusCodeForNotificationAck(t *testing.T) {
 
 	processor, err := NewProcessor(processorParams{
 		Logger:          logger,
-		Transport:       transport,
+		ChannelBindings: newTestChannelBindings(transport),
 		TunnelResponder: responder,
 		MCPConfig:       newTestMCPConfig(t, time.Second),
 		OAuthHTTPClient: &http.Client{},
@@ -2093,6 +2324,39 @@ func newTestMCPConfig(t *testing.T, ttl time.Duration) *config.MCPConfig {
 	return cfg
 }
 
+func newTestChannelBindings(defaultTransport mcpclient.ForwardingTransport) map[types.Channel]ChannelBinding {
+	return map[types.Channel]ChannelBinding{
+		types.DefaultChannel: {
+			Transport:     defaultTransport,
+			Priority:      0,
+			SupportsMCP:   true,
+			SupportsOAuth: true,
+		},
+		types.ChannelHarpoon: {
+			Transport:     &stubForwardingTransport{conn: &stubForwardingConnection{}},
+			Priority:      0,
+			Routable:      func() bool { return false },
+			SupportsMCP:   true,
+			SupportsOAuth: false,
+		},
+	}
+}
+
+func newTestHarpoonRegistry(t *testing.T) *harpoon.Registry {
+	t.Helper()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	baseURL, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+
+	registry, err := harpoon.NewRegistry(logger, false, []harpoon.Target{{
+		Label:   "auth",
+		BaseURL: baseURL,
+	}})
+	require.NoError(t, err)
+	return registry
+}
+
 func findHistogram(rm metricdata.ResourceMetrics, name string) (metricdata.Histogram[float64], bool) {
 	for _, scope := range rm.ScopeMetrics {
 		for _, m := range scope.Metrics {
@@ -2148,12 +2412,32 @@ func (s *stubForwardingTransport) Connect(context.Context) (mcpclient.Forwarding
 	return s.conn, nil
 }
 
+type countingForwardingTransport struct {
+	conn  mcpclient.ForwardingConnection
+	calls atomic.Int32
+}
+
+func (t *countingForwardingTransport) Connect(context.Context) (mcpclient.ForwardingConnection, error) {
+	t.calls.Add(1)
+	return t.conn, nil
+}
+
 type failingForwardingTransport struct {
 	err error
 }
 
 func (s *failingForwardingTransport) Connect(context.Context) (mcpclient.ForwardingConnection, error) {
 	return nil, s.err
+}
+
+type countingMCPTransport struct {
+	conn  mcp.Connection
+	calls atomic.Int32
+}
+
+func (t *countingMCPTransport) Connect(context.Context) (mcp.Connection, error) {
+	t.calls.Add(1)
+	return t.conn, nil
 }
 
 type stubForwardingConnection struct {
@@ -2183,6 +2467,28 @@ func (c *stubForwardingConnection) Read(context.Context) (jsonrpc.Message, error
 }
 
 func (c *stubForwardingConnection) Close() error { return nil }
+
+type stubMCPConnection struct {
+	writeErr error
+	readMsg  jsonrpc.Message
+}
+
+func (c *stubMCPConnection) Write(context.Context, jsonrpc.Message) error {
+	return c.writeErr
+}
+
+func (c *stubMCPConnection) Read(context.Context) (jsonrpc.Message, error) {
+	if c.readMsg == nil {
+		return nil, io.EOF
+	}
+	msg := c.readMsg
+	c.readMsg = nil
+	return msg, nil
+}
+
+func (c *stubMCPConnection) Close() error { return nil }
+
+func (c *stubMCPConnection) SessionID() string { return "" }
 
 type readStep struct {
 	msg            jsonrpc.Message
@@ -2231,7 +2537,7 @@ type fakePolledCommand struct {
 	headers    http.Header
 	sessionID  *string
 	shardToken string
-	channel    string
+	channel    types.Channel
 }
 
 func (f *fakePolledCommand) RequestID() types.RequestID {
@@ -2258,7 +2564,7 @@ func (f *fakePolledCommand) ShardToken() string {
 	return f.shardToken
 }
 
-func (f *fakePolledCommand) Channel() string {
+func (f *fakePolledCommand) Channel() types.Channel {
 	if f.channel == "" {
 		return types.DefaultChannel
 	}
@@ -2278,7 +2584,7 @@ type fakeOauthDiscoveryCommand struct {
 	polledAt   time.Time
 	headers    http.Header
 	shardToken string
-	channel    string
+	channel    types.Channel
 }
 
 func (f *fakeOauthDiscoveryCommand) RequestID() types.RequestID { return f.id }
@@ -2286,7 +2592,7 @@ func (f *fakeOauthDiscoveryCommand) EnqueuedAt() time.Time      { return f.enque
 func (f *fakeOauthDiscoveryCommand) PolledAt() time.Time        { return f.polledAt }
 func (f *fakeOauthDiscoveryCommand) Headers() http.Header       { return f.headers }
 func (f *fakeOauthDiscoveryCommand) ShardToken() string         { return f.shardToken }
-func (f *fakeOauthDiscoveryCommand) Channel() string {
+func (f *fakeOauthDiscoveryCommand) Channel() types.Channel {
 	if f.channel == "" {
 		return types.DefaultChannel
 	}
@@ -2302,7 +2608,7 @@ type unknownPolledCommand struct {
 	headers    http.Header
 	sessionID  *string
 	shardToken string
-	channel    string
+	channel    types.Channel
 }
 
 func (f *unknownPolledCommand) RequestID() types.RequestID { return f.id }
@@ -2310,7 +2616,7 @@ func (f *unknownPolledCommand) EnqueuedAt() time.Time      { return f.enqueuedAt
 func (f *unknownPolledCommand) PolledAt() time.Time        { return f.polledAt }
 func (f *unknownPolledCommand) Headers() http.Header       { return f.headers }
 func (f *unknownPolledCommand) ShardToken() string         { return f.shardToken }
-func (f *unknownPolledCommand) Channel() string {
+func (f *unknownPolledCommand) Channel() types.Channel {
 	if f.channel == "" {
 		return types.DefaultChannel
 	}

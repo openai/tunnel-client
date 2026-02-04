@@ -29,7 +29,7 @@ type PolledCommand interface {
 	// to route the response back to the originating control-plane shard.
 	ShardToken() string
 	// Channel returns the logical channel associated with the command.
-	Channel() string
+	Channel() types.Channel
 	// SessionID returns the optional MCP session identifier when the connector
 	// supplied it, along with a boolean indicating whether it was present.
 	SessionID() (string, bool)

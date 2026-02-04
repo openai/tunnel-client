@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,16 +32,30 @@ const (
 	defaultAcceptHeaderValue = "application/json, text/event-stream"
 )
 
+var requiredProcessorChannels = []types.Channel{
+	types.DefaultChannel,
+	types.ChannelHarpoon,
+}
+
 // Processor forwards polled control plane commands to the downstream MCP server.
 type Processor interface {
 	Process(ctx context.Context, cmd controlplane.PolledCommand) error
+}
+
+// ChannelBinding describes routing behavior for a specific channel.
+type ChannelBinding struct {
+	Transport     mcpclient.ForwardingTransport
+	Priority      int
+	Routable      func() bool
+	SupportsMCP   bool
+	SupportsOAuth bool
 }
 
 type processorParams struct {
 	fx.In
 
 	Logger          *slog.Logger
-	Transport       mcpclient.ForwardingTransport
+	ChannelBindings map[types.Channel]ChannelBinding `optional:"true"`
 	TunnelResponder controlplane.Responder
 	MCPConfig       *config.MCPConfig
 	OAuthHTTPClient *http.Client `name:"mcp_client"`
@@ -50,7 +65,7 @@ type processorParams struct {
 
 type mcpProcessor struct {
 	logger           *slog.Logger
-	transport        mcpclient.ForwardingTransport
+	channels         map[types.Channel]channelConfig
 	tunnelResponder  controlplane.Responder
 	connectionMaxTTL time.Duration
 	metrics          *processorMetrics
@@ -59,13 +74,48 @@ type mcpProcessor struct {
 	mcpServerURL     *url.URL
 }
 
-// NewProcessor constructs a Processor that uses the provided transport.
+type channelFeatures struct {
+	supportsMCP   bool
+	supportsOAuth bool
+}
+
+type channelConfig struct {
+	transport mcpclient.ForwardingTransport
+	features  channelFeatures
+	priority  int
+	routable  func() bool
+}
+
+func (c channelConfig) isRoutable() bool {
+	if c.routable == nil {
+		return true
+	}
+	return c.routable()
+}
+
+func missingRequiredChannels(channels map[types.Channel]channelConfig) []types.Channel {
+	missing := make([]types.Channel, 0, len(requiredProcessorChannels))
+	for _, required := range requiredProcessorChannels {
+		if _, ok := channels[required]; !ok {
+			missing = append(missing, required)
+		}
+	}
+	return missing
+}
+
+func channelNames(channels []types.Channel) []string {
+	names := make([]string, 0, len(channels))
+	for _, channelName := range channels {
+		names = append(names, channelName.String())
+	}
+	sort.Strings(names)
+	return names
+}
+
+// NewProcessor constructs a Processor from channel bindings.
 func NewProcessor(p processorParams) (Processor, error) {
 	if p.Logger == nil {
 		return nil, fmt.Errorf("dispatcher processor: nil logger")
-	}
-	if p.Transport == nil {
-		return nil, fmt.Errorf("dispatcher processor: nil transport")
 	}
 	if p.TunnelResponder == nil {
 		return nil, fmt.Errorf("dispatcher processor: nil responder")
@@ -102,9 +152,81 @@ func NewProcessor(p processorParams) (Processor, error) {
 		return nil, fmt.Errorf("dispatcher processor: missing MCP server URL")
 	}
 
+	channels := make(map[types.Channel]channelConfig, len(p.ChannelBindings))
+	for rawChannelName, binding := range p.ChannelBindings {
+		channelName := rawChannelName.Canonical()
+		if channelName == "" {
+			return nil, fmt.Errorf("dispatcher processor: channel name %q is invalid after normalization", rawChannelName)
+		}
+		if _, exists := channels[channelName]; exists {
+			return nil, fmt.Errorf("dispatcher processor: duplicate channel %q", channelName)
+		}
+		if binding.SupportsMCP && binding.Transport == nil {
+			return nil, fmt.Errorf("dispatcher processor: nil transport for channel %q with supportsMCP=true", channelName)
+		}
+		if channelName != types.DefaultChannel && binding.SupportsOAuth {
+			return nil, fmt.Errorf("dispatcher processor: non-main channel %q must not set supportsOAuth=true", channelName)
+		}
+
+		channels[channelName] = channelConfig{
+			transport: binding.Transport,
+			features: channelFeatures{
+				supportsMCP:   binding.SupportsMCP,
+				supportsOAuth: binding.SupportsOAuth,
+			},
+			priority: binding.Priority,
+			routable: binding.Routable,
+		}
+	}
+
+	missing := missingRequiredChannels(channels)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"dispatcher processor: missing required channels %v (required channels: %v)",
+			channelNames(missing),
+			channelNames(requiredProcessorChannels),
+		)
+	}
+	for _, channelName := range requiredProcessorChannels {
+		cfg := channels[channelName]
+		if !cfg.features.supportsMCP {
+			return nil, fmt.Errorf(
+				"dispatcher processor: required channel %q must set supportsMCP=true (required channels: %v)",
+				channelName,
+				channelNames(requiredProcessorChannels),
+			)
+		}
+	}
+
+	type channelRegistration struct {
+		Name          string `json:"name"`
+		Priority      int    `json:"priority"`
+		RoutableNow   bool   `json:"routable_now"`
+		SupportsMCP   bool   `json:"supports_mcp"`
+		SupportsOAuth bool   `json:"supports_oauth"`
+	}
+
+	registered := make([]channelRegistration, 0, len(channels))
+	for channelName, cfg := range channels {
+		registered = append(registered, channelRegistration{
+			Name:          channelName.String(),
+			Priority:      cfg.priority,
+			RoutableNow:   cfg.isRoutable(),
+			SupportsMCP:   cfg.features.supportsMCP,
+			SupportsOAuth: cfg.features.supportsOAuth,
+		})
+	}
+	sort.SliceStable(registered, func(i, j int) bool {
+		if registered[i].Priority != registered[j].Priority {
+			return registered[i].Priority < registered[j].Priority
+		}
+		return registered[i].Name < registered[j].Name
+	})
+	baseLogger.Info("dispatcher channels registered", slog.Any("channels", registered))
+
 	return &mcpProcessor{
 		logger:           baseLogger,
-		transport:        p.Transport,
+		channels:         channels,
 		tunnelResponder:  p.TunnelResponder,
 		connectionMaxTTL: p.MCPConfig.ConnectionMaxTTL,
 		metrics:          processorMetrics,
@@ -138,33 +260,43 @@ func (p *mcpProcessor) Process(ctx context.Context, cmd controlplane.PolledComma
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	channel := cmd.Channel()
-	if channel == "" {
+	rawChannel := cmd.Channel()
+	channel := rawChannel.Canonical()
+	if rawChannel == "" {
 		channel = types.DefaultChannel
 	}
-	if channel != types.DefaultChannel {
+	ctx = tunnelctx.ContextWithChannel(ctx, channel)
+
+	channelCfg, ok := p.channels[channel]
+	if !ok || !channelCfg.isRoutable() {
+		return p.rejectUnsupportedChannel(ctx, logger, cmd, channel)
+	}
+	if !channelCfg.features.supportsMCP {
 		return p.rejectUnsupportedChannel(ctx, logger, cmd, channel)
 	}
 
 	switch typedCmd := cmd.(type) {
 	case controlplane.JsonRpcCommand:
-		return p.processJsonRpcCommand(ctx, logger, typedCmd)
+		return p.processJsonRpcCommand(ctx, logger, typedCmd, channelCfg.transport, channel)
 	case controlplane.OauthDiscoveryCommand:
-		return p.processOauthDiscoveryCommand(ctx, logger, typedCmd)
+		if channel != types.DefaultChannel || !channelCfg.features.supportsOAuth {
+			return p.rejectUnsupportedChannel(ctx, logger, cmd, channel)
+		}
+		return p.processOauthDiscoveryCommand(ctx, logger, typedCmd, channel)
 	default:
 		logger.ErrorContext(ctx, "polled command was not a JSON-RPC command")
 		return fmt.Errorf("unexpected command type %T", cmd)
 	}
 }
 
-func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slog.Logger, cmd controlplane.PolledCommand, channel string) error {
+func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slog.Logger, cmd controlplane.PolledCommand, channel types.Channel) error {
 	statusCode := http.StatusBadRequest
 	err := fmt.Errorf("unsupported channel %q", channel)
-	logger.ErrorContext(ctx, "dispatcher received unsupported channel", slog.String("channel", channel))
+	logger.ErrorContext(ctx, "dispatcher received unsupported channel", slog.String("channel", channel.String()))
 
 	attrs := []attribute.KeyValue{
 		attribute.String("tunnel_id", p.tunnelID.String()),
-		attribute.String("channel", channel),
+		attribute.String("channel", channel.String()),
 	}
 	switch cmd.(type) {
 	case controlplane.JsonRpcCommand:
@@ -185,7 +317,7 @@ func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slo
 			if encodeErr != nil {
 				return fmt.Errorf("build channel error response: %w", encodeErr)
 			}
-			response = types.NewTunnelResponse(encoded, statusCode, http.Header{})
+			response = types.NewTunnelResponse(channel, encoded, statusCode, http.Header{})
 		}
 	case controlplane.OauthDiscoveryCommand:
 		payload, encodeErr := json.Marshal(map[string]any{
@@ -198,13 +330,12 @@ func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slo
 		if encodeErr != nil {
 			return fmt.Errorf("encode channel error response: %w", encodeErr)
 		}
-		response = types.NewOAuthDiscoveryResponse(payload, statusCode, http.Header{})
+		response = types.NewOAuthDiscoveryResponse(channel, payload, statusCode, http.Header{})
 	}
 
 	if response == nil {
 		return fmt.Errorf("unsupported channel %q for command type %T", channel, cmd)
 	}
-
 	if _, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), response); postErr != nil {
 		logger.ErrorContext(ctx, "failed to post channel error response to control plane", slog.String("error", postErr.Error()))
 		return postErr
@@ -213,7 +344,7 @@ func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slo
 	return err
 }
 
-func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.Logger, cmd controlplane.JsonRpcCommand) error {
+func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.Logger, cmd controlplane.JsonRpcCommand, transport mcpclient.ForwardingTransport, channel types.Channel) error {
 	requestID := cmd.RequestID()
 	req, ok := cmd.Message().(*jsonrpc.Request)
 	if !ok {
@@ -222,7 +353,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	}
 
 	// Establish MCP connection only for JSON-RPC commands.
-	conn, err := p.transport.Connect(ctx)
+	conn, err := transport.Connect(ctx)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to connect to MCP transport", slog.String("error", err.Error()))
 		return fmt.Errorf("connect: %w", err)
@@ -235,6 +366,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	}
 
 	requestKindAttrs := requestKindAttributes(req)
+	requestKindAttrs = append(requestKindAttrs, attribute.String("channel", channel.String()))
 	latencyRecorded := &latencyFlags{}
 
 	//TODO(denyska): upon receiving SessionTermination command, issue conn.Close() that will do DELETE
@@ -258,7 +390,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 			respHeader.Set("Content-Type", "application/json")
 		}
 
-		tunnelResponse := types.NewTunnelResponse(encodedError, status, respHeader)
+		tunnelResponse := types.NewTunnelResponse(channel, encodedError, status, respHeader)
 		if tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, requestID, tunnelResponse); postErr != nil {
 			attrs := []any{slog.String("error", postErr.Error())}
 			if tsRequestID != "" {
@@ -283,7 +415,8 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	if isNotification {
 		logger.DebugContext(ctx, "dispatcher forwarded notification to MCP server; acknowledging without waiting for response. conn.Write returned w/o error")
 
-		if tsRequestID, err := p.tunnelResponder.PostResponse(ctx, requestID, types.NewNotificationAck(statusCode, respHeader)); err != nil {
+		notificationAck := types.NewNotificationAck(channel, statusCode, respHeader)
+		if tsRequestID, err := p.tunnelResponder.PostResponse(ctx, requestID, notificationAck); err != nil {
 			attrs := []any{slog.String("error", err.Error())}
 			if tsRequestID != "" {
 				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
@@ -301,13 +434,13 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		return nil
 	}
 
-	p.forwardResponses(ctx, conn, logger, cmd, statusCode, respHeader, requestKindAttrs, latencyRecorded)
+	p.forwardResponses(ctx, conn, logger, cmd, statusCode, respHeader, requestKindAttrs, latencyRecorded, channel)
 	logger.InfoContext(ctx, "dispatcher forwarded command to MCP server")
 
 	return nil
 }
 
-func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger *slog.Logger, cmd controlplane.OauthDiscoveryCommand) error {
+func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger *slog.Logger, cmd controlplane.OauthDiscoveryCommand, channel types.Channel) error {
 	if p.mcpServerURL == nil {
 		return fmt.Errorf("dispatcher processor: missing MCP server URL")
 	}
@@ -325,7 +458,6 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 		logger.ErrorContext(ctx, "failed to fetch OAuth discovery ProtectedResourceMetaData", slog.String("error", err.Error()))
 		return err
 	}
-
 	tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), resp)
 	if postErr != nil {
 		attrs := []any{slog.String("error", postErr.Error())}
@@ -343,6 +475,7 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 	latencyRecorded := &latencyFlags{}
 	metricAttrs := []attribute.KeyValue{
 		attribute.String("request_kind", "oauth_discovery"),
+		attribute.String("channel", channel.String()),
 	}
 	p.metrics.recordCommandLatencies(ctx, p.tunnelID, resp.ResponseCode(), metricAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
 
@@ -353,7 +486,7 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 
 // forwardResponses streams MCP responses for the request to the control plane
 // while respecting the configured TTL window.
-func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.ForwardingConnection, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, metricAttrs []attribute.KeyValue, latencyRecorded *latencyFlags) {
+func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.ForwardingConnection, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, metricAttrs []attribute.KeyValue, latencyRecorded *latencyFlags, channel types.Channel) {
 	ttlCtx := ctx
 	cancel := func() {}
 	if p.connectionMaxTTL > 0 {
@@ -387,7 +520,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		}
 
 		if notifyMsg, ok := asNotification(msg); ok {
-			if err := p.forwardNotification(ctx, logger, cmd, responseCode, responseHeaders, notifyMsg); err != nil {
+			if err := p.forwardNotification(ctx, logger, cmd, responseCode, responseHeaders, notifyMsg, channel); err != nil {
 				return
 			}
 			continue
@@ -442,7 +575,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			responseHeaders.Set("Content-Type", "application/json")
 		}
 
-		tunnelResponse := types.NewTunnelResponse(encodedResponse, responseCode, responseHeaders)
+		tunnelResponse := types.NewTunnelResponse(channel, encodedResponse, responseCode, responseHeaders)
 
 		if tsRequestID, err := p.tunnelResponder.PostResponse(ttlCtx, cmd.RequestID(), tunnelResponse); err != nil {
 			attrs := []any{slog.String("error", err.Error())}
@@ -467,7 +600,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 	}
 }
 
-func (p *mcpProcessor) forwardNotification(ctx context.Context, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, notifyMsg *jsonrpc.Request) error {
+func (p *mcpProcessor) forwardNotification(ctx context.Context, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, notifyMsg *jsonrpc.Request, channel types.Channel) error {
 	logger.DebugContext(
 		ctx,
 		"dispatcher received notification from MCP server; forwarding to control plane",
@@ -490,7 +623,7 @@ func (p *mcpProcessor) forwardNotification(ctx context.Context, logger *slog.Log
 		notificationHeaders.Set("Content-Type", "text/event-stream")
 	}
 
-	tunnelNotification := types.NewJSONRPCNotification(encodedNotification, responseCode, notificationHeaders)
+	tunnelNotification := types.NewJSONRPCNotification(channel, encodedNotification, responseCode, notificationHeaders)
 	if tsRequestID, err := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), tunnelNotification); err != nil {
 		attrs := []any{slog.String("error", err.Error())}
 		if tsRequestID != "" {

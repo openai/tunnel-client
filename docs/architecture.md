@@ -34,6 +34,8 @@ flowchart LR
   - `pkg/dispatcher/internal`: worker pool sized by `mcp.max-concurrent-requests`, forwards to MCP, posts responses back.
 - **MCP client**
   - `pkg/mcpclient`: Streamable HTTP MCP transport, header forwarding, startup probe.
+- **Channel state**
+  - `pkg/adminui`: embeds the admin UI, including runtime channel status reporting.
 - **Ops surface**
   - `pkg/health`: `/healthz`, `/readyz`, `/metrics`.
   - `pkg/metrics`: Prometheus exporter + OTel meter provider.
@@ -46,6 +48,10 @@ flowchart LR
 - **Progress/notifications**: MCP JSON-RPC notifications are posted via `/v1/tunnel/{tunnel_id}/response` using `resp_type=jsonrpc_notify` and are forwarded to the connector when SSE is enabled.
 - **Streaming semantics**: the client can stream intermediate JSON-RPC notifications over SSE when the connector requests `text/event-stream`, then posts a final JSON-RPC response to close the stream.
 - **Connector GET not supported**: `/v1/mcp` only accepts POST requests; `GET /v1/mcp` does not provide an SSE stream.
+- **Channel routing**:
+  - `main` commands route to the configured MCP transport (`http-streamable`, `stdio`, or `in-memory`).
+  - `harpoon` commands route to the embedded Harpoon server (in-memory transport) and are enabled only when at least one Harpoon target is registered.
+  - OAuth discovery is only supported on `main`; `harpoon` rejects `oauth_discovery` commands with `unsupported_channel`.
 
 ## OAuth-protected MCP
 

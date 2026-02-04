@@ -20,8 +20,10 @@ The tunnel client is an enterprise-hosted agent that connects your internal MCP 
 - On startup, it fetches tunnel metadata for operator visibility:
   - `GET /v1/tunnels/{tunnel_id}`
 - It forwards the received JSON-RPC requests to your configured MCP server over HTTP(S).
+- It routes commands by channel: `main` always targets the configured MCP server, while `harpoon` is enabled only when Harpoon has registered targets.
 - On startup, it fetches OAuth ProtectedResourceMetaData from the MCP server for diagnostics.
 - It exposes an **admin/health server** (`/healthz`, `/readyz`, `/metrics`) and a lightweight **admin UI** (`/ui`) for operational status.
+- The admin UI Overview reports channel availability and reasons when channels are disabled.
 - It embeds the **harpoon MCP server** to provide a labeled, allowlisted outbound HTTP client for internal tooling.
 
 ## CLI

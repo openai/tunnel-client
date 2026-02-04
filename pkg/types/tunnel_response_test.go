@@ -9,7 +9,7 @@ import (
 
 func TestTunnelResponseValidateJSONRPC(t *testing.T) {
 	t.Run("valid response", func(t *testing.T) {
-		tr := NewTunnelResponse(json.RawMessage(`{"jsonrpc":"2.0","id":"1","result":{}}`), 200, nil)
+		tr := NewTunnelResponse(DefaultChannel, json.RawMessage(`{"jsonrpc":"2.0","id":"1","result":{}}`), 200, nil)
 		require.NoError(t, tr.Validate())
 	})
 
@@ -25,7 +25,7 @@ func TestTunnelResponseValidateJSONRPC(t *testing.T) {
 
 func TestTunnelResponseValidateNotificationAck(t *testing.T) {
 	t.Run("valid ack", func(t *testing.T) {
-		require.NoError(t, NewNotificationAck(204, nil).Validate())
+		require.NoError(t, NewNotificationAck(DefaultChannel, 204, nil).Validate())
 	})
 
 	t.Run("ack with payload", func(t *testing.T) {
@@ -41,7 +41,7 @@ func TestTunnelResponseValidateNotificationAck(t *testing.T) {
 
 func TestTunnelResponseValidateJSONRPCNotification(t *testing.T) {
 	t.Run("valid notification", func(t *testing.T) {
-		tr := NewJSONRPCNotification(json.RawMessage(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), 200, nil)
+		tr := NewJSONRPCNotification(DefaultChannel, json.RawMessage(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), 200, nil)
 		require.NoError(t, tr.Validate())
 	})
 
@@ -55,7 +55,7 @@ func TestTunnelResponseValidateJSONRPCNotification(t *testing.T) {
 
 func TestTunnelResponseValidateOAuthDiscovery(t *testing.T) {
 	t.Run("valid discovery response", func(t *testing.T) {
-		tr := NewOAuthDiscoveryResponse(json.RawMessage(`{"resource":"https://example.com"}`), 200, nil)
+		tr := NewOAuthDiscoveryResponse(DefaultChannel, json.RawMessage(`{"resource":"https://example.com"}`), 200, nil)
 		require.NoError(t, tr.Validate())
 	})
 
@@ -65,4 +65,14 @@ func TestTunnelResponseValidateOAuthDiscovery(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "oauth discovery response is required")
 	})
+}
+
+func TestTunnelResponseValidateChannel(t *testing.T) {
+	tr := NewTunnelResponse(DefaultChannel, json.RawMessage(`{"jsonrpc":"2.0","id":"1","result":{}}`), 200, nil)
+	require.NoError(t, tr.Validate())
+
+	tr = NewTunnelResponse(Channel("bad channel"), json.RawMessage(`{"jsonrpc":"2.0","id":"1","result":{}}`), 200, nil)
+	err := tr.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid channel")
 }

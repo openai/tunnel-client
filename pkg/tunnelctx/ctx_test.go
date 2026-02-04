@@ -17,6 +17,7 @@ func TestContextIdentifierHelpers(t *testing.T) {
 		requestID              = "req-123"
 		sessionID              = "session-abc"
 		shardToken             = "shard-xyz"
+		channel                = types.ChannelHarpoon
 	)
 
 	ctx := context.Background()
@@ -25,6 +26,7 @@ func TestContextIdentifierHelpers(t *testing.T) {
 	ctx = tunnelctx.ContextWithControlPlaneCommandRequestID(ctx, types.ControlPlaneRequestID(controlPlaneRequestID))
 	ctx = tunnelctx.ContextWithTunnelServiceRequestID(ctx, types.TunnelServiceRequestID(tunnelServiceRequestID))
 	ctx = tunnelctx.ContextWithShardToken(ctx, shardToken)
+	ctx = tunnelctx.ContextWithChannel(ctx, channel)
 
 	session, ok := tunnelctx.SessionIDFromContext(ctx)
 	if !ok || session != sessionID {
@@ -51,12 +53,18 @@ func TestContextIdentifierHelpers(t *testing.T) {
 		t.Fatalf("expected shard token %q, ok=%v", shardToken, ok)
 	}
 
+	channelFromCtx, ok := tunnelctx.ChannelFromContext(ctx)
+	if !ok || channelFromCtx != channel {
+		t.Fatalf("expected channel %q, ok=%v", channel, ok)
+	}
+
 	t.Run("empty values do not override", func(t *testing.T) {
 		ctx := tunnelctx.ContextWithRequestID(ctx, "")
 		ctx = tunnelctx.ContextWithSessionID(ctx, "")
 		ctx = tunnelctx.ContextWithControlPlaneCommandRequestID(ctx, "")
 		ctx = tunnelctx.ContextWithTunnelServiceRequestID(ctx, "")
 		ctx = tunnelctx.ContextWithShardToken(ctx, "")
+		ctx = tunnelctx.ContextWithChannel(ctx, "")
 
 		session, ok := tunnelctx.SessionIDFromContext(ctx)
 		if !ok || session != sessionID {
@@ -81,6 +89,11 @@ func TestContextIdentifierHelpers(t *testing.T) {
 		shardTokenFromCtx, ok := tunnelctx.ShardTokenFromContext(ctx)
 		if !ok || shardTokenFromCtx != shardToken {
 			t.Fatalf("expected existing shard token to remain, got %q ok=%v", shardTokenFromCtx, ok)
+		}
+
+		channelFromCtx, ok := tunnelctx.ChannelFromContext(ctx)
+		if !ok || channelFromCtx != channel {
+			t.Fatalf("expected existing channel to remain, got %q ok=%v", channelFromCtx, ok)
 		}
 	})
 }

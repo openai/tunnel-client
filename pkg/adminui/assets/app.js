@@ -105,6 +105,130 @@
     });
   }
 
+  function renderChannels(channels) {
+    const rows = $("channelsRows");
+    if (!rows) return;
+    rows.textContent = "";
+    if (!channels || channels.length === 0) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 6;
+      cell.className = "muted";
+      cell.textContent = "No channel data";
+      row.appendChild(cell);
+      rows.appendChild(row);
+      return;
+    }
+
+    function renderChannelDetails(details) {
+      const wrap = document.createElement("div");
+      wrap.className = "channel-detail-wrap";
+
+      const heading = document.createElement("div");
+      heading.className = "muted small";
+      heading.textContent = "Details";
+      wrap.appendChild(heading);
+
+      const kv = document.createElement("div");
+      kv.className = "channel-detail-kv";
+      details.forEach((detail) => {
+        const keyCell = document.createElement("div");
+        keyCell.className = "muted mono";
+        keyCell.textContent = detail.key || "—";
+        kv.appendChild(keyCell);
+
+        const valueCell = document.createElement("div");
+        valueCell.className = "mono";
+        valueCell.textContent = detail.value || "—";
+        kv.appendChild(valueCell);
+      });
+      wrap.appendChild(kv);
+      return wrap;
+    }
+
+    channels.forEach((ch) => {
+      const row = document.createElement("tr");
+      const nameCell = document.createElement("td");
+      nameCell.className = "mono";
+      nameCell.textContent = ch.name || "—";
+
+      const statusCell = document.createElement("td");
+      const statusBadge = document.createElement("span");
+      statusBadge.className = "badge " + (ch.enabled ? "ok" : "warn");
+      statusBadge.textContent = ch.enabled ? "enabled" : "disabled";
+      statusCell.appendChild(statusBadge);
+
+      const serverCell = document.createElement("td");
+      serverCell.className = "mono";
+      serverCell.textContent = ch.server_kind || "—";
+
+      const transportCell = document.createElement("td");
+      transportCell.className = "mono";
+      transportCell.textContent = ch.transport_kind || "—";
+
+      const reasonCell = document.createElement("td");
+      reasonCell.className = "small";
+      reasonCell.textContent = ch.reason || "—";
+
+      const details =
+        Array.isArray(ch.details) &&
+        (ch.transport_kind === "http-streamable" || ch.transport_kind === "stdio")
+          ? ch.details.filter(
+              (d) => d && (typeof d.key === "string" || typeof d.value === "string")
+            )
+          : [];
+      const hasDetails = details.length > 0;
+
+      const expandCell = document.createElement("td");
+      expandCell.className = "channel-expand-cell";
+      if (hasDetails) {
+        const toggle = document.createElement("button");
+        toggle.className = "channel-expand small";
+        toggle.textContent = "+ Details";
+        toggle.type = "button";
+        expandCell.appendChild(toggle);
+
+        const detailRow = document.createElement("tr");
+        detailRow.className = "channel-detail-row";
+        detailRow.hidden = true;
+
+        const detailPadCell = document.createElement("td");
+        detailPadCell.className = "channel-expand-cell";
+
+        const detailCell = document.createElement("td");
+        detailCell.colSpan = 5;
+        detailCell.appendChild(renderChannelDetails(details));
+
+        detailRow.appendChild(detailPadCell);
+        detailRow.appendChild(detailCell);
+
+        toggle.addEventListener("click", () => {
+          const isOpen = !detailRow.hidden;
+          detailRow.hidden = isOpen;
+          toggle.textContent = isOpen ? "+ Details" : "− Details";
+        });
+
+        row.appendChild(expandCell);
+        row.appendChild(nameCell);
+        row.appendChild(statusCell);
+        row.appendChild(serverCell);
+        row.appendChild(transportCell);
+        row.appendChild(reasonCell);
+        rows.appendChild(row);
+        rows.appendChild(detailRow);
+        return;
+      }
+      row.appendChild(expandCell);
+
+      row.appendChild(nameCell);
+      row.appendChild(statusCell);
+      row.appendChild(serverCell);
+      row.appendChild(transportCell);
+      row.appendChild(reasonCell);
+      rows.appendChild(row);
+    });
+  }
+
 
   async function refreshStatus() {
     try {
@@ -114,7 +238,6 @@
       $("vVersion").textContent = s.version || "—";
       $("vUptime").textContent = fmtUptime(s.uptime_seconds || 0);
       $("vHealthAddr").textContent = s.health_listen_addr || "—";
-      $("vMcpUrl").textContent = s.mcp_server_url || "—";
       $("vCpBase").textContent = s.control_plane_base_url || "—";
       $("vTunnelId").textContent = s.control_plane_tunnel_id || "—";
       const meta = s.tunnel_metadata || {};
@@ -126,6 +249,7 @@
       ).toString();
 
       renderWarnings(s.warnings || []);
+      renderChannels(s.channels || []);
     } catch (e) {
       $("statusJSON").textContent = "error: " + e;
     }

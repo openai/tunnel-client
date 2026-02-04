@@ -361,7 +361,7 @@ func (c *queueTestCommand) ShardToken() string {
 	return c.shardToken
 }
 
-func (c *queueTestCommand) Channel() string {
+func (c *queueTestCommand) Channel() types.Channel {
 	return types.DefaultChannel
 }
 

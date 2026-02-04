@@ -194,12 +194,18 @@ func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.
 		return "", fmt.Errorf("controlplane responder: %w", err)
 	}
 
+	channel := response.Channel()
+	if channel == "" {
+		return "", errors.New("controlplane responder: channel is required")
+	}
+
 	payload := wiretypes.TunnelResponsePayload{
 		RequestID:       requestID.String(),
 		ResponseHeaders: response.Headers(),
 		ResponseCode:    response.ResponseCode(),
 		ResponseType:    wiretypes.ResponsePayloadJSONRPC,
 	}
+	payload.Channel = channel.String()
 	if rawResponse := response.Payload(); len(rawResponse) > 0 {
 		payload.JSONResponse = rawResponse
 	}

@@ -38,6 +38,17 @@ type stdioCommandTransport struct {
 	shutdownOnce sync.Once
 }
 
+// StdioRuntimeInfo describes the active stdio MCP process details.
+type StdioRuntimeInfo struct {
+	PID     int    `json:"pid,omitempty"`
+	Command string `json:"command,omitempty"`
+}
+
+// StdioRuntimeInfoProvider exposes runtime details for stdio transport.
+type StdioRuntimeInfoProvider interface {
+	StdioRuntimeInfo() StdioRuntimeInfo
+}
+
 func newStdioCommandTransport(logger *slog.Logger, lifecycle fx.Lifecycle, shutdowner fx.Shutdowner) *stdioCommandTransport {
 	if logger != nil {
 		logger = logger.With(
@@ -231,6 +242,22 @@ func (t *stdioCommandTransport) requestShutdown() {
 			t.logWarn(context.Background(), "stdio MCP shutdown request failed", slog.String("error", err.Error()))
 		}
 	})
+}
+
+func (t *stdioCommandTransport) StdioRuntimeInfo() StdioRuntimeInfo {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	info := StdioRuntimeInfo{
+		Command: t.commandLabel,
+	}
+	if info.Command == "" && t.cmd != nil {
+		info.Command = strings.Join(t.cmd.Args, " ")
+	}
+	if t.cmd != nil && t.cmd.Process != nil {
+		info.PID = t.cmd.Process.Pid
+	}
+	return info
 }
 
 func (t *stdioCommandTransport) logInfo(ctx context.Context, msg string, attrs ...any) {

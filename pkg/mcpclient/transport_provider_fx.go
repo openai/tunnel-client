@@ -20,13 +20,27 @@ func newInjectableTransportProvider(p injectableProviderParams) TransportProvide
 type stdioProviderParams struct {
 	fx.In
 
+	CommandTransport *stdioCommandTransport
+}
+
+func newStdioTransportProvider(p stdioProviderParams) TransportProvider {
+	return stdioTransportProvider{
+		commandTransport: p.CommandTransport,
+	}
+}
+
+type stdioCommandTransportParams struct {
+	fx.In
+
 	Lifecycle  fx.Lifecycle
 	Shutdowner fx.Shutdowner
 	Logger     *slog.Logger
 }
 
-func newStdioTransportProvider(p stdioProviderParams) TransportProvider {
-	return stdioTransportProvider{
-		commandTransport: newStdioCommandTransport(p.Logger, p.Lifecycle, p.Shutdowner),
-	}
+func newStdioCommandTransportProvider(p stdioCommandTransportParams) *stdioCommandTransport {
+	return newStdioCommandTransport(p.Logger, p.Lifecycle, p.Shutdowner)
+}
+
+func newStdioRuntimeInfoProvider(transport *stdioCommandTransport) StdioRuntimeInfoProvider {
+	return transport
 }

@@ -31,7 +31,7 @@ func (s stubCommand) EnqueuedAt() time.Time      { return time.Time{} }
 func (s stubCommand) PolledAt() time.Time        { return time.Time{} }
 func (s stubCommand) Headers() http.Header       { return nil }
 func (s stubCommand) ShardToken() string         { return "" }
-func (s stubCommand) Channel() string            { return types.DefaultChannel }
+func (s stubCommand) Channel() types.Channel     { return types.DefaultChannel }
 func (s stubCommand) SessionID() (string, bool) {
 	return "", false
 }
@@ -204,7 +204,7 @@ func (u untypedCommand) EnqueuedAt() time.Time      { return time.Time{} }
 func (u untypedCommand) PolledAt() time.Time        { return time.Time{} }
 func (u untypedCommand) Headers() http.Header       { return nil }
 func (u untypedCommand) ShardToken() string         { return "" }
-func (u untypedCommand) Channel() string            { return types.DefaultChannel }
+func (u untypedCommand) Channel() types.Channel     { return types.DefaultChannel }
 func (u untypedCommand) SessionID() (string, bool)  { return "", false }
 
 func TestPollerRecordsInvalidCommandTypeDrops(t *testing.T) {
@@ -291,8 +291,8 @@ func TestBuildBasePreservesChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildBase: %v", err)
 	}
-	if base.Channel() != "harpoon" {
-		t.Fatalf("expected channel %q, got %q", "harpoon", base.Channel())
+	if base.Channel() != types.ChannelHarpoon {
+		t.Fatalf("expected channel %q, got %q", types.ChannelHarpoon, base.Channel())
 	}
 }
 

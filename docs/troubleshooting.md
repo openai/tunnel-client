@@ -32,6 +32,11 @@
 - If your MCP server uses a private CA, ensure the OS/container trust store includes it.
 - Consider temporarily enabling `--log.http-raw-unsafe` (and `--log.level=debug`) in a controlled environment to debug handshake issues.
 
+## Harpoon channel disabled (`unsupported_channel`)
+
+- `harpoon` commands return `unsupported_channel` when there are no registered Harpoon targets.
+- Confirm you have configured at least one `--harpoon-target` (or `HARPOON_TARGETS`) entry and that it passes validation.
+
 ## Performance / backlog
 
 - Increase `--control-plane.max-inflight` / `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS` to buffer more commands.
