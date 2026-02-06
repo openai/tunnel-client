@@ -12,8 +12,10 @@ import (
 
 // Bundle contains a loaded PEM CA bundle and the derived RootCAs pool.
 type Bundle struct {
-	Path    string
-	RootCAs *x509.CertPool
+	Path        string
+	RootCAs     *x509.CertPool
+	SystemTrust SystemTrustSummary
+	ExtraBundle *ExtraBundleSummary
 }
 
 var logOnce sync.Once
@@ -29,6 +31,7 @@ func LoadBundle(path string) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read CA bundle %q: %w", path, err)
 	}
+	systemTrust := systemTrustSummary()
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
 		pool = x509.NewCertPool()
@@ -36,7 +39,12 @@ func LoadBundle(path string) (*Bundle, error) {
 	if ok := pool.AppendCertsFromPEM(contents); !ok {
 		return nil, errors.New("PEM bundle contained no certificates")
 	}
-	return &Bundle{Path: path, RootCAs: pool}, nil
+	return &Bundle{
+		Path:        path,
+		RootCAs:     pool,
+		SystemTrust: systemTrust,
+		ExtraBundle: parseExtraBundle(path, contents),
+	}, nil
 }
 
 // LogBundleUsage logs that a custom CA bundle is in use. It logs at most once.

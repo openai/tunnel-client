@@ -16,7 +16,7 @@ func TestBuildHarpoonStatusDisabledWithoutTargets(t *testing.T) {
 	registry, err := harpoon.NewRegistry(newHarpoonTestLogger(), true, nil)
 	require.NoError(t, err)
 
-	out := buildHarpoonStatus(registry, &config.HarpoonConfig{})
+	out := buildHarpoonStatus(registry, &config.HarpoonConfig{}, nil)
 	require.False(t, out.Enabled)
 	require.Equal(t, "no targets configured", out.Reason)
 	require.False(t, out.CapturePayloads)
@@ -39,7 +39,7 @@ func TestBuildHarpoonStatusIncludesPolicy(t *testing.T) {
 		MaxRedirects:       4,
 	}
 
-	out := buildHarpoonStatus(registry, cfg)
+	out := buildHarpoonStatus(registry, cfg, nil)
 	require.True(t, out.Enabled)
 	require.True(t, out.CapturePayloads)
 	require.True(t, out.AllowPlaintextHTTP)

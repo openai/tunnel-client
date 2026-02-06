@@ -13,6 +13,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/controlplane"
 	"go.openai.org/api/tunnel-client/pkg/controlplane/internal"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
@@ -47,10 +48,14 @@ func newTunnelServiceClient(p fetcherParams) (clientResult, error) {
 	if err != nil {
 		return clientResult{}, err
 	}
-	logger.InfoContext(context.Background(), "control-plane proxy configured", config.ProxyLogFields(p.Config.HTTPProxy, p.Config.HTTPProxySource)...)
-	if p.Config.HTTPProxySource != config.ProxySourceEnvironment && config.EnvProxyConfigured(os.LookupEnv) {
-		logger.InfoContext(context.Background(), "control-plane proxy overrides environment proxy settings")
+	route := proxy.ResolveRoute(proxy.RouteKindControlPlane, "control-plane", p.Config.BaseURL, p.Config.HTTPProxy, p.Config.HTTPProxySource, os.LookupEnv)
+	logFields := []any{
+		slog.String("route_kind", string(route.Kind)),
+		slog.String("route_name", route.Name),
+		slog.String("target_host", route.TargetHostPort),
 	}
+	logFields = append(logFields, proxy.LogFields(route)...)
+	logger.InfoContext(context.Background(), "control-plane route resolved", logFields...)
 
 	return clientResult{
 		Fetcher:   client,

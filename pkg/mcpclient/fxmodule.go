@@ -215,7 +215,6 @@ func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *config.LoggingConfig
 		slog.String("transport", "forwarding_rt"),
 	)
 	base = tclog.NewRoundTripper(base, forwardingLogger, loggingCfg, tclog.ComponentMcpClient)
-	tlsconfig.LogBundleUsage(logger, tlsBundle)
 	return internal.NewForwardingRoundTripper(base), nil
 }
 

@@ -46,7 +46,7 @@
 
 ## TLS trust (custom CA bundle)
 
-Use a PEM CA bundle to extend the system trust store for **all** outbound TLS connections
+Use a PEM CA bundle to extend (additive to system trust) the trust store for **all** outbound TLS connections
 (control plane, MCP HTTP, OAuth discovery, and Harpoon).
 
 - **CA bundle**
@@ -69,6 +69,11 @@ Use explicit proxy flags to force tunnel-client traffic through a corporate prox
   - Note: stdio MCP bindings ignore proxy settings.
 - **Harpoon proxy**
   - Flag: `--harpoon.http-proxy=<url|env:VAR>`
+
+- **Proxy health checks**
+  - Flag: `--proxy.check-interval=60s`
+  - Env: `PROXY_CHECK_INTERVAL`
+  - Default: `60s`
 
 **Precedence (highest to lowest):**
 1. Per-target/per-channel proxy flag.
@@ -289,7 +294,7 @@ export CONTROL_PLANE_TUNNEL_ID="tunnel_<abc>"
 ### Outbound proxy CA bundle
 
 If your outbound proxy presents certificates issued by an internal PKI, add the
-proxy root CA bundle and keep TLS verification enabled:
+proxy root CA bundle (additive to system trust) and keep TLS verification enabled:
 
 ```bash
 ./bin/tunnel-client run \

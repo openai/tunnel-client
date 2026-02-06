@@ -11,6 +11,7 @@ import (
 type ProxySource string
 
 const (
+	ProxySourceNone        ProxySource = "none"
 	ProxySourceEnvironment ProxySource = "environment"
 	ProxySourceIgnored     ProxySource = "ignored"
 )

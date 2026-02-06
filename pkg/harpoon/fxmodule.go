@@ -19,6 +19,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/health"
 	"go.openai.org/api/tunnel-client/pkg/httpguard"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 )
@@ -98,7 +99,6 @@ func newHarpoonService(p harpoonParams) (harpoonOutputs, error) {
 		return harpoonOutputs{}, err
 	}
 	serverOptions = append(serverOptions, WithHTTPTransport(httpTransport))
-	tlsconfig.LogBundleUsage(logger, p.TLSBundle)
 	server, err := NewServer(p.Config, registry, buffer, logger, serverOptions...)
 	if err != nil {
 		return harpoonOutputs{}, err
@@ -123,10 +123,17 @@ func newHarpoonService(p harpoonParams) (harpoonOutputs, error) {
 				slog.Any("targets", registry.SummarizeTargets()),
 				slog.String(tclog.FieldComponent, tclog.ComponentHarpoon),
 			}
-			logFields = append(logFields, config.ProxyLogFields(p.Config.HTTPProxy, p.Config.HTTPProxySource)...)
 			logger.Info("harpoon enabled", logFields...)
-			if p.Config.HTTPProxySource != config.ProxySourceEnvironment && config.EnvProxyConfigured(os.LookupEnv) {
-				logger.Info("harpoon proxy overrides environment proxy settings", slog.String(tclog.FieldComponent, tclog.ComponentHarpoon))
+			for _, target := range targets {
+				route := proxy.ResolveRoute(proxy.RouteKindHarpoon, target.Label, target.BaseURL, p.Config.HTTPProxy, p.Config.HTTPProxySource, os.LookupEnv)
+				routeFields := []any{
+					slog.String("route_kind", string(route.Kind)),
+					slog.String("route_name", route.Name),
+					slog.String("target_host", route.TargetHostPort),
+					slog.String(tclog.FieldComponent, tclog.ComponentHarpoon),
+				}
+				routeFields = append(routeFields, proxy.LogFields(route)...)
+				logger.Info("harpoon route resolved", routeFields...)
 			}
 			go func() {
 				if err := mcpServer.Run(ctx, serverTransport); err != nil {

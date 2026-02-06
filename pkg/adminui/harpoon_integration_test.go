@@ -64,7 +64,7 @@ func TestHarpoonAdminUIEndpointsPolling(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/harpoon/status", handleHarpoonStatus(registry, cfg))
+	mux.HandleFunc("/api/harpoon/status", handleHarpoonStatus(registry, cfg, nil))
 	mux.HandleFunc("/api/harpoon/targets", handleHarpoonTargets(registry))
 	mux.HandleFunc("/api/harpoon/calls", handleHarpoonCalls(buffer, cfg))
 

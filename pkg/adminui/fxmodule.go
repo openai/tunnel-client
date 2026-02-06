@@ -17,6 +17,9 @@ import (
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	"go.openai.org/api/tunnel-client/pkg/mcpclient"
 	"go.openai.org/api/tunnel-client/pkg/oauth"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
+	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
@@ -49,6 +52,8 @@ type routeParams struct {
 	HarpoonBuffer *harpoon.CallBuffer
 	HarpoonReg    *harpoon.Registry
 	StdioInfo     mcpclient.ChannelStdioRuntimeInfoProvider `optional:"true"`
+	ProxyHealth   proxyhealth.Snapshotter                   `optional:"true"`
+	TLSBundle     *tlsconfig.Bundle
 }
 
 type statusResponse struct {
@@ -63,6 +68,8 @@ type statusResponse struct {
 	MCPServerURL            string                       `json:"mcp_server_url,omitempty"`
 	MCPResourceMetadataURLs []string                     `json:"mcp_resource_metadata_urls,omitempty"`
 	Channels                []ChannelStatus              `json:"channels,omitempty"`
+	ControlPlaneRoute       *proxy.RouteSummary          `json:"control_plane_route,omitempty"`
+	MCPRoutes               []proxy.RouteSummary         `json:"mcp_routes,omitempty"`
 	RawHTTPLoggingEnabled   bool                         `json:"raw_http_logging_enabled"`
 	TunnelMetadata          *controlplane.TunnelMetadata `json:"tunnel_metadata,omitempty"`
 	MetadataError           string                       `json:"tunnel_metadata_error,omitempty"`
@@ -99,12 +106,13 @@ func registerRoutes(p routeParams) error {
 	gmux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildStatus(p))
 	})
+	gmux.HandleFunc("/api/system", handleSystem(p))
 	gmux.HandleFunc("/api/oauth", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildOAuthStatus(p))
 	})
 	gmux.HandleFunc("/api/logs", handleLogsJSON(p.Buffer))
 	gmux.HandleFunc("/api/logs/stream", handleLogsStream(p.Buffer, streamCtx))
-	gmux.HandleFunc("/api/harpoon/status", handleHarpoonStatus(p.HarpoonReg, p.HarpoonConfig))
+	gmux.HandleFunc("/api/harpoon/status", handleHarpoonStatus(p.HarpoonReg, p.HarpoonConfig, p.ProxyHealth))
 	gmux.HandleFunc("/api/harpoon/targets", handleHarpoonTargets(p.HarpoonReg))
 	gmux.HandleFunc("/api/harpoon/calls", handleHarpoonCalls(p.HarpoonBuffer, p.HarpoonConfig))
 	gmux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +169,11 @@ func buildStatus(p routeParams) statusResponse {
 		}
 	}
 	out.Channels = BuildChannelStatuses(p.MCPConfig, p.HarpoonReg, p.StdioInfo)
+	if p.ProxyHealth != nil {
+		controlRoute, mcpRoutes := splitProxyRoutes(p.ProxyHealth.RouteSummaries())
+		out.ControlPlaneRoute = controlRoute
+		out.MCPRoutes = mcpRoutes
+	}
 	if p.LoggingConfig != nil {
 		out.RawHTTPLoggingEnabled = p.LoggingConfig.HTTPRawUnsafe
 		if p.LoggingConfig.HTTPRawUnsafe {

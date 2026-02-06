@@ -49,6 +49,7 @@ const (
 	defaultControlPlaneMaxInFlight            = 20
 	maxControlPlaneMaxInFlight                = 10000
 	defaultControlPlanePollTimeout            = 30 * time.Second
+	defaultProxyCheckInterval                 = 60 * time.Second
 	defaultLogLevel                           = "info"
 	defaultLogFormat                LogFormat = LogFormatUnset
 	defaultHealthListenAddr                   = ":8080"
@@ -80,6 +81,7 @@ type Config struct {
 	MCP          MCPConfig
 	AdminUI      AdminUIConfig
 	Harpoon      HarpoonConfig
+	ProxyHealth  ProxyHealthConfig
 	TLS          *tlsconfig.Bundle
 }
 
@@ -187,6 +189,11 @@ type HarpoonConfig struct {
 	HTTPProxySource      ProxySource
 }
 
+// ProxyHealthConfig controls proxy connectivity checks.
+type ProxyHealthConfig struct {
+	CheckInterval time.Duration
+}
+
 // HarpoonHostClassifierConfig controls which hosts are treated as private.
 type HarpoonHostClassifierConfig struct {
 	IncludeSuffix   []string
@@ -256,7 +263,8 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  OPENAI_API_KEY\tAPI key env var used when CONTROL_PLANE_API_KEY unset")
 	_, _ = fmt.Fprintln(fs.Output(), "  ALLOW_REMOTE_UI\tSet to true to allow non-loopback access to the embedded web UI (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  OPEN_WEB_UI\tSet to true to open the embedded web UI in a browser on startup (optional)")
-	_, _ = fmt.Fprintln(fs.Output(), "  CA_BUNDLE\tPath to a PEM CA bundle used for outbound TLS connections (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  CA_BUNDLE\tPath to a PEM CA bundle used for outbound TLS connections (additive to system trust) (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  PROXY_CHECK_INTERVAL\tInterval between proxy connectivity checks (optional)")
 }
 
 // RegisterFlags attaches all supported CLI flags to the provided flag set.
@@ -279,6 +287,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("open-web-ui", false, "Open the embedded web UI in your default browser on startup (env.OPEN_WEB_UI)")
 	fs.String("pid.file", "", "File to write the tunnel-client process ID to (env.PID_FILE)")
 	fs.String("http-proxy", "", "Global outbound HTTP proxy (applies to control-plane, MCP, and Harpoon) (format <url|env:VAR>)")
+	fs.Duration("proxy.check-interval", defaultProxyCheckInterval, "Interval between proxy connectivity checks (env.PROXY_CHECK_INTERVAL)")
 	fs.StringArray("mcp.server-url", nil, "Target MCP server URL (repeatable; format url=...,channel=...,http-proxy=...) (env.MCP_SERVER_URL)")
 	fs.StringArray("mcp.command", nil, "Command to launch an MCP server over stdio (repeatable; format command=...,channel=...) (env.MCP_COMMAND)")
 	fs.String("mcp.http-proxy", "", "Outbound HTTP proxy for MCP (format <url|env:VAR>)")
@@ -348,6 +357,11 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		return nil, err
 	}
 
+	proxyHealth, err := buildProxyHealthConfig(fs, lookupEnv)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		ControlPlane: controlPlane,
 		Logging:      logging,
@@ -356,6 +370,7 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		MCP:          mcp,
 		AdminUI:      adminUI,
 		Harpoon:      harpoon,
+		ProxyHealth:  proxyHealth,
 		TLS:          tlsBundle,
 	}
 
@@ -403,14 +418,14 @@ func resolveProxyWithFallback(fs *pflag.FlagSet, lookupEnv func(string) (string,
 	if fallback != nil {
 		return fallback, fallbackSource, nil
 	}
-	return nil, ProxySourceEnvironment, nil
+	return nil, ProxySourceNone, nil
 }
 
 func registerTLSFlags(fs *pflag.FlagSet) {
 	if fs == nil {
 		return
 	}
-	fs.String("ca-bundle", "", "Path to PEM CA bundle for outbound TLS trust (env.CA_BUNDLE)")
+	fs.String("ca-bundle", "", "Path to PEM CA bundle for outbound TLS trust (additive to system trust) (env.CA_BUNDLE)")
 }
 
 func buildTLSBundle(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (*tlsconfig.Bundle, error) {
@@ -766,6 +781,21 @@ func buildHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool))
 	}
 }
 
+func buildProxyHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (ProxyHealthConfig, error) {
+	raw := firstSet(
+		getValue(fs, "proxy.check-interval"),
+		envOrDefault(lookupEnv, "PROXY_CHECK_INTERVAL", defaultProxyCheckInterval.String()),
+	)
+	interval, err := time.ParseDuration(raw)
+	if err != nil {
+		return ProxyHealthConfig{}, fmt.Errorf("invalid proxy.check-interval: %w", err)
+	}
+	if interval <= 0 {
+		return ProxyHealthConfig{}, errors.New("proxy.check-interval must be positive")
+	}
+	return ProxyHealthConfig{CheckInterval: interval}, nil
+}
+
 func buildProcessConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) ProcessConfig {
 	pidFile := firstSet(
 		getValue(fs, "pid.file"),
@@ -906,7 +936,7 @@ func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), gl
 			bindings[i].HTTPProxySource = globalProxySource
 			continue
 		}
-		bindings[i].HTTPProxySource = ProxySourceEnvironment
+		bindings[i].HTTPProxySource = ProxySourceNone
 	}
 
 	cfg := MCPConfig{

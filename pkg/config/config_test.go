@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -1350,6 +1351,63 @@ func TestLoadRejectsStdioProxy(t *testing.T) {
 	}))
 	if err == nil {
 		t.Fatalf("expected error for stdio http-proxy")
+	}
+}
+
+func TestProxyCheckIntervalDefaults(t *testing.T) {
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "channel=main,url=https://mcp.example",
+	}
+	cfg, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ProxyHealth.CheckInterval != 60*time.Second {
+		t.Fatalf("unexpected proxy check interval: %v", cfg.ProxyHealth.CheckInterval)
+	}
+}
+
+func TestProxyCheckIntervalFlag(t *testing.T) {
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "channel=main,url=https://mcp.example",
+		"--proxy.check-interval", "45s",
+	}
+	cfg, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ProxyHealth.CheckInterval != 45*time.Second {
+		t.Fatalf("unexpected proxy check interval: %v", cfg.ProxyHealth.CheckInterval)
+	}
+}
+
+func TestProxyCheckIntervalInvalid(t *testing.T) {
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "channel=main,url=https://mcp.example",
+	}
+	_, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+		"PROXY_CHECK_INTERVAL":  "-5s",
+	}))
+	if err == nil {
+		t.Fatalf("expected error for invalid proxy check interval")
+	}
+}
+
+func TestCABundleHelpMentionsAdditive(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	buf := &bytes.Buffer{}
+	WriteUsage(fs, buf)
+	if !strings.Contains(buf.String(), "additive to system trust") {
+		t.Fatalf("expected additive CA bundle help text")
 	}
 }
 

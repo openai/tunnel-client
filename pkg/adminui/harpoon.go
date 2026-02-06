@@ -7,15 +7,18 @@ import (
 
 	"go.openai.org/api/tunnel-client/pkg/config"
 	"go.openai.org/api/tunnel-client/pkg/harpoon"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
+	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
 )
 
 type harpoonStatusResponse struct {
-	Enabled            bool   `json:"enabled"`
-	Reason             string `json:"reason,omitempty"`
-	CapturePayloads    bool   `json:"capture_payloads"`
-	AllowPlaintextHTTP bool   `json:"allow_plaintext_http"`
-	MaxResponseBytes   int    `json:"max_response_bytes"`
-	MaxRedirects       int    `json:"max_redirects"`
+	Enabled            bool                 `json:"enabled"`
+	Reason             string               `json:"reason,omitempty"`
+	CapturePayloads    bool                 `json:"capture_payloads"`
+	AllowPlaintextHTTP bool                 `json:"allow_plaintext_http"`
+	MaxResponseBytes   int                  `json:"max_response_bytes"`
+	MaxRedirects       int                  `json:"max_redirects"`
+	ProxyRoutes        []proxy.RouteSummary `json:"proxy_routes,omitempty"`
 }
 
 type harpoonTargetsResponse struct {
@@ -50,9 +53,9 @@ type harpoonCallResponse struct {
 	BodyIsBase64            *bool     `json:"body_is_base64,omitempty"`
 }
 
-func handleHarpoonStatus(registry *harpoon.Registry, cfg *config.HarpoonConfig) http.HandlerFunc {
+func handleHarpoonStatus(registry *harpoon.Registry, cfg *config.HarpoonConfig, proxySnapshot proxyhealth.Snapshotter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, buildHarpoonStatus(registry, cfg))
+		writeJSON(w, http.StatusOK, buildHarpoonStatus(registry, cfg, proxySnapshot))
 	}
 }
 
@@ -73,7 +76,7 @@ func handleHarpoonCalls(buffer *harpoon.CallBuffer, cfg *config.HarpoonConfig) h
 	}
 }
 
-func buildHarpoonStatus(registry *harpoon.Registry, cfg *config.HarpoonConfig) harpoonStatusResponse {
+func buildHarpoonStatus(registry *harpoon.Registry, cfg *config.HarpoonConfig, proxySnapshot proxyhealth.Snapshotter) harpoonStatusResponse {
 	enabled := false
 	reason := ""
 	if registry == nil {
@@ -102,6 +105,7 @@ func buildHarpoonStatus(registry *harpoon.Registry, cfg *config.HarpoonConfig) h
 		AllowPlaintextHTTP: allowPlaintext,
 		MaxResponseBytes:   maxResponse,
 		MaxRedirects:       maxRedirects,
+		ProxyRoutes:        harpoonProxyRoutes(proxySnapshot),
 	}
 }
 

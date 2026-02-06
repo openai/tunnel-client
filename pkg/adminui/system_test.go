@@ -1,0 +1,69 @@
+package adminui
+
+import (
+	"testing"
+
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
+	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
+)
+
+type stubProxySnapshot struct {
+	routes   []proxy.RouteSummary
+	identity []proxy.IdentityRecord
+	health   []proxyhealth.RouteHealthSummary
+}
+
+func (s stubProxySnapshot) RouteSummaries() []proxy.RouteSummary {
+	return s.routes
+}
+
+func (s stubProxySnapshot) HealthSummaries() []proxyhealth.RouteHealthSummary {
+	return s.health
+}
+
+func (s stubProxySnapshot) IdentityMap() []proxy.IdentityRecord {
+	return s.identity
+}
+
+func TestBuildStatusProxyRoutes(t *testing.T) {
+	snapshot := stubProxySnapshot{
+		routes: []proxy.RouteSummary{
+			{Kind: string(proxy.RouteKindControlPlane), Name: "control", RouteMode: "direct", ProxySource: "none"},
+			{Kind: string(proxy.RouteKindMCPChannel), Name: "main", RouteMode: "proxy", ProxySource: "env:HTTPS_PROXY"},
+		},
+	}
+	status := buildStatus(routeParams{ProxyHealth: snapshot})
+	if status.ControlPlaneRoute == nil {
+		t.Fatalf("expected control plane route to be set")
+	}
+	if len(status.MCPRoutes) != 1 {
+		t.Fatalf("expected 1 mcp route, got %d", len(status.MCPRoutes))
+	}
+}
+
+func TestBuildHarpoonStatusProxyRoutes(t *testing.T) {
+	snapshot := stubProxySnapshot{
+		routes: []proxy.RouteSummary{
+			{Kind: string(proxy.RouteKindHarpoon), Name: "target", RouteMode: "proxy", ProxySource: "env:HTTP_PROXY"},
+		},
+	}
+	status := buildHarpoonStatus(nil, &config.HarpoonConfig{}, snapshot)
+	if len(status.ProxyRoutes) != 1 {
+		t.Fatalf("expected 1 harpoon proxy route, got %d", len(status.ProxyRoutes))
+	}
+}
+
+func TestBuildSystemProxySnapshot(t *testing.T) {
+	snapshot := stubProxySnapshot{
+		identity: []proxy.IdentityRecord{{ProxyID: "id", ProxyURL: "http://proxy:8080", ProxySource: "env:HTTP_PROXY"}},
+		health:   []proxyhealth.RouteHealthSummary{{HealthState: string(proxyhealth.HealthStateDirect)}},
+	}
+	system := buildSystem(routeParams{ProxyHealth: snapshot})
+	if len(system.ProxyIdentityMap) != 1 {
+		t.Fatalf("expected identity map")
+	}
+	if len(system.ProxyHealth) != 1 {
+		t.Fatalf("expected proxy health entries")
+	}
+}

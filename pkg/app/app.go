@@ -16,6 +16,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/metrics"
 	"go.openai.org/api/tunnel-client/pkg/oauth"
 	"go.openai.org/api/tunnel-client/pkg/process"
+	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
@@ -36,6 +37,7 @@ func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
 			&cfg.MCP,
 			&cfg.AdminUI,
 			&cfg.Harpoon,
+			&cfg.ProxyHealth,
 		),
 		fx.Provide(func() *tlsconfig.Bundle { return cfg.TLS }),
 		log.Module,
@@ -47,7 +49,9 @@ func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
 		metrics.MetricModule,
 		oauth.Module,
 		process.Module,
+		proxyhealth.Module,
 		health.HealthMuxModule,
+		fx.Invoke(tlsconfig.LogTrustReport),
 		fx.Invoke(func(health.Service) {}),
 	}
 	return append(base, opts...)

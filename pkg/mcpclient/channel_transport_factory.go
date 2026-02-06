@@ -14,6 +14,7 @@ import (
 
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
@@ -168,24 +169,19 @@ func (f *ChannelTransportFactory) logProxyConfig() {
 		if transportKind == "" {
 			transportKind = config.MCPTransportHTTPStreamable
 		}
-		if transportKind != config.MCPTransportHTTPStreamable {
-			logger.Info("mcp channel proxy ignored for transport",
-				slog.String("channel", channel.String()),
-				slog.String("transport", string(transportKind)),
-				slog.String("proxy_source", binding.HTTPProxySource.String()),
-			)
-			continue
+		var targetURL *url.URL
+		if transportKind == config.MCPTransportHTTPStreamable {
+			targetURL = binding.ServerURL
 		}
+		route := proxy.ResolveRoute(proxy.RouteKindMCPChannel, channel.String(), targetURL, binding.HTTPProxy, binding.HTTPProxySource, os.LookupEnv)
 		fields := []any{
 			slog.String("channel", channel.String()),
 			slog.String("transport", string(transportKind)),
+			slog.String("route_kind", string(route.Kind)),
+			slog.String("route_name", route.Name),
+			slog.String("target_host", route.TargetHostPort),
 		}
-		fields = append(fields, config.ProxyLogFields(binding.HTTPProxy, binding.HTTPProxySource)...)
-		logger.Info("mcp channel proxy configured", fields...)
-		if binding.HTTPProxySource != config.ProxySourceEnvironment && config.EnvProxyConfigured(os.LookupEnv) {
-			logger.Info("mcp channel proxy overrides environment proxy settings",
-				slog.String("channel", channel.String()),
-			)
-		}
+		fields = append(fields, proxy.LogFields(route)...)
+		logger.Info("mcp channel route resolved", fields...)
 	}
 }
