@@ -162,6 +162,7 @@ func newTestChannelTransportFactory(t *testing.T, serverURL *url.URL, logging *c
 		TransportProviders: []TransportProvider{
 			newStreamableTransportProvider(),
 		},
+		TLSBundle: nil,
 	})
 	if err != nil {
 		t.Fatalf("newChannelTransportFactory returned error: %v", err)

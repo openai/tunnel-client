@@ -12,6 +12,7 @@ import (
 
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 // ChannelTransportFactory builds MCP transports for configured channel bindings.
@@ -33,6 +34,7 @@ type channelTransportFactoryParams struct {
 	Logging            *config.LoggingConfig
 	Logger             *slog.Logger
 	MeterProvider      *sdkmetric.MeterProvider
+	TLSBundle          *tlsconfig.Bundle
 	TransportProviders []TransportProvider `group:"mcp_transport_providers"`
 }
 
@@ -40,7 +42,11 @@ func newChannelTransportFactory(p channelTransportFactoryParams) (*ChannelTransp
 	if p.Config == nil || p.Logging == nil || p.Logger == nil || p.MeterProvider == nil {
 		return nil, fmt.Errorf("mcpclient: channel transport factory requires config, logging, logger, and meter provider")
 	}
-	httpClient := &http.Client{Transport: buildMcpHTTPTransport(p.Logger, p.Logging, p.MeterProvider)}
+	transport, err := buildMcpHTTPTransport(p.Logger, p.Logging, p.MeterProvider, p.TLSBundle)
+	if err != nil {
+		return nil, err
+	}
+	httpClient := &http.Client{Transport: transport}
 	return &ChannelTransportFactory{
 		config:     p.Config,
 		logger:     p.Logger,

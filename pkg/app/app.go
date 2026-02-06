@@ -16,6 +16,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/metrics"
 	"go.openai.org/api/tunnel-client/pkg/oauth"
 	"go.openai.org/api/tunnel-client/pkg/process"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 // Options returns the Fx options required to wire the tunnel-client services.
@@ -36,6 +37,7 @@ func Options(cfg *config.Config, opts ...fx.Option) []fx.Option {
 			&cfg.AdminUI,
 			&cfg.Harpoon,
 		),
+		fx.Provide(func() *tlsconfig.Bundle { return cfg.TLS }),
 		log.Module,
 		adminui.Module,
 		dispatcher.Module,

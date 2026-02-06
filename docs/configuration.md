@@ -42,6 +42,16 @@
   - Flag (repeatable): `--control-plane.extra-headers "Key: Value"`
   - Env: `CONTROL_PLANE_EXTRA_HEADERS="Key: Value, Key2: Value2"`
 
+## TLS trust (custom CA bundle)
+
+Use a PEM CA bundle to extend the system trust store for **all** outbound TLS connections
+(control plane, MCP HTTP, OAuth discovery, and Harpoon).
+
+- **CA bundle**
+  - Flag: `--ca-bundle /path/to/ca-bundle.pem`
+  - Env: `CA_BUNDLE`
+  - Bundle format: PEM file containing one or more CA certificates.
+
 ## MCP server
 
 - **Server URL**
@@ -244,6 +254,19 @@ export CONTROL_PLANE_TUNNEL_ID="tunnel_<abc>"
   --mcp.server-url=https://mcp.internal.example.com/mcp \
   --log.level=info \
   --log.format=json
+```
+
+### Outbound proxy CA bundle
+
+If your outbound proxy presents certificates issued by an internal PKI, add the
+proxy root CA bundle and keep TLS verification enabled:
+
+```bash
+./bin/tunnel-client run \
+  --ca-bundle /etc/ssl/proxy-root.pem \
+  --control-plane.tunnel-id "tunnel_<abc>" \
+  --mcp.server-url "https://mcp.internal.example.com/mcp"
+```
 
 ### Multi-channel MCP bindings
 
@@ -257,5 +280,4 @@ export CONTROL_PLANE_TUNNEL_ID="tunnel_<abc>"
   --mcp.command="channel=tools,command=npx -y @org/tools-mcp" \
   --log.level=info \
   --log.format=struct-text
-```
 ```

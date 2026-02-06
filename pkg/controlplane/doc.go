@@ -8,7 +8,8 @@
 //
 // This package focuses on:
 //   - Building an http.Client that applies tunnel-specific headers, API keys,
-//     and TLS overrides sourced from config.ControlPlaneConfig.
+//     and TLS overrides sourced from config.ControlPlaneConfig and the shared
+//     TLS bundle configuration.
 //   - Owning the control plane poll/watch loop so transport swaps
 //     (long-polling today, WebSockets soon) stay invisible to downstream
 //     packages. The loop publishes work into the bounded channel supplied by

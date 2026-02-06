@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	"go.openai.org/api/tunnel-client/pkg/types"
 	"go.openai.org/api/tunnel-client/pkg/version"
 )
@@ -79,6 +80,7 @@ type Config struct {
 	MCP          MCPConfig
 	AdminUI      AdminUIConfig
 	Harpoon      HarpoonConfig
+	TLS          *tlsconfig.Bundle
 }
 
 // AdminUIConfig defines runtime behavior for the embedded admin web UI.
@@ -246,10 +248,12 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  OPENAI_API_KEY\tAPI key env var used when CONTROL_PLANE_API_KEY unset")
 	_, _ = fmt.Fprintln(fs.Output(), "  ALLOW_REMOTE_UI\tSet to true to allow non-loopback access to the embedded web UI (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  OPEN_WEB_UI\tSet to true to open the embedded web UI in a browser on startup (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  CA_BUNDLE\tPath to a PEM CA bundle used for outbound TLS connections (optional)")
 }
 
 // RegisterFlags attaches all supported CLI flags to the provided flag set.
 func RegisterFlags(fs *pflag.FlagSet) {
+	registerTLSFlags(fs)
 	fs.String("control-plane.base-url", defaultControlPlaneBaseURL, "Tunnel control-plane base URL (env.CONTROL_PLANE_BASE_URL)")
 	fs.String("control-plane.tunnel-id", "", "Identifier for this client/tunnel (env.CONTROL_PLANE_TUNNEL_ID)")
 	fs.String("control-plane.api-key", "", "Reference to environment variable or file containing the control-plane API key (format env:VARNAME or file:/path/to/secret)")
@@ -294,6 +298,11 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		lookupEnv = os.LookupEnv
 	}
 
+	tlsBundle, err := buildTLSBundle(fs, lookupEnv)
+	if err != nil {
+		return nil, err
+	}
+
 	mcp, err := buildMCPConfig(fs, lookupEnv)
 	if err != nil {
 		return nil, err
@@ -330,6 +339,7 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		MCP:          mcp,
 		AdminUI:      adminUI,
 		Harpoon:      harpoon,
+		TLS:          tlsBundle,
 	}
 
 	return cfg, nil
@@ -344,6 +354,30 @@ func getValue(fs *pflag.FlagSet, name string) string {
 		return ""
 	}
 	return flag.Value.String()
+}
+
+func registerTLSFlags(fs *pflag.FlagSet) {
+	if fs == nil {
+		return
+	}
+	fs.String("ca-bundle", "", "Path to PEM CA bundle for outbound TLS trust (env.CA_BUNDLE)")
+}
+
+func buildTLSBundle(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (*tlsconfig.Bundle, error) {
+	var path string
+	if flag := fs.Lookup("ca-bundle"); flag != nil && flag.Changed {
+		path = strings.TrimSpace(flag.Value.String())
+	} else if envVal, ok := lookupEnv("CA_BUNDLE"); ok && envVal != "" {
+		path = strings.TrimSpace(envVal)
+	}
+	if path == "" {
+		return nil, nil
+	}
+	bundle, err := tlsconfig.LoadBundle(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ca-bundle %q: %w", path, err)
+	}
+	return bundle, nil
 }
 
 func envOrDefault(lookupEnv func(string) (string, bool), key, fallback string) string {

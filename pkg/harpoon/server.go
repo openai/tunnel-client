@@ -163,11 +163,14 @@ func NewServer(cfg *config.HarpoonConfig, registry *Registry, buffer *CallBuffer
 	if err != nil {
 		return nil, fmt.Errorf("harpoon: init metrics: %w", err)
 	}
+	if serverOpts.httpTransport == nil {
+		serverOpts.httpTransport = transport.CloneDefault()
+	}
 	return &Server{
 		logger:        logger.With(tclog.FieldComponent, tclog.ComponentHarpoon),
 		registry:      registry,
 		cfg:           cfg,
-		httpTransport: transport.CloneDefault(),
+		httpTransport: serverOpts.httpTransport,
 		callBuffer:    buffer,
 		metrics:       serverMetrics,
 	}, nil

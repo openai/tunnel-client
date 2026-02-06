@@ -3,6 +3,7 @@ package harpoon
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -32,7 +33,8 @@ type serverMetrics struct {
 }
 
 type serverOptions struct {
-	meter metric.Meter
+	meter         metric.Meter
+	httpTransport http.RoundTripper
 }
 
 // ServerOption configures optional server behavior.
@@ -45,6 +47,16 @@ func WithMeter(meter metric.Meter) ServerOption {
 			return
 		}
 		o.meter = meter
+	}
+}
+
+// WithHTTPTransport sets the HTTP transport used for Harpoon outbound calls.
+func WithHTTPTransport(rt http.RoundTripper) ServerOption {
+	return func(o *serverOptions) {
+		if o == nil {
+			return
+		}
+		o.httpTransport = rt
 	}
 }
 

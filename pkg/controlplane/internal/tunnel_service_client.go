@@ -21,6 +21,7 @@ import (
 	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
 	"go.openai.org/api/tunnel-client/pkg/types"
@@ -50,7 +51,7 @@ type TunnelServiceClient struct {
 }
 
 // NewTunnelServiceClient constructs an HTTP-backed client using the provided config.
-func NewTunnelServiceClient(ctx context.Context, cfg *config.ControlPlaneConfig, logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider otelmetric.MeterProvider) (*TunnelServiceClient, error) {
+func NewTunnelServiceClient(ctx context.Context, cfg *config.ControlPlaneConfig, tlsBundle *tlsconfig.Bundle, logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider otelmetric.MeterProvider) (*TunnelServiceClient, error) {
 	if cfg == nil {
 		return nil, errMissingConfig
 	}
@@ -81,7 +82,11 @@ func NewTunnelServiceClient(ctx context.Context, cfg *config.ControlPlaneConfig,
 		timeout = defaultPollTimeout
 	}
 
-	transport := buildControlPlaneHTTPTransport(cfg, logger, loggingCfg, meterProvider)
+	transport, err := buildControlPlaneHTTPTransport(cfg, tlsBundle, logger, loggingCfg, meterProvider)
+	if err != nil {
+		return nil, err
+	}
+	tlsconfig.LogBundleUsage(logger, tlsBundle)
 
 	client := &TunnelServiceClient{
 		client: &http.Client{
@@ -159,12 +164,15 @@ func (c *TunnelServiceClient) FetchTunnelMetadata(ctx context.Context) (*TunnelM
 	return &metadata, nil
 }
 
-func buildControlPlaneHTTPTransport(cfg *config.ControlPlaneConfig, logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider otelmetric.MeterProvider) http.RoundTripper {
+func buildControlPlaneHTTPTransport(cfg *config.ControlPlaneConfig, tlsBundle *tlsconfig.Bundle, logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider otelmetric.MeterProvider) (http.RoundTripper, error) {
 	// Order matters (outermost to innermost):
 	//   1. Control-plane round tripper applies auth headers before anything else.
 	//   2. Logging wraps otel instrumentation so dumps include the final headers.
 	//   3. otelhttp instrumentation sits closest to the network for accurate metrics.
-	base := tctransport.CloneDefault()
+	base, err := tctransport.CloneDefaultWithBundle(tlsBundle)
+	if err != nil {
+		return nil, fmt.Errorf("controlplane client: %w", err)
+	}
 	base = otelhttp.NewTransport(
 		base,
 		otelhttp.WithMeterProvider(meterProvider),
@@ -178,7 +186,7 @@ func buildControlPlaneHTTPTransport(cfg *config.ControlPlaneConfig, logger *slog
 		version.UserAgent,
 		cfg.ExtraHeaders,
 		logger,
-	)
+	), nil
 }
 
 // PostResponse acknowledges the provided request with the JSON-RPC response.

@@ -1,8 +1,14 @@
 package config
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,6 +177,52 @@ func TestLoadFlagsOverrideEnv(t *testing.T) {
 	}
 	if cfg.MCP.MaxConcurrentRequests != 20 {
 		t.Fatalf("expected MCP max concurrent requests 20, got %d", cfg.MCP.MaxConcurrentRequests)
+	}
+}
+
+func TestLoadCABundleFlag(t *testing.T) {
+	bundlePath := writeTempCABundle(t)
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "https://mcp.example",
+		"--ca-bundle", bundlePath,
+	}
+	cfg, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.TLS == nil {
+		t.Fatalf("expected TLS bundle to be populated")
+	}
+	if cfg.TLS.Path != bundlePath {
+		t.Fatalf("expected bundle path %q, got %q", bundlePath, cfg.TLS.Path)
+	}
+	if cfg.TLS.RootCAs == nil {
+		t.Fatalf("expected RootCAs to be set")
+	}
+}
+
+func TestLoadCABundleRejectsInvalidPEM(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "bad.pem")
+	if err := os.WriteFile(bundlePath, []byte("not-a-cert"), 0o600); err != nil {
+		t.Fatalf("write invalid bundle: %v", err)
+	}
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "https://mcp.example",
+		"--ca-bundle", bundlePath,
+	}
+	_, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+	}))
+	if err == nil {
+		t.Fatalf("expected error for invalid PEM bundle")
+	}
+	if !strings.Contains(err.Error(), "invalid ca-bundle") {
+		t.Fatalf("expected invalid ca-bundle error, got %v", err)
 	}
 }
 
@@ -1193,6 +1245,41 @@ func TestBuildControlPlaneExtraHeadersFromFlags(t *testing.T) {
 	if headers["X-Trace-Id"] != "abc123" {
 		t.Fatalf("expected X-Trace-Id=abc123, got %q", headers["X-Trace-Id"])
 	}
+}
+
+func writeTempCABundle(t *testing.T) string {
+	t.Helper()
+	certPEM := generateTestCertPEM(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.pem")
+	if err := os.WriteFile(path, certPEM, 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	return path
+}
+
+func generateTestCertPEM(t *testing.T) []byte {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "test-ca",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 }
 
 func equalStringSlices(a, b []string) bool {

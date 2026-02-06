@@ -100,7 +100,7 @@ func TestTunnelServiceClientPollSuccess(t *testing.T) {
 		TunnelID:    types.TunnelID(tunnelID),
 		APIKey:      apiKey,
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -183,7 +183,7 @@ func TestTunnelServiceClientPollSkipsInvalidCommands(t *testing.T) {
 		TunnelID:    types.TunnelID("cli-tunnel"),
 		APIKey:      "test-api-key",
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -203,7 +203,7 @@ func TestTunnelServiceClientPollWithNonPositiveLimit(t *testing.T) {
 		BaseURL:  mustParseURL(t, "https://example.com"),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -249,7 +249,7 @@ func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -333,7 +333,7 @@ func TestTunnelServiceClientPostResponseOAuthDiscovery(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err, "NewTunnelServiceClient failed")
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
@@ -389,7 +389,7 @@ func TestTunnelServiceClientPostResponsePrefersResponseChannel(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err, "NewTunnelServiceClient failed")
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), shardToken)
@@ -431,7 +431,7 @@ func TestTunnelServiceClientPostResponsePropagatesClientRequestID(t *testing.T) 
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -485,7 +485,7 @@ func TestTunnelServiceClientPostResponsePropagatesShardToken(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -527,7 +527,7 @@ func TestTunnelServiceClientPostResponseRequiresShardToken(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -563,7 +563,7 @@ func TestTunnelServiceClientPostResponseTreatsNotFoundAsSuccess(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -596,7 +596,7 @@ func TestTunnelServiceClientPostResponseSurfacingNonSuccess(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -632,7 +632,7 @@ func TestTunnelServiceClientPostResponseNotificationAck(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -673,7 +673,7 @@ func TestTunnelServiceClientPostResponseJSONRPCNotification(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID("cli-tunnel"),
 		APIKey:   "test-api-key",
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -729,7 +729,7 @@ func TestTunnelServiceClientExtraHeadersAreSent(t *testing.T) {
 		TunnelID:     types.TunnelID(tunnelID),
 		APIKey:       apiKey,
 		ExtraHeaders: map[string]string{"extra-header": "true"},
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -785,7 +785,7 @@ func TestTunnelServiceClientExtraHeadersWarnOnOverride(t *testing.T) {
 		TunnelID:     types.TunnelID(tunnelID),
 		APIKey:       apiKey,
 		ExtraHeaders: map[string]string{"Accept": "application/problem+json"},
-	}, logger, &config.LoggingConfig{}, testMeterProvider)
+	}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -819,7 +819,7 @@ func TestTunnelServiceClientFetchTunnelMetadata(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -853,7 +853,7 @@ func TestTunnelServiceClientFetchTunnelMetadataStatusError(t *testing.T) {
 		BaseURL:  mustParseURL(t, server.URL),
 		TunnelID: types.TunnelID(tunnelID),
 		APIKey:   apiKey,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -925,7 +925,7 @@ func TestTunnelServiceClientWarnsWhenServerExceedsLimit(t *testing.T) {
 		TunnelID:    types.TunnelID(tunnelID),
 		APIKey:      apiKey,
 		PollTimeout: time.Second,
-	}, logger, &config.LoggingConfig{}, testMeterProvider)
+	}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -1057,7 +1057,7 @@ func TestTunnelServiceClientPollWithExplicitCommandTypeJSONRPC(t *testing.T) {
 		TunnelID:    types.TunnelID(tunnelID),
 		APIKey:      apiKey,
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -1116,7 +1116,7 @@ func TestTunnelServiceClientPollSkipsUnknownCommandType(t *testing.T) {
 		TunnelID:    types.TunnelID(tunnelID),
 		APIKey:      apiKey,
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -1166,7 +1166,7 @@ func TestTunnelServiceClientPollReturnsOauthDiscoveryCommand(t *testing.T) {
 		TunnelID:    types.TunnelID(tunnelID),
 		APIKey:      apiKey,
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	if !assert.NoError(t, err, "NewTunnelServiceClient failed") {
 		return
 	}
@@ -1197,7 +1197,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 	t.Run("NilConfig", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewTunnelServiceClient(context.Background(), nil, logger, &config.LoggingConfig{}, testMeterProvider)
+		_, err := NewTunnelServiceClient(context.Background(), nil, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 		require.ErrorIs(t, err, errMissingConfig)
 	})
 
@@ -1208,7 +1208,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 			BaseURL:  nil,
 			TunnelID: "tunnel",
 			APIKey:   "key",
-		}, logger, &config.LoggingConfig{}, testMeterProvider)
+		}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "control-plane.base-url is required")
 	})
@@ -1219,7 +1219,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 		_, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
 			BaseURL: baseURL,
 			APIKey:  "key",
-		}, logger, &config.LoggingConfig{}, testMeterProvider)
+		}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "control-plane.tunnel-id is required")
 	})
@@ -1230,7 +1230,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 		_, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
 			BaseURL:  baseURL,
 			TunnelID: "tunnel",
-		}, logger, &config.LoggingConfig{}, testMeterProvider)
+		}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "control-plane.api-key is required")
 	})
@@ -1242,7 +1242,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 			BaseURL:  baseURL,
 			TunnelID: "tunnel",
 			APIKey:   "key",
-		}, logger, &config.LoggingConfig{}, nil)
+		}, nil, logger, &config.LoggingConfig{}, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "meter provider is required")
 	})
@@ -1254,7 +1254,7 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 			BaseURL:  baseURL,
 			TunnelID: "tunnel",
 			APIKey:   "key",
-		}, nil, &config.LoggingConfig{}, testMeterProvider)
+		}, nil, nil, &config.LoggingConfig{}, testMeterProvider)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "logger is required")
 	})
@@ -1272,7 +1272,7 @@ func TestTunnelServiceClientPostResponseValidatesArgs(t *testing.T) {
 		TunnelID:    types.TunnelID("cli-tunnel"),
 		APIKey:      "test-api-key",
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-required")
@@ -1304,7 +1304,7 @@ func TestTunnelServiceClientPostResponseErrorsWithoutShardToken(t *testing.T) {
 		TunnelID:    types.TunnelID("cli-tunnel"),
 		APIKey:      "test-api-key",
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err)
 
 	resp := types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{})
@@ -1329,7 +1329,7 @@ func TestTunnelServiceClientPostResponseReturnsTunnelServiceRequestIDFromHeader(
 		TunnelID:    types.TunnelID("cli-tunnel"),
 		APIKey:      "test-api-key",
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err)
 
 	ctx := tunnelctx.ContextWithShardToken(context.Background(), "shard-token")
@@ -1356,7 +1356,7 @@ func TestTunnelServiceClientPollReturnsTunnelServiceRequestIDFromHeader(t *testi
 		TunnelID:    types.TunnelID("cli-tunnel"),
 		APIKey:      "test-api-key",
 		PollTimeout: time.Second,
-	}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
 	require.NoError(t, err)
 
 	cmds, gotTSRID, err := client.Poll(context.Background(), 1)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 )
 
 const (
@@ -40,7 +41,11 @@ func NewAdminTunnelClient(cfg *config.AdminConfig) (*AdminTunnelClient, error) {
 		return nil, errors.New("admin client: admin key is required")
 	}
 
-	client := &http.Client{Timeout: defaultTimeout}
+	transport, err := tctransport.CloneDefaultWithBundle(cfg.TLS)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: defaultTimeout, Transport: transport}
 
 	return &AdminTunnelClient{
 		httpClient: client,

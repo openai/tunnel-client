@@ -13,6 +13,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 	"go.openai.org/api/tunnel-client/pkg/types"
 	"go.openai.org/api/tunnel-client/pkg/version"
@@ -187,12 +188,15 @@ func (w slogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider *sdkmetric.MeterProvider) http.RoundTripper {
+func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *config.LoggingConfig, meterProvider *sdkmetric.MeterProvider, tlsBundle *tlsconfig.Bundle) (http.RoundTripper, error) {
 	// Order matters (outermost to innermost):
 	//   1. Forwarding injects headers before anything else touches the request.
 	//   2. Logging wraps otel instrumentation so raw dumps include forwarded headers.
 	//   3. otelhttp instrumentation sits closest to the network to record final calls.
-	base := tctransport.CloneDefault()
+	base, err := tctransport.CloneDefaultWithBundle(tlsBundle)
+	if err != nil {
+		return nil, fmt.Errorf("mcpclient: %w", err)
+	}
 	base = otelhttp.NewTransport(
 		base,
 		otelhttp.WithMeterProvider(meterProvider),
@@ -203,7 +207,8 @@ func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *config.LoggingConfig
 		slog.String("transport", "forwarding_rt"),
 	)
 	base = tclog.NewRoundTripper(base, forwardingLogger, loggingCfg, tclog.ComponentMcpClient)
-	return internal.NewForwardingRoundTripper(base)
+	tlsconfig.LogBundleUsage(logger, tlsBundle)
+	return internal.NewForwardingRoundTripper(base), nil
 }
 
 func transportTargetLabel(kind config.MCPTransportKind, serverURL *url.URL) string {

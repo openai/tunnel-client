@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 // AdminConfig captures the options required for tunnel management API calls.
@@ -20,10 +22,12 @@ type AdminConfig struct {
 	AdminKey        string
 	OrganizationIDs []string
 	WorkspaceIDs    []string
+	TLS             *tlsconfig.Bundle
 }
 
 // RegisterAdminFlags attaches admin/tunnel-management flags to the provided flag set.
 func RegisterAdminFlags(fs *pflag.FlagSet) {
+	registerTLSFlags(fs)
 	fs.String("control-plane.base-url", defaultControlPlaneBaseURL, "Tunnel control-plane base URL (env.CONTROL_PLANE_BASE_URL)")
 	fs.String("admin-key", "", "Admin API key for tunnel management (env.OPENAI_ADMIN_KEY)")
 	fs.Bool("json", false, "Output JSON instead of text")
@@ -45,6 +49,11 @@ func LoadAdminConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 	baseURL, err := parseURL(baseURLRaw)
 	if err != nil {
 		return nil, fmt.Errorf("invalid control-plane.base-url: %w", err)
+	}
+
+	tlsBundle, err := buildTLSBundle(fs, lookupEnv)
+	if err != nil {
+		return nil, err
 	}
 
 	adminKeyFlag := getValue(fs, "admin-key")
@@ -73,6 +82,7 @@ func LoadAdminConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		AdminKey:        adminKey,
 		OrganizationIDs: orgIDs,
 		WorkspaceIDs:    workspaceIDs,
+		TLS:             tlsBundle,
 	}, nil
 }
 

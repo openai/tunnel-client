@@ -18,6 +18,8 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/health"
 	"go.openai.org/api/tunnel-client/pkg/httpguard"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 )
 
 // Module wires the harpoon MCP server.
@@ -48,6 +50,7 @@ type harpoonParams struct {
 	HealthSvc     health.Service
 	AdminMux      *http.ServeMux `name:"admin_mux"`
 	AdminUIConfig *config.AdminUIConfig
+	TLSBundle     *tlsconfig.Bundle
 	Registrars    []TargetRegistrar `group:"harpoon_target_registrars"`
 }
 
@@ -85,6 +88,12 @@ func newHarpoonService(p harpoonParams) (harpoonOutputs, error) {
 	if p.MeterProvider != nil {
 		serverOptions = append(serverOptions, WithMeter(p.MeterProvider.Meter("harpoon")))
 	}
+	httpTransport, err := tctransport.CloneDefaultWithBundle(p.TLSBundle)
+	if err != nil {
+		return harpoonOutputs{}, err
+	}
+	serverOptions = append(serverOptions, WithHTTPTransport(httpTransport))
+	tlsconfig.LogBundleUsage(logger, p.TLSBundle)
 	server, err := NewServer(p.Config, registry, buffer, logger, serverOptions...)
 	if err != nil {
 		return harpoonOutputs{}, err

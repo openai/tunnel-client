@@ -12,6 +12,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/controlplane"
 	"go.openai.org/api/tunnel-client/pkg/controlplane/internal"
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 // Module wires control-plane polling into the Fx graph.
@@ -25,6 +26,7 @@ type fetcherParams struct {
 	fx.In
 
 	Config        *config.ControlPlaneConfig
+	TLSBundle     *tlsconfig.Bundle
 	Logging       *config.LoggingConfig
 	Logger        *slog.Logger
 	MeterProvider *sdkmetric.MeterProvider
@@ -40,7 +42,7 @@ type clientResult struct {
 
 func newTunnelServiceClient(p fetcherParams) (clientResult, error) {
 	logger := p.Logger.With(tclog.FieldComponent, tclog.ComponentControlPlane)
-	client, err := internal.NewTunnelServiceClient(context.Background(), p.Config, logger, p.Logging, p.MeterProvider)
+	client, err := internal.NewTunnelServiceClient(context.Background(), p.Config, p.TLSBundle, logger, p.Logging, p.MeterProvider)
 	if err != nil {
 		return clientResult{}, err
 	}
