@@ -33,7 +33,16 @@ describe("HarpoonPanel", () => {
       }
       if (url.includes("/api/harpoon/targets")) {
         return jsonResponse({
-          targets: [{ label: "auth", url: "https://auth.example", description: "Auth target" }],
+          targets: [
+            {
+              label: "auth",
+              url: "https://auth.example",
+              description: "Auth target",
+              category: "oauth",
+              source: "oauth",
+              tags: ["auth-server-metadata", "issuer"],
+            },
+          ],
         });
       }
       if (url.includes("/api/harpoon/calls")) {
@@ -48,6 +57,8 @@ describe("HarpoonPanel", () => {
     expect(await findByText("Harpoon proxy routes")).toBeTruthy();
     expect(await findByText("proxy-harpoon")).toBeTruthy();
     expect(await findByText("http://proxy.harpoon:8080")).toBeTruthy();
+    expect(await findByText("category/source: oauth")).toBeTruthy();
+    expect(await findByText("tags: auth-server-metadata, issuer")).toBeTruthy();
 
     const proxyRoutesTable = container.querySelector("table.harpoon-proxy-routes-table");
     expect(proxyRoutesTable).toBeTruthy();

@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"reflect"
 	"testing"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
@@ -42,6 +43,56 @@ func TestRegisterHostBundleRespectsClassifier(t *testing.T) {
 	}
 	if _, ok := registry.Lookup("oauth-1"); ok {
 		t.Fatalf("unexpected registration for public host")
+	}
+}
+
+func TestRegisterHostBundleDerivesCategoryAndTags(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, true, nil)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	classifier := hostclassifier.NewHostClassifier(config.HarpoonHostClassifierConfig{
+		IncludeSuffix:  []string{"internal"},
+		IncludePrivate: false,
+	})
+
+	bundle := hostbus.URLBundle{
+		URLs: []hostbus.URLRecord{
+			{
+				URL:  mustParseURLForHostRegistration(t, "https://auth.internal/issuer"),
+				Tags: []hostbus.Tag{{Key: hostbus.TagKeySource, Value: "oauth"}, {Key: hostbus.TagKeyRole, Value: "issuer"}},
+			},
+			{
+				URL:  mustParseURLForHostRegistration(t, "https://auth.internal/custom"),
+				Tags: []hostbus.Tag{{Key: hostbus.TagKeySource, Value: "oauth"}, {Key: hostbus.TagKeyRole, Value: "Custom-Role"}},
+			},
+		},
+	}
+
+	if err := registerHostBundle(bundle, classifier, registry, logger); err != nil {
+		t.Fatalf("register bundle: %v", err)
+	}
+
+	target, ok := registry.Lookup("oauth-issuer-0")
+	if !ok {
+		t.Fatalf("expected label oauth-issuer-0")
+	}
+	if target.Category != "oauth" || target.Source != "oauth" {
+		t.Fatalf("expected category/source oauth, got %q/%q", target.Category, target.Source)
+	}
+	expectedTags := []string{"auth-server-metadata", "issuer"}
+	if !reflect.DeepEqual(target.Tags, expectedTags) {
+		t.Fatalf("unexpected tags: got %v want %v", target.Tags, expectedTags)
+	}
+
+	customTarget, ok := registry.Lookup("oauth-custom-role-1")
+	if !ok {
+		t.Fatalf("expected label oauth-custom-role-1")
+	}
+	customExpected := []string{"custom-role"}
+	if !reflect.DeepEqual(customTarget.Tags, customExpected) {
+		t.Fatalf("unexpected custom tags: got %v want %v", customTarget.Tags, customExpected)
 	}
 }
 

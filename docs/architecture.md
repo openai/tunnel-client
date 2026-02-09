@@ -52,6 +52,7 @@ flowchart LR
   - `main` commands route to the configured MCP transport (`http-streamable`, `stdio`, or `in-memory`).
   - `harpoon` commands route to the embedded Harpoon server (in-memory transport) and are enabled only when at least one Harpoon target is registered.
   - OAuth discovery is only supported on `main`; `harpoon` rejects `oauth_discovery` commands with `unsupported_channel`.
+- **Harpoon target semantics**: `list_targets` publishes per-target metadata (`category`, `source`, `tags`) so callers can resolve targets by intent (for example, OAuth metadata endpoints) without relying on label naming.
 
 ## OAuth-protected MCP
 

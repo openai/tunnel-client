@@ -80,9 +80,18 @@ type listTargetsResponse struct {
 	Targets []targetInfo `json:"targets" jsonschema:"description=Allowlisted targets."`
 }
 
+type listTargetsRequest struct {
+	Categories []string `json:"categories,omitempty" jsonschema:"description=Target categories to include."`
+	Sources    []string `json:"sources,omitempty" jsonschema:"description=Target sources to include."`
+	Tags       []string `json:"tags,omitempty" jsonschema:"description=Target tags to include (all tags must match)."`
+}
+
 type targetInfo struct {
 	Label          string   `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
 	Description    string   `json:"description,omitempty" jsonschema:"description=Target description."`
+	Category       string   `json:"category,omitempty" jsonschema:"description=Target category."`
+	Source         string   `json:"source,omitempty" jsonschema:"description=Target source."`
+	Tags           []string `json:"tags,omitempty" jsonschema:"description=Target tags."`
 	AllowedMethods []string `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
 }
 
@@ -142,6 +151,14 @@ func (listTargetsResponse) JSONSchemaExtend(schema *jsonschema.Schema) {
 	}
 	schema.Title = "Harpoon target list"
 	schema.Description = "Allowlisted targets available to call_target."
+}
+
+func (listTargetsRequest) JSONSchemaExtend(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	schema.Title = "List Harpoon targets"
+	schema.Description = "List available allowlisted targets."
 }
 
 // NewServer constructs a harpoon MCP server.
@@ -217,8 +234,12 @@ func (s *Server) MCPServer() *mcp.Server {
 }
 
 func (s *Server) listTargetsHandler() mcp.ToolHandlerFor[map[string]any, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
-		resp := s.listTargets()
+	return func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+		var params listTargetsRequest
+		if err := decodeArguments(args, &params); err != nil {
+			return toolErrorResult("", "invalid parameters"), nil, nil
+		}
+		resp := s.listTargets(params)
 		structured := map[string]any{"targets": resp.Targets}
 		payload, err := json.Marshal(resp)
 		if err != nil {
@@ -256,14 +277,21 @@ func (s *Server) callTargetHandler() mcp.ToolHandlerFor[map[string]any, any] {
 	}
 }
 
-func (s *Server) listTargets() listTargetsResponse {
+func (s *Server) listTargets(params listTargetsRequest) listTargetsResponse {
 	allowed := allowedMethodsList()
 	targets := s.registry.Targets()
+	filters := normalizeListTargetsFilters(params)
 	out := make([]targetInfo, 0, len(targets))
 	for _, target := range targets {
+		if !filters.matches(target) {
+			continue
+		}
 		out = append(out, targetInfo{
 			Label:          target.Label,
 			Description:    target.Description,
+			Category:       target.Category,
+			Source:         target.Source,
+			Tags:           target.Tags,
 			AllowedMethods: allowed,
 		})
 	}
@@ -651,11 +679,94 @@ func buildListTargetsOutputSchema() *jsonschema.Schema {
 }
 
 func buildListTargetsInputSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{
-		Type:        "object",
-		Title:       "List Harpoon targets",
-		Description: "List available allowlisted targets.",
+	reflector := &jsonschema.Reflector{DoNotReference: true}
+	schema := reflector.Reflect(listTargetsRequest{})
+	if schema.Type == "" {
+		schema.Type = "object"
 	}
+	return schema
+}
+
+type listTargetsFilters struct {
+	categories map[string]struct{}
+	sources    map[string]struct{}
+	tags       []string
+}
+
+func normalizeListTargetsFilters(params listTargetsRequest) listTargetsFilters {
+	categories := normalizeFilterValues(params.Categories)
+	sources := normalizeFilterValues(params.Sources)
+	tags := normalizeFilterValues(params.Tags)
+	return listTargetsFilters{
+		categories: toStringSet(categories),
+		sources:    toStringSet(sources),
+		tags:       tags,
+	}
+}
+
+func normalizeFilterValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := normalizeToken(value)
+		if normalized == "" {
+			continue
+		}
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func toStringSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
+}
+
+func (f listTargetsFilters) matches(target Target) bool {
+	if len(f.categories) == 0 && len(f.sources) == 0 && len(f.tags) == 0 {
+		return true
+	}
+	if len(f.categories) > 0 {
+		if _, ok := f.categories[target.Category]; !ok {
+			return false
+		}
+	}
+	if len(f.sources) > 0 {
+		if _, ok := f.sources[target.Source]; !ok {
+			return false
+		}
+	}
+	if len(f.tags) > 0 && !hasAllTags(target.Tags, f.tags) {
+		return false
+	}
+	return true
+}
+
+func hasAllTags(targetTags, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	if len(targetTags) == 0 {
+		return false
+	}
+	tagSet := make(map[string]struct{}, len(targetTags))
+	for _, tag := range targetTags {
+		tagSet[normalizeToken(tag)] = struct{}{}
+	}
+	for _, requiredTag := range required {
+		if _, ok := tagSet[requiredTag]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func applyCallTargetSchemaBounds(schema *jsonschema.Schema, cfg *config.HarpoonConfig) {

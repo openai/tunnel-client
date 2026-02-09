@@ -26,11 +26,13 @@ type harpoonTargetsResponse struct {
 }
 
 type harpoonTargetResponse struct {
-	Label           string `json:"label"`
-	URL             string `json:"url"`
-	Description     string `json:"description,omitempty"`
-	Source          string `json:"source,omitempty"`
-	InclusionReason string `json:"inclusion_reason,omitempty"`
+	Label           string   `json:"label"`
+	URL             string   `json:"url"`
+	Description     string   `json:"description,omitempty"`
+	Category        string   `json:"category,omitempty"`
+	Source          string   `json:"source,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	InclusionReason string   `json:"inclusion_reason,omitempty"`
 }
 
 type harpoonCallsResponse struct {
@@ -124,7 +126,9 @@ func buildHarpoonTargets(registry *harpoon.Registry) harpoonTargetsResponse {
 			Label:           target.Label,
 			URL:             url,
 			Description:     target.Description,
+			Category:        target.Category,
 			Source:          target.Source,
+			Tags:            target.Tags,
 			InclusionReason: target.InclusionReason,
 		})
 	}

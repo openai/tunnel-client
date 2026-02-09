@@ -51,7 +51,9 @@ func TestBuildHarpoonTargetsIncludesTargetFields(t *testing.T) {
 	registry, err := harpoon.NewRegistry(newHarpoonTestLogger(), true, []harpoon.Target{{
 		Label:           "auth",
 		Description:     "Auth service",
+		Category:        "config",
 		Source:          "config",
+		Tags:            []string{"auth-server-metadata", "issuer"},
 		InclusionReason: "suffix:.internal",
 		BaseURL:         mustParseURL(t, "http://example.com/base"),
 	}})
@@ -61,7 +63,9 @@ func TestBuildHarpoonTargetsIncludesTargetFields(t *testing.T) {
 	require.Len(t, out.Targets, 1)
 	require.Equal(t, "auth", out.Targets[0].Label)
 	require.Equal(t, "http://example.com/base", out.Targets[0].URL)
+	require.Equal(t, "config", out.Targets[0].Category)
 	require.Equal(t, "config", out.Targets[0].Source)
+	require.Equal(t, []string{"auth-server-metadata", "issuer"}, out.Targets[0].Tags)
 	require.Equal(t, "suffix:.internal", out.Targets[0].InclusionReason)
 }
 

@@ -18,7 +18,9 @@ const defaultRegistryLimit = 10000
 type Target struct {
 	Label           string
 	Description     string
+	Category        string
 	Source          string
+	Tags            []string
 	InclusionReason string
 	BaseURL         *url.URL
 }
@@ -95,10 +97,13 @@ func (r *Registry) RegisterTarget(target Target) error {
 		return fmt.Errorf("harpoon: target %q base URL is invalid: %w", label, err)
 	}
 
+	category, source := normalizeCategorySource(target.Category, target.Source)
 	cleanTarget := Target{
 		Label:           label,
 		Description:     strings.TrimSpace(target.Description),
-		Source:          strings.TrimSpace(target.Source),
+		Category:        category,
+		Source:          source,
+		Tags:            normalizeTags(target.Tags),
 		InclusionReason: strings.TrimSpace(target.InclusionReason),
 		BaseURL:         normalized,
 	}

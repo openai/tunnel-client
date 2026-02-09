@@ -458,7 +458,30 @@ func TestHarpoonToolSchemas(t *testing.T) {
 	expectedListTargetsInput := json.RawMessage(`{
 		"type": "object",
 		"title": "List Harpoon targets",
-		"description": "List available allowlisted targets."
+		"description": "List available allowlisted targets.",
+		"properties": {
+			"categories": {
+				"type": "array",
+				"description": "Target categories to include.",
+				"items": {
+					"type": "string"
+				}
+			},
+			"sources": {
+				"type": "array",
+				"description": "Target sources to include.",
+				"items": {
+					"type": "string"
+				}
+			},
+			"tags": {
+				"type": "array",
+				"description": "Target tags to include (all tags must match).",
+				"items": {
+					"type": "string"
+				}
+			}
+		}
 	}`)
 	requireToolSchemaSubset(t, listTargets.InputSchema, expectedListTargetsInput)
 
@@ -480,6 +503,21 @@ func TestHarpoonToolSchemas(t *testing.T) {
 						"description": {
 							"type": "string",
 							"description": "Target description."
+						},
+						"category": {
+							"type": "string",
+							"description": "Target category."
+						},
+						"source": {
+							"type": "string",
+							"description": "Target source."
+						},
+						"tags": {
+							"type": "array",
+							"description": "Target tags.",
+							"items": {
+								"type": "string"
+							}
 						},
 						"allowed_methods": {
 							"type": "array",

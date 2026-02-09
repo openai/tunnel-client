@@ -140,6 +140,15 @@ Harpoon’s channel (`harpoon`) is considered enabled only when at least one tar
 - **Target mappings**
   - Flag (repeatable): `--harpoon.target="label=auth,url=https://auth.example.com,desc=Auth server"`
   - Env: `HARPOON_TARGETS` (semicolon- or newline-delimited list of the same `label=...,url=...,desc=...` entries)
+- **Harpoon target metadata (`list_targets`)**
+  - Each target includes `category`, `source`, and `tags` fields.
+  - Config-provided targets default to `category=source=config`.
+  - OAuth auto-registered targets derive `category`/`source` from discovery tags (currently `oauth`) and derive `tags` from the OAuth role (for example, `auth-server-metadata`, `registration-endpoint`, `protected-resource-metadata`).
+  - The `list_targets` tool accepts optional filters:
+    - `categories`: OR match within categories.
+    - `sources`: OR match within sources.
+    - `tags`: ALL requested tags must be present on the target.
+    - Filters combine with AND across fields.
 - **Allow plaintext HTTP**
   - Flag: `--harpoon.allow-plaintext-http`
   - Env: `HARPOON_ALLOW_PLAINTEXT_HTTP`

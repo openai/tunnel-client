@@ -32,16 +32,78 @@ func TestListTargetsDoesNotExposeURLs(t *testing.T) {
 	}
 	server := newTestServer(t, cfg)
 
-	resp := server.listTargets()
+	resp := server.listTargets(listTargetsRequest{})
 	require.Len(t, resp.Targets, 1)
 	require.Equal(t, "auth", resp.Targets[0].Label)
 	require.Equal(t, "Auth service", resp.Targets[0].Description)
+	require.Equal(t, "config", resp.Targets[0].Category)
+	require.Equal(t, "config", resp.Targets[0].Source)
 	require.NotEmpty(t, resp.Targets[0].AllowedMethods)
 
 	payload, err := json.Marshal(resp)
 	require.NoError(t, err)
 	require.NotContains(t, string(payload), "http://")
 	require.NotContains(t, string(payload), "https://")
+}
+
+func TestListTargetsFilters(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, true, []Target{
+		{
+			Label:    "oauth-auth",
+			Category: "oauth",
+			Source:   "oauth",
+			Tags:     []string{"auth-server-metadata", "issuer"},
+			BaseURL:  mustParseURL(t, "https://auth.internal/issuer"),
+		},
+		{
+			Label:    "oauth-prmd",
+			Category: "oauth",
+			Source:   "oauth",
+			Tags:     []string{"protected-resource-metadata", "resource"},
+			BaseURL:  mustParseURL(t, "https://resource.internal/prmd"),
+		},
+		{
+			Label:    "config",
+			Category: "config",
+			Source:   "config",
+			BaseURL:  mustParseURL(t, "https://config.internal"),
+		},
+	})
+	require.NoError(t, err)
+
+	cfg := &config.HarpoonConfig{
+		AllowPlaintextHTTP: true,
+		MaxResponseBytes:   1024,
+		MaxRedirects:       5,
+	}
+	server, err := NewServer(cfg, registry, NewCallBuffer(), logger)
+	require.NoError(t, err)
+
+	all := server.listTargets(listTargetsRequest{})
+	require.Len(t, all.Targets, 3)
+
+	oauthOnly := server.listTargets(listTargetsRequest{Categories: []string{"oauth"}})
+	require.Len(t, oauthOnly.Targets, 2)
+
+	sourceOnly := server.listTargets(listTargetsRequest{Sources: []string{"config"}})
+	require.Len(t, sourceOnly.Targets, 1)
+	require.Equal(t, "config", sourceOnly.Targets[0].Label)
+
+	tagged := server.listTargets(listTargetsRequest{Tags: []string{"auth-server-metadata"}})
+	require.Len(t, tagged.Targets, 1)
+	require.Equal(t, "oauth-auth", tagged.Targets[0].Label)
+
+	allTags := server.listTargets(listTargetsRequest{Tags: []string{"auth-server-metadata", "issuer"}})
+	require.Len(t, allTags.Targets, 1)
+	require.Equal(t, "oauth-auth", allTags.Targets[0].Label)
+
+	combined := server.listTargets(listTargetsRequest{Categories: []string{"oauth"}, Tags: []string{"protected-resource-metadata"}})
+	require.Len(t, combined.Targets, 1)
+	require.Equal(t, "oauth-prmd", combined.Targets[0].Label)
+
+	empty := server.listTargets(listTargetsRequest{Categories: []string{""}, Sources: []string{""}, Tags: []string{""}})
+	require.Len(t, empty.Targets, 3)
 }
 
 func TestCallTargetSupportsMethods(t *testing.T) {

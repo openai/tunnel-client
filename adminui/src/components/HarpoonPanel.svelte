@@ -270,8 +270,16 @@
                   <td class="mono">{target.label || "—"}</td>
                   <td>
                     {target.description || "—"}
-                    {#if target.source}
-                      <div class="muted small">source: {target.source}</div>
+                    {#if target.category || target.source}
+                      <div class="muted small">
+                        category/source: {target.category || target.source || "—"}
+                        {#if target.source && target.category && target.source !== target.category}
+                          · source: {target.source}
+                        {/if}
+                      </div>
+                    {/if}
+                    {#if target.tags && target.tags.length > 0}
+                      <div class="muted small">tags: {target.tags.join(", ")}</div>
                     {/if}
                     {#if target.inclusion_reason}
                       <div class="muted small">

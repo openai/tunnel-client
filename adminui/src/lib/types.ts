@@ -216,7 +216,9 @@ export interface HarpoonTarget {
   label?: string;
   url?: string;
   description?: string;
+  category?: string;
   source?: string;
+  tags?: string[];
   inclusion_reason?: string;
 }
 

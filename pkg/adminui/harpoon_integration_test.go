@@ -26,10 +26,16 @@ func TestHarpoonAdminUIEndpointsPolling(t *testing.T) {
 	registry, err := harpoon.NewRegistry(newHarpoonTestLogger(), false, []harpoon.Target{{
 		Label:       "auth",
 		Description: "Auth server",
+		Category:    "oauth",
+		Source:      "oauth",
+		Tags:        []string{"auth-server-metadata"},
 		BaseURL:     mustParseURL(t, "https://auth.example.com"),
 	}, {
 		Label:       "billing",
 		Description: "Billing API",
+		Category:    "config",
+		Source:      "config",
+		Tags:        []string{"billing"},
 		BaseURL:     mustParseURL(t, "https://billing.example.com"),
 	}})
 	require.NoError(t, err)
@@ -84,6 +90,9 @@ func TestHarpoonAdminUIEndpointsPolling(t *testing.T) {
 	require.Len(t, targets.Targets, 2)
 	authTarget := findTarget(t, targets.Targets, "auth")
 	require.Equal(t, "https://auth.example.com", authTarget.URL)
+	require.Equal(t, "oauth", authTarget.Category)
+	require.Equal(t, "oauth", authTarget.Source)
+	require.Equal(t, []string{"auth-server-metadata"}, authTarget.Tags)
 
 	var authCalls harpoonCallsResponse
 	fetchJSON(t, server.URL+"/api/harpoon/calls?label=auth", &authCalls)

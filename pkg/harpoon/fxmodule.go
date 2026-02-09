@@ -242,7 +242,9 @@ func convertTargets(targets []config.HarpoonTarget) []Target {
 		out = append(out, Target{
 			Label:       target.Label,
 			Description: target.Description,
+			Category:    "config",
 			Source:      "config",
+			Tags:        nil,
 			BaseURL:     target.BaseURL,
 		})
 	}
