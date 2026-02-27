@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 
-ARG BASE_BUILDER_IMAGE=golang:1.25.4-alpine
+ARG BASE_BUILDER_IMAGE=golang:1.26.0-alpine
 ARG BASE_UI_BUILDER_IMAGE=node:22-alpine
 ARG BASE_IMAGE=alpine:3.22
 ARG GIT_SHA=dev

@@ -1,6 +1,6 @@
 module go.openai.org/api/tunnel-client
 
-go 1.25.4
+go 1.26.0
 
 require (
 	github.com/google/go-cmp v0.7.0
