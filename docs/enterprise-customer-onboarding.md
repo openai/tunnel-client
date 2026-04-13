@@ -6,6 +6,22 @@ This document is designed to be shared with an enterprise customer. It explains 
 - Deploy the **tunnel client** inside your network to reach your internal MCP server.
 - Configure a **connector** in ChatGPT to use the **OpenAI-hosted MCP tunnel URL**.
 
+## Customer-safe pre-read
+
+What is documented here today:
+
+- `tunnel-client` is a **customer-run, outbound-only** process that forwards MCP traffic from an OpenAI-hosted tunnel endpoint to your MCP server.
+- Customers can run it as a **host binary**, **Docker container**, or **Kubernetes** workload.
+- **OAuth-protected MCP servers are supported**: `Authorization` headers are forwarded, OAuth discovery is handled through the tunnel flow, and the authorization server itself must still be reachable from the internet or from the tunnel-client host.
+- **mTLS client certificates are supported** for outbound MCP HTTPS connections.
+- **Harpoon** is an embedded, allowlisted outbound HTTP capability used for controlled outbound flows; it is enabled only when targets are explicitly registered.
+
+What this document does not claim:
+
+- Any **GA / public availability / preview / alpha** status, SLA, or support commitment.
+- Any **data-use, retention, or model-training** terms.
+- That every customer will self-serve tunnel creation; depending on the rollout, OpenAI may provision the tunnel for you or grant Tunnel Management API access.
+
 ## What you’re setting up (quick mental model)
 
 You will **not** expose your MCP server publicly. Instead, an outbound-only tunnel client inside your network “pulls” work from OpenAI and forwards it to your MCP server.
@@ -50,7 +66,7 @@ flowchart LR
 
 ```text
 <OPENAI_MCP_TUNNEL_BASE_URL>/v1/mcp/<tunnel_id>
-OPENAI_MCP_TUNNEL_BASE_URL = https://tunnel-service.gateway.unified-0.internal.api.openai.org
+# OpenAI will provide the exact base URL for your rollout.
 ```
 
 - **Tunnel client uses the Tunnel control-plane base URL** (host root) and derives:

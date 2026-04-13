@@ -5,6 +5,7 @@ The tunnel client is an enterprise-hosted agent that connects your internal MCP 
 ## Documentation
 
 - **Start here**: [`docs/onboarding.md`](docs/onboarding.md)
+- **Enterprise customer pre-read (shareable)**: [`docs/enterprise-customer-onboarding.md`](docs/enterprise-customer-onboarding.md)
 - **Architecture**: [`docs/architecture.md`](docs/architecture.md)
 - **Configuration reference**: [`docs/configuration.md`](docs/configuration.md)
 - **Deployment guides**: [`docs/deployment/overview.md`](docs/deployment/overview.md)
