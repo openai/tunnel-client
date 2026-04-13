@@ -2,6 +2,8 @@ name: release
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"  # e.g., v1.2.3, v1.2.3-rc.1
 
@@ -92,6 +94,7 @@ jobs:
 
   release:
     name: Release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
     steps:
