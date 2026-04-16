@@ -206,6 +206,23 @@ func TestReadinessHandler(t *testing.T) {
 		require.Equal(t, http.StatusOK, res.StatusCode)
 	})
 
+	t.Run("NotReadyWhenMCPStartupProbePending", func(t *testing.T) {
+		t.Parallel()
+
+		oauthState := oauth.NewDiscoveryState()
+		oauthState.Set(nil, nil, nil, nil)
+		probeState := mcpclient.NewProbeState()
+
+		req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+		rec := httptest.NewRecorder()
+
+		readinessHandler(oauthState, probeState)(rec, req)
+
+		res := rec.Result()
+		require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+		require.Equal(t, "mcp startup probe pending", rec.Body.String())
+	})
+
 	t.Run("NotReadyWhenOAuthDiscoveryFails", func(t *testing.T) {
 		t.Parallel()
 

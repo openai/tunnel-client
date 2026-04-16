@@ -268,6 +268,9 @@ func readinessStatus(oauthState *oauth.DiscoveryState, probeState *mcpclient.Pro
 			}
 		}
 	}
+	if probeState != nil && !probeState.IsDone() {
+		return http.StatusServiceUnavailable, "mcp startup probe pending"
+	}
 	if probeState != nil && probeState.IsDone() {
 		if _, err, ok := probeState.Wait(10 * time.Millisecond); ok && err != nil {
 			if mcpclient.IsAuthRequiredProbeError(err) {
