@@ -3,12 +3,14 @@
 `tunnel-client` can be configured via CLI flags or environment variables.
 
 - **Precedence**: flags > environment variables > defaults.
-- **Requirement**: you must provide a control-plane API key, a tunnel ID, and a `main` MCP channel binding (via `--mcp.server-url` or `--mcp.command`).
+- **Requirement**: you must provide a control-plane API key, a tunnel ID, and a
+  `main` MCP channel binding (via `--mcp.server-url` or `--mcp.command`).
 
 ## Commands
 
 - `run`: start the tunnel client poll loop.
-- `admin tunnels`: manage tunnel metadata via the admin API (`/v1/tunnels*`). Requires an admin key and org/workspace scope flags.
+- `admin tunnels`: manage tunnel metadata via the admin API (`/v1/tunnels*`).
+  Requires an admin key and org/workspace scope flags.
 - `tunnel-client` with no subcommand prints help and available commands.
 
 ## Control plane
@@ -46,8 +48,9 @@
 
 ## TLS trust (custom CA bundle)
 
-Use a PEM CA bundle to extend (additive to system trust) the trust store for **all** outbound TLS connections
-(control plane, MCP HTTP, OAuth discovery, and Harpoon).
+Use a PEM CA bundle to extend (additive to system trust) the trust store for
+**all** outbound TLS connections (control plane, MCP HTTP, OAuth discovery, and
+Harpoon).
 
 - **CA bundle**
   - Flag: `--ca-bundle /path/to/ca-bundle.pem`
@@ -56,7 +59,8 @@ Use a PEM CA bundle to extend (additive to system trust) the trust store for **a
 
 ## Outbound HTTP proxy
 
-Use explicit proxy flags to force tunnel-client traffic through a corporate proxy. Each flag accepts a proxy URL or `env:VAR` reference.
+Use explicit proxy flags to force tunnel-client traffic through a corporate
+proxy. Each flag accepts a proxy URL or `env:VAR` reference.
 
 - **Global proxy (all outbound HTTP)**
   - Flag: `--http-proxy=<url|env:VAR>`
@@ -81,7 +85,8 @@ Use explicit proxy flags to force tunnel-client traffic through a corporate prox
 3. Global proxy (`--http-proxy`).
 4. Environment (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`).
 
-When an explicit proxy flag is set for a target, environment proxy variables (including `NO_PROXY`) are ignored for that target.
+When an explicit proxy flag is set for a target, environment proxy variables
+(including `NO_PROXY`) are ignored for that target.
 
 ## MCP server
 
@@ -90,7 +95,8 @@ When an explicit proxy flag is set for a target, environment proxy variables (in
   - Env: `MCP_SERVER_URL`
   - Required: yes for the `main` channel (unless `--mcp.command` supplies `main`)
   - Legacy form: `--mcp.server-url=https://main.example.com/mcp` (defaults to `main`)
-  - Channel-qualified form: `--mcp.server-url="channel=foo,url=https://foo.example.com/mcp,http-proxy=<url|env:VAR>,client-cert=<path|env:VAR>,client-key=<path|env:VAR>"`
+  - Channel-qualified form:
+    `--mcp.server-url="channel=foo,url=https://foo.example.com/mcp,http-proxy=<url|env:VAR>,client-cert=<path|env:VAR>,client-key=<path|env:VAR>"`
 - **Command (stdio transport)**
   - Flag (repeatable): `--mcp.command`
   - Env: `MCP_COMMAND`
@@ -99,11 +105,13 @@ When an explicit proxy flag is set for a target, environment proxy variables (in
   - Channel-qualified form: `--mcp.command="channel=bar,command=npx -y @org/bar-mcp"`
   - Behavior: spawns the command once and uses the child process stdin/stdout for MCP frames
   - Note: stdio transport does not support MCP sessions
-  - Note: when using `MCP_COMMAND` with multiple entries, separate entries with newlines so semicolons remain part of the command.
+  - Note: when using `MCP_COMMAND` with multiple entries, separate entries with
+    newlines so semicolons remain part of the command.
 - **Multiple entries**
   - Flags are repeatable; each entry can target a different channel.
   - Environment variables accept newline-delimited entries.
-  - Configuring both `--mcp.server-url` and `--mcp.command` is allowed as long as they target **different** channels.
+  - Configuring both `--mcp.server-url` and `--mcp.command` is allowed as long
+    as they target **different** channels.
   - If no `main` binding is configured, startup fails with `main channel is required`.
 - **Connection max TTL**
   - Flag: `--mcp.connection-max-ttl`
@@ -122,38 +130,60 @@ When an explicit proxy flag is set for a target, environment proxy variables (in
   - Flag: `--mcp.client-key=<path|env:VAR>`
   - Env: `MCP_CLIENT_KEY`
   - Behavior: both values are required together.
-  - Scope: applies to all `http-streamable` MCP channels unless a channel-qualified `--mcp.server-url` entry provides its own `client-cert` + `client-key`.
+  - Scope: applies to all `http-streamable` MCP channels unless a
+    channel-qualified `--mcp.server-url` entry provides its own `client-cert` +
+    `client-key`.
   - Note: stdio channels ignore mTLS settings.
 
 **OAuth-protected MCP notes:**
-- Forwards inbound `Authorization` headers and discovery GETs through the tunnel-client; discovery payload `resource` and `WWW-Authenticate resource_metadata` are rewritten to tunnel-service URLs for the same `tunnel_id`.
-- Uses `authorization_servers[0]` from PRMD as the only source of truth and metadata fetch target for auth-server metadata enrichment and Harpoon OAuth target registration.
-- Accepts auth-server metadata even when metadata `issuer` differs from `authorization_servers[0]` (external IdP issuers are supported); mismatch details are preserved in diagnostics/logging.
-- The authorization server is not tunneled. If it is only reachable on-prem/behind a firewall and not accessible from the internet or the tunnel-client host, the OAuth flow can fail.
+
+- Forwards inbound `Authorization` headers and discovery GETs through the
+  tunnel client. Discovery payload `resource` values and
+  `WWW-Authenticate resource_metadata` values are rewritten to tunnel-service
+  URLs for the same `tunnel_id`.
+- Uses `authorization_servers[0]` from PRMD as the source of truth and metadata
+  fetch target for auth-server metadata enrichment and Harpoon OAuth target
+  registration.
+- Accepts auth-server metadata even when metadata `issuer` differs from
+  `authorization_servers[0]` (external IdP issuers are supported). Mismatch
+  details are preserved in diagnostics and logs.
+- The authorization server is not tunneled. If it is only reachable on-premises
+  or behind a firewall, and not accessible from the internet or the
+  tunnel-client host, the OAuth flow can fail.
 
 ## Channels
 
 `tunnel-client` supports multiple logical channels:
 
 - `main`: required; configured from `--mcp.server-url` or `--mcp.command`.
-- `harpoon`: built-in and enabled only when Harpoon has at least one registered target (see Harpoon config below).
-- additional channels: configured via channel-qualified `--mcp.server-url` and/or `--mcp.command` entries.
+- `harpoon`: built-in and enabled only when Harpoon has at least one registered
+  target (see Harpoon config below).
+- additional channels: configured via channel-qualified `--mcp.server-url`
+  and/or `--mcp.command` entries.
 
-All response payloads posted to `/v1/tunnel/{tunnel_id}/response` include the resolved `channel` value.
+All response payloads posted to `/v1/tunnel/{tunnel_id}/response` include the
+resolved `channel` value.
 
 ## Harpoon MCP (outbound HTTP allowlist)
 
-`harpoon` is an embedded MCP server that exposes an allowlisted, buffered HTTP client with labeled targets.
+`harpoon` is an embedded MCP server that exposes an allowlisted, buffered HTTP
+client with labeled targets.
 
-Harpoon’s channel (`harpoon`) is considered enabled only when at least one target is registered. If there are no targets, `harpoon` commands return `unsupported_channel`.
+Harpoon's channel (`harpoon`) is enabled only when at least one target is
+registered. If there are no targets, `harpoon` commands return
+`unsupported_channel`.
 
 - **Target mappings**
   - Flag (repeatable): `--harpoon.target="label=auth,url=https://auth.example.com,desc=Auth server"`
-  - Env: `HARPOON_TARGETS` (semicolon- or newline-delimited list of the same `label=...,url=...,desc=...` entries)
+  - Env: `HARPOON_TARGETS` (semicolon- or newline-delimited list of the same
+    `label=...,url=...,desc=...` entries)
 - **Harpoon target metadata (`list_targets`)**
   - Each target includes `category`, `source`, and `tags` fields.
   - Config-provided targets default to `category=source=config`.
-  - OAuth auto-registered targets derive `category`/`source` from discovery tags (currently `oauth`) and derive `tags` from the OAuth role (for example, `auth-server-metadata`, `registration-endpoint`, `protected-resource-metadata`).
+  - OAuth auto-registered targets derive `category`/`source` from discovery
+    tags (currently `oauth`) and derive `tags` from the OAuth role (for example,
+    `auth-server-metadata`, `registration-endpoint`, or
+    `protected-resource-metadata`).
   - The `list_targets` tool accepts optional filters:
     - `categories`: OR match within categories.
     - `sources`: OR match within sources.
@@ -178,12 +208,15 @@ Harpoon’s channel (`harpoon`) is considered enabled only when at least one tar
 - **Additional transport (optional)**
   - Flag: `--harpoon.additional-transport=http-streamable`
   - Env: `HARPOON_ADDITIONAL_TRANSPORTS` (semicolon- or newline-delimited list)
-  - Behavior: exposes the harpoon MCP server over the admin/health HTTP server at `GET/POST /harpoon/mcp` (loopback-only unless `--allow-remote-ui` is set).
+  - Behavior: exposes the Harpoon MCP server over the admin/health HTTP server
+    at `GET/POST /harpoon/mcp` (loopback-only unless `--allow-remote-ui` is
+    set).
 - **Capture payloads (debug only)**
   - Flag: `--harpoon.capture-payloads`
   - Env: `HARPOON_CAPTURE_PAYLOADS`
   - Default: `false`
-  - Behavior: stores request/response payloads in the Harpoon admin UI call history.
+  - Behavior: stores request/response payloads in the Harpoon admin UI call
+    history.
 - **Private host auto-registration filters**
   - Flag (repeatable): `--harpoon.hosts-include-suffix`
   - Env: `HARPOON_HOSTS_INCLUDE_SUFFIX` (semicolon- or newline-delimited list)
@@ -193,7 +226,8 @@ Harpoon’s channel (`harpoon`) is considered enabled only when at least one tar
   - Flag (repeatable): `--harpoon.hosts-include-regex`
   - Env: `HARPOON_HOSTS_INCLUDE_REGEX` (semicolon- or newline-delimited list)
   - Default: empty
-  - Behavior: treat matching hostnames as private for auto-registration (case-insensitive).
+  - Behavior: treat matching hostnames as private for auto-registration
+    (case-insensitive).
 - **Include loopback hosts**
   - Flag: `--harpoon.hosts-include-loopback`
   - Env: `HARPOON_HOSTS_INCLUDE_LOOPBACK`
@@ -213,7 +247,7 @@ Harpoon’s channel (`harpoon`) is considered enabled only when at least one tar
 - **Format**
   - Flag: `--log.format` (`struct-text`, `json`)
   - Env: `LOG_FORMAT`
-  - Default: unset (uses Go’s default logger behavior)
+  - Default: unset (uses Go's default logger behavior)
 - **File (optional)**
   - Flag: `--log.file`
   - Env: `LOG_FILE`
@@ -266,7 +300,8 @@ Used with `tunnel-client admin tunnels ...`:
   - Env: `OPENAI_ADMIN_KEY`
   - Required.
 - **Org/workspace scope**
-  - Flags: `--organization-id`, `--workspace-id` (repeatable); at least one is required for `create`, and duplicates are rejected.
+  - Flags: `--organization-id`, `--workspace-id` (repeatable). At least one is
+    required for `create`, and duplicates are rejected.
 - **Base URL**
   - Flag: `--control-plane.base-url`
   - Env: `CONTROL_PLANE_BASE_URL`

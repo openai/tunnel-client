@@ -1,59 +1,74 @@
 # Enterprise Customer Onboarding: MCP Tunnels
 
-This document is designed to be shared with an enterprise customer. It explains how to:
+This document is designed to be shared with an enterprise customer. It explains
+how to:
 
 - Create and manage a **tunnel** in the OpenAI tunnel control plane.
-- Deploy the **tunnel client** inside your network to reach your internal MCP server.
-- Configure a **connector** in ChatGPT to use the **OpenAI-hosted MCP tunnel URL**.
+- Deploy the **tunnel client** inside your network to reach your internal MCP
+  server.
+- Configure a **connector** in ChatGPT to use the **OpenAI-hosted MCP tunnel
+  URL**.
 
-## What you’re setting up (quick mental model)
+## What you are setting up
 
-You will **not** expose your MCP server publicly. Instead, an outbound-only tunnel client inside your network “pulls” work from OpenAI and forwards it to your MCP server.
+You will **not** expose your MCP server publicly. Instead, an outbound-only
+tunnel client inside your network pulls work from OpenAI and forwards it to your
+MCP server.
 
 ```mermaid
 flowchart LR
-  subgraph OpenAI
-    UI["ChatGPT Connector UI"]
-    Product["Connector runtime"]
-    TS["OpenAI-hosted MCP tunnel endpoint"]
+  subgraph openai["OpenAI"]
+    ui["ChatGPT connector setup"]
+    runtime["OpenAI connector runtime"]
+    tunnel["OpenAI-hosted MCP tunnel endpoint"]
   end
 
-  subgraph Customer Network
-    TC["Tunnel Client"]
-    MCP["Customer MCP Server"]
+  subgraph customer["Customer network"]
+    client["tunnel-client"]
+    mcp["Private MCP server"]
   end
 
-  UI --> Product
-  Product ==>|"POST /v1/mcp/{tunnel_id}"| TS
-  TC ==>|"GET /v1/tunnel/{tunnel_id}/poll"| TS
-  TC ==>|"POST /v1/tunnel/{tunnel_id}/response"| TS
-  TC -->|"Streamable HTTP (JSON-RPC)"| MCP
+  ui --> runtime
+  runtime -->|"MCP JSON-RPC<br/>POST /v1/mcp/{tunnel_id}"| tunnel
+  client ==>|"Outbound HTTPS long-poll<br/>GET /v1/tunnel/{tunnel_id}/poll"| tunnel
+  client ==>|"Outbound HTTPS response<br/>POST /v1/tunnel/{tunnel_id}/response"| tunnel
+  client -->|"Private MCP request"| mcp
+
+  classDef openaiNode fill:#eef5ff,stroke:#4a6fa5,color:#172033
+  classDef customerNode fill:#eefaf4,stroke:#3f7f5f,color:#172033
+  class ui,runtime,tunnel openaiNode
+  class client,mcp customerNode
 ```
+
+For a deeper explanation and more diagrams, see
+[`architecture.md`](architecture.md).
 
 ## Glossary
 
 - **Tunnel**: A logical identifier that binds together:
-  - a connector’s “MCP URL”, and
+  - the connector's MCP URL, and
   - the tunnel-client instance configured with that same identifier.
 - **Tunnel ID (`tunnel_id`)**: The identifier used in:
   - connector URL: `/v1/mcp/{tunnel_id}`
-  - tunnel-client control plane: `/v1/tunnel/{tunnel_id}/poll` and `/v1/tunnel/{tunnel_id}/response`
+  - tunnel-client control plane: `/v1/tunnel/{tunnel_id}/poll` and
+    `/v1/tunnel/{tunnel_id}/response`
   - Format: `tunnel_` followed by 32 lowercase letters or digits.
-- **OpenAI-hosted MCP tunnel URL**: The URL you paste into the connector configuration UI. It is an OpenAI-hosted “virtual MCP server” endpoint.
+- **OpenAI-hosted MCP tunnel URL**: The URL you paste into the connector
+  configuration UI. It is an OpenAI-hosted virtual MCP server endpoint.
 - **Tunnel Client**: A customer-run process that:
   - long-polls OpenAI for MCP requests for its `tunnel_id`, and
   - forwards them to your MCP server.
 
 ## Key concept: two different URLs
 
-- **Connector UI uses the OpenAI-hosted MCP tunnel URL**:
+- **Connector UI uses the OpenAI-hosted MCP tunnel URL** provided by OpenAI:
 
 ```text
 <OPENAI_MCP_TUNNEL_BASE_URL>/v1/mcp/<tunnel_id>
-OPENAI_MCP_TUNNEL_BASE_URL = https://tunnel-service.gateway.unified-0.internal.api.openai.org
 ```
 
-- **Tunnel client uses the Tunnel control-plane base URL** (host root) and derives:
+- **Tunnel client uses the Tunnel control-plane base URL** (host root) and
+  derives:
 
 ```text
 <CONTROL_PLANE_BASE_URL>/v1/tunnel/<tunnel_id>/poll
@@ -64,10 +79,12 @@ OPENAI_MCP_TUNNEL_BASE_URL = https://tunnel-service.gateway.unified-0.internal.a
 
 OpenAI will provide:
 
-- **OpenAI MCP tunnel base URL** (the base host you will use in the connector UI)
-- **Tunnel control-plane base URL** for the tunnel client
+- **OpenAI MCP tunnel base URL** (the base host to use in the connector UI)
+- **Tunnel control-plane base URL** for the tunnel client (defaults to
+  `https://api.openai.com` unless OpenAI provides a different rollout host)
 - **Tunnel client API key** (for tunnel client authentication)
-- **Tunnel management (admin) API access** so you can create/manage tunnel IDs (if applicable for your rollout)
+- **Tunnel management (admin) API access** so you can create/manage tunnel IDs
+  (if applicable for your rollout)
 
 You will provide:
 
@@ -75,7 +92,7 @@ You will provide:
 
 ---
 
-## Step 1 — Create (or obtain) a tunnel ID
+## Step 1 - Create (or obtain) a tunnel ID
 
 Depending on your rollout, OpenAI may either:
 
@@ -84,20 +101,26 @@ Depending on your rollout, OpenAI may either:
 
 ### Prerequisite: permission to manage tunnels
 
-Before you can create/update/delete tunnels via the **Tunnel Management API** (`/v1/tunnels*`), you must:
+Before you can create/update/delete tunnels via the **Tunnel Management API**
+(`/v1/tunnels*`), you must:
 
 - Use an **admin API key** (not the tunnel-client `CONTROL_PLANE_API_KEY`).
 - Have the **tunnel management permission** in your org/workspace context:
   - **Organization-scoped**: `api.organization.tunnel.write`
   - **Workspace-scoped**: `chatgpt.workspace.tunnel.write`
 
-If you do not have this permission, `POST /v1/tunnels` will fail with `403` (“missing tunnel management permission”). If your admin API key is not operating in an organization or workspace context, it will fail with `400` (“Tunnel must be created with an active organization or workspace context.”).
+If you do not have this permission, `POST /v1/tunnels` will fail with `403`
+("missing tunnel management permission"). If your admin API key is not operating
+in an organization or workspace context, it will fail with `400` ("Tunnel must
+be created with an active organization or workspace context.").
 
-If OpenAI has not already provisioned this permission for your admins, an org admin can grant it using Organization RBAC.
+If OpenAI has not already provisioned this permission for your admins, an org
+admin can grant it using Organization RBAC.
 
-#### Example (org-scoped): create a “Tunnel Managers” group and assign tunnel-write permission
+#### Example (org-scoped): create a "Tunnel Managers" group and assign tunnel-write permission
 
-> These RBAC calls require an **org admin API key** with permission to manage groups/roles in your organization.
+> These RBAC calls require an **org admin API key** with permission to manage
+> groups/roles in your organization.
 
 **1) Create a group**
 
@@ -125,7 +148,7 @@ curl -X POST https://api.openai.com/v1/organization/roles \
   }'
 ```
 
-**3) Get the group id and role id from previous steps and assign the role to the group**
+**3) Assign the role to the group**
 
 ```bash
 curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/roles \
@@ -136,7 +159,9 @@ curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/roles \
   }'
 ```
 
-**4) Add the admin user(s) to the group (Note you can also do this in https://platform.openai.com/settings/organization/people/groups)**
+**4) Add the admin user(s) to the group**
+
+You can also manage group membership in the organization settings UI.
 
 ```bash
 curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/users \
@@ -147,19 +172,24 @@ curl -X POST https://api.openai.com/v1/organization/groups/<group_id>/users \
   }'
 ```
 
-After this, the admin user(s) who will call `/v1/tunnels*` should have the tunnel management permission through group membership (you can also manage group membership via your organization admin UI/tooling).
+After this, the admin user(s) who will call `/v1/tunnels*` should have the
+tunnel management permission through group membership.
 
 ### Tunnel Management API (admin endpoints)
 
-These endpoints manage **tunnel metadata** (they do not deploy the tunnel client for you):
+These endpoints manage **tunnel metadata**. They do not deploy the tunnel client
+for you.
 
 - **Create**: `POST /v1/tunnels`
 - **Get**: `GET /v1/tunnels/{tunnel_id}`
-- **List**: `GET /v1/tunnels?organization_id=...` *or* `workspace_id=...` *or* `tenant_id=...`
+- **List**: `GET /v1/tunnels?organization_id=...` *or*
+  `workspace_id=...` *or* `tenant_id=...`
 - **Update**: `POST /v1/tunnels/{tunnel_id}`
 - **Delete**: `DELETE /v1/tunnels/{tunnel_id}`
 
-**AuthZ note:** these endpoints require an **admin API key** and a principal with tunnel management permission (for example `api.organization.tunnel.write`) in the caller’s active org/workspace context.
+**AuthZ note:** these endpoints require an **admin API key** and a principal
+with tunnel management permission (for example `api.organization.tunnel.write`)
+in the caller's active org/workspace context.
 
 ### Example: create a tunnel
 
@@ -174,19 +204,22 @@ curl -X POST <TUNNEL_MGMT_API_BASE_URL>/v1/tunnels \
   }'
 ```
 
-The response includes the new tunnel’s `id`. Use this as your **`tunnel_id`**.
+The response includes the new tunnel's `id`. Use this as your **`tunnel_id`**.
 
 ---
 
 ### CLI helper (preferred for quick setup)
 
-You can manage tunnels with the bundled `tunnel-client admin tunnels` commands instead of crafting raw `curl` requests.
+You can manage tunnels with the bundled `tunnel-client admin tunnels` commands
+instead of crafting raw `curl` requests.
 
 Prereqs:
 
 - Set an **admin key**: `export OPENAI_ADMIN_KEY=<admin key>`
-- Optional: override the control plane host (defaults to prod): `export CONTROL_PLANE_BASE_URL=https://api.openai.com`
-- Provide at least one scope flag: `--organization-id` and/or `--workspace-id` (duplicates are rejected).
+- Optional: override the control plane host (defaults to prod):
+  `export CONTROL_PLANE_BASE_URL=https://api.openai.com`
+- Provide at least one scope flag: `--organization-id` and/or `--workspace-id`
+  (duplicates are rejected).
 
 Examples:
 
@@ -216,9 +249,9 @@ Use `--json` on any subcommand for structured output.
 
 ---
 
-## Step 2 — Configure the connector to use the OpenAI-hosted MCP tunnel URL
+## Step 2 - Configure the connector to use the OpenAI-hosted MCP tunnel URL
 
-When creating a connector in **ChatGPT**, you’ll be asked for the **MCP Server URL**.
+When creating a connector in **ChatGPT**, you will be asked for the **MCP Server URL**.
 
 Paste the **OpenAI-hosted MCP tunnel URL** (not your internal MCP URL):
 
@@ -246,7 +279,7 @@ Optional session header (used for MCP session continuity):
 
 ---
 
-## Step 3 — Deploy the tunnel client in your environment
+## Step 3 - Deploy the tunnel client in your environment
 
 You can run the tunnel client as a:
 
@@ -362,7 +395,7 @@ The tunnel client exposes:
 
 ---
 
-## Step 4 — Validate end-to-end
+## Step 4 - Validate end-to-end
 
 ### 1) Validate the tunnel client is running
 
@@ -376,7 +409,7 @@ curl -fsS "http://127.0.0.1:8080/readyz"
 In the ChatGPT connector UI:
 
 - Save the connector configuration with the OpenAI-hosted MCP tunnel URL.
-- Run a “test connection” / “test tool call” flow (if available).
+- Run a "test connection" / "test tool call" flow (if available).
 
 On your MCP server, confirm you observe:
 
@@ -391,8 +424,11 @@ On your MCP server, confirm you observe:
 
 - The OpenAI-hosted MCP tunnel endpoint receives one JSON-RPC request.
 - It enqueues the request under your `tunnel_id`.
-- It waits (holds the HTTP request open) for the tunnel client to return the final response.
-- If the connector includes `Accept: text/event-stream`, the response is streamed as SSE, with JSON-RPC notifications forwarded as they arrive and a final JSON-RPC response closing the stream.
+- It waits, with the HTTP request held open, for the tunnel client to return the
+  final response.
+- If the connector includes `Accept: text/event-stream`, the response is streamed
+  as SSE. JSON-RPC notifications are forwarded as they arrive, and a final
+  JSON-RPC response closes the stream.
 - `GET /v1/mcp` is not supported; connectors must use POST.
 
 ### Tunnel-client control-plane endpoints: `/v1/tunnel/{tunnel_id}/poll` and `/response`
@@ -404,14 +440,16 @@ On your MCP server, confirm you observe:
   - `request_id`,
   - final JSON-RPC response payload (or JSON-RPC notifications), and
   - selected response headers and status code from the MCP server).
-- JSON-RPC notifications are sent with `resp_type=jsonrpc_notify` and are forwarded to the connector stream when SSE is enabled.
+- JSON-RPC notifications are sent with `resp_type=jsonrpc_notify` and are
+  forwarded to the connector stream when SSE is enabled.
 
 ### Timeouts (high level)
 
 Timeouts are configurable by OpenAI. Typical behaviors:
 
 - Connector requests may time out if the MCP server does not respond in time.
-- Long-poll requests complete periodically so the tunnel client can reconnect quickly.
+- Long-poll requests complete periodically so the tunnel client can reconnect
+  quickly.
 
 If you expect long-running MCP calls, coordinate timeout values with OpenAI.
 
@@ -419,13 +457,19 @@ If you expect long-running MCP calls, coordinate timeout values with OpenAI.
 
 ## Current limitations (important)
 
-- **SSE is opt-in**: connectors must send `Accept: text/event-stream` to receive streamed notifications; otherwise they receive a single `application/json` response.
-- The OpenAI tunnel queueing and timeout behavior is optimized for deterministic request/response flows.
+- **SSE is opt-in**: connectors must send `Accept: text/event-stream` to receive
+  streamed notifications. Otherwise they receive a single `application/json`
+  response.
+- The OpenAI tunnel queueing and timeout behavior is optimized for deterministic
+  request/response flows.
 
 ---
 
 ## Operations & best practices
 
-- **One tunnel client per tunnel ID**: run a single active `tunnel-client` instance per `tunnel_id` unless OpenAI explicitly advises otherwise.
-- **Secrets hygiene**: treat all API keys/tokens as secrets; store in a secrets manager and rotate on your standard cadence.
-- **Logging safety**: do not enable raw HTTP logging except in tightly controlled debugging sessions, as it can expose sensitive headers/bodies.
+- **One tunnel client per tunnel ID**: run a single active `tunnel-client`
+  instance per `tunnel_id` unless OpenAI explicitly advises otherwise.
+- **Secrets hygiene**: treat all API keys/tokens as secrets; store them in a
+  secrets manager and rotate them on your standard cadence.
+- **Logging safety**: do not enable raw HTTP logging except in tightly controlled
+  debugging sessions, as it can expose sensitive headers/bodies.
