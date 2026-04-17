@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+import pathlib
+import sys
+
+
+def main() -> int:
+    scripts_dir = pathlib.Path(__file__).resolve().parent
+    sys.path.insert(0, str(scripts_dir))
+
+    from tunnel_mcp_cli.commands import main as commands_main
+
+    return commands_main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

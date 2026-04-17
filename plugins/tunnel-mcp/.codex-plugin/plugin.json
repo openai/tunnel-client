@@ -1,0 +1,17 @@
+{
+  "description": "Create, connect, list, and inspect secure MCP tunnels from Codex using tunnel-client.",
+  "interface": {
+    "category": "Developer Tools",
+    "displayName": "Tunnel MCP",
+    "shortDescription": "Manage tunnel-client MCP tunnels from Codex"
+  },
+  "keywords": [
+    "mcp",
+    "tunnel-client",
+    "tunnel-service",
+    "codex"
+  ],
+  "name": "tunnel-mcp",
+  "skills": "./skills/",
+  "version": "0.1.0"
+}
