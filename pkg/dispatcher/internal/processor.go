@@ -663,7 +663,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			return
 		}
 
-		logger.DebugContext(ctx, "dispatcher received response from MCP server", attrsToArgs(messageSummaryAttrs(response))...)
+		logger.DebugContext(ctx, "dispatcher received response from MCP server", attrsToArgs(jsonRPCResponseCorrelationAttrs(req, response))...)
 
 		encodedResponse, err := jsonrpc.EncodeMessage(response)
 		if err != nil || len(encodedResponse) == 0 {
@@ -692,7 +692,8 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedResponse, responseCode, responseHeaders)
 
-		if tsRequestID, err := p.tunnelResponder.PostResponse(ttlCtx, cmd.RequestID(), tunnelResponse); err != nil {
+		tsRequestID, err := p.tunnelResponder.PostResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
+		if err != nil {
 			attrs := []any{slog.String("error", err.Error())}
 			if tsRequestID != "" {
 				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
@@ -710,7 +711,16 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, responseCode, metricAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
-		logger.DebugContext(ctx, "dispatcher delivered response to control plane", slog.Bool("finalResponse", finalResponse))
+		attrs := []any{
+			slog.Bool("finalResponse", finalResponse),
+			slog.Int("status_code", responseCode),
+			slog.String("channel", channel.String()),
+		}
+		attrs = append(attrs, attrsToArgs(jsonRPCResponseCorrelationAttrs(req, response))...)
+		if tsRequestID != "" {
+			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
+		}
+		logger.DebugContext(ctx, "dispatcher delivered response to control plane", attrs...)
 		return
 	}
 }
@@ -815,6 +825,44 @@ func messageSummaryAttrs(msg jsonrpc.Message) []slog.Attr {
 		return []slog.Attr{
 			slog.String("message_kind", fmt.Sprintf("unknown:%T", msg)),
 		}
+	}
+}
+
+func jsonRPCResponseCorrelationAttrs(req *jsonrpc.Request, response *jsonrpc.Response) []slog.Attr {
+	if response == nil {
+		return nil
+	}
+	attrs := messageSummaryAttrs(response)
+	if req != nil {
+		attrs = append(attrs, slog.String("rpc_method", req.Method))
+	}
+	if response.ID.IsValid() {
+		attrs = append(attrs, jsonRPCIDAttr("rpc_response_id", response.ID))
+	}
+	if response.Error != nil {
+		errorMessage := response.Error.Error()
+		var rpcErr *jsonrpc.Error
+		if errors.As(response.Error, &rpcErr) {
+			attrs = append(attrs, slog.Int64("rpc_error_code", rpcErr.Code))
+			if rpcErr.Message != "" {
+				errorMessage = rpcErr.Message
+			}
+		}
+		if errorMessage != "" {
+			attrs = append(attrs, slog.String("rpc_error_message", errorMessage))
+		}
+	}
+	return attrs
+}
+
+func jsonRPCIDAttr(name string, id jsonrpc.ID) slog.Attr {
+	switch v := id.Raw().(type) {
+	case string:
+		return slog.String(name, v)
+	case int64:
+		return slog.Int64(name, v)
+	default:
+		return slog.String(name, fmt.Sprint(v))
 	}
 }
 

@@ -1633,6 +1633,77 @@ func TestProcessorLogsMCPUpstreamErrorDetails(t *testing.T) {
 	require.NotContains(t, logOutput, "secret")
 }
 
+func TestProcessorLogsJSONRPCErrorResponseCorrelation(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	responder := newRecordingResponder()
+	responder.tunnelServiceRequestID = types.TunnelServiceRequestID("post_req_tools_list")
+
+	callID, err := jsonrpc.MakeID("tools-list-rpc")
+	require.NoError(t, err)
+
+	transport := &stubForwardingTransport{conn: &scriptedForwardingConnection{
+		statusCode: http.StatusOK,
+		headers: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		readSteps: []readStep{{
+			msg: &jsonrpc.Response{
+				ID: callID,
+				Error: &jsonrpc.Error{
+					Code:    jsonrpc.CodeMethodNotFound,
+					Message: "method-not-found",
+					Data:    json.RawMessage(`{"access_token":"secret-token"}`),
+				},
+			},
+		}},
+	}}
+
+	meterProvider := newTestMeterProvider(t)
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: newTestChannelBindings(transport),
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, time.Second),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   meterProvider,
+	})
+	require.NoError(t, err)
+
+	cmd := &fakePolledCommand{
+		id:         types.RequestID("tools-list-request"),
+		message:    &jsonrpc.Request{ID: callID, Method: "tools/list"},
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		headers: http.Header{
+			"X-Request-Id": []string{"cmd_req_tools_list"},
+		},
+		shardToken: "shard-tools-list",
+	}
+
+	require.NoError(t, processor.Process(context.Background(), cmd))
+	got := responder.waitForResponse(t)
+	require.Equal(t, cmd.id, got.requestID)
+	require.Equal(t, "cmd_req_tools_list", got.controlPlaneCommandRequestID)
+
+	logOutput := buf.String()
+	require.Contains(t, logOutput, "dispatcher delivered response to control plane")
+	require.Contains(t, logOutput, "request_id=tools-list-request")
+	require.Contains(t, logOutput, "cmd_request_id=cmd_req_tools_list")
+	require.Contains(t, logOutput, "tunnel_request_id=post_req_tools_list")
+	require.Contains(t, logOutput, "rpc_request_id=tools-list-rpc")
+	require.Contains(t, logOutput, "rpc_method=tools/list")
+	require.Contains(t, logOutput, "rpc_response_id=tools-list-rpc")
+	require.Contains(t, logOutput, "has_error=true")
+	require.Contains(t, logOutput, "rpc_error_code=-32601")
+	require.Contains(t, logOutput, "rpc_error_message=method-not-found")
+	require.NotContains(t, logOutput, "access_token")
+	require.NotContains(t, logOutput, "secret-token")
+}
+
 func TestProcessorNotificationAckPostFailureIsReturned(t *testing.T) {
 	t.Parallel()
 
