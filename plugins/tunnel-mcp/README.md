@@ -8,14 +8,57 @@ the long-running poll loop.
 
 ## Install
 
-Install this directory as a local Codex plugin from a `tunnel-client` checkout
-or from an extracted plugin directory.
+Install this directory as a local Codex plugin from either this repository root
+or a standalone `tunnel-client` checkout.
 
-Example local installs:
+Prerequisites:
+
+- `python3`
+- a Codex config directory, normally `~/.codex`
+- the Codex plugin installer script:
+  `skills/skills/install-codex-plugin/scripts/install_plugin.py`
+
+From this repository root:
 
 ```bash
-python /path/to/openai/skills/skills/install-codex-plugin/scripts/install_plugin.py \
+python skills/skills/install-codex-plugin/scripts/install_plugin.py \
+  --source "$PWD/api/tunnel-client/plugins/tunnel-mcp"
+```
+
+From a standalone `tunnel-client` checkout:
+
+```bash
+python /path/to/install_plugin.py \
   --source "$PWD/plugins/tunnel-mcp"
+```
+
+To install into a non-default Codex config directory, add
+`--codex-home /path/to/codex-home`.
+
+The installer should print output like:
+
+```text
+Installed tunnel-mcp@debug
+Target: /Users/you/.codex/plugins/cache/debug/tunnel-mcp/local
+Config: /Users/you/.codex/config.toml
+```
+
+Verify the install:
+
+```bash
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+test -f "$CODEX_HOME_DIR/plugins/cache/debug/tunnel-mcp/local/.codex-plugin/plugin.json"
+grep -A2 '^\[plugins\."tunnel-mcp@debug"\]' "$CODEX_HOME_DIR/config.toml"
+python "$CODEX_HOME_DIR/plugins/cache/debug/tunnel-mcp/local/scripts/tunnel_mcp" --help
+```
+
+If the plugin is installed on disk but does not appear in the current Codex
+session, start a new Codex session so the plugin and skill inventory is loaded.
+If plugins are disabled globally, add this to `config.toml`:
+
+```toml
+[features]
+plugins = true
 ```
 
 The manifest lives at `.codex-plugin/plugin.json`, and the routing skill lives
@@ -25,8 +68,28 @@ require repository-specific Python packages or build-system runfiles.
 
 Runtime prerequisites:
 
-- `python3`
-- `tunnel-client`
+- `tunnel-client` in `PATH`, or set `TUNNEL_CLIENT_BIN` to the binary path
+
+## Upgrade
+
+Upgrade the plugin by rerunning the same install command with the newer plugin
+source:
+
+```bash
+python skills/skills/install-codex-plugin/scripts/install_plugin.py \
+  --source "$PWD/api/tunnel-client/plugins/tunnel-mcp"
+```
+
+The installer replaces the cached plugin copy at
+`$CODEX_HOME/plugins/cache/debug/tunnel-mcp/local` and keeps
+`[plugins."tunnel-mcp@debug"] enabled = true` in `config.toml`. Local runtime
+state is stored separately under `$CODEX_HOME/tunnel-mcp`, or
+`~/.codex/tunnel-mcp` when `CODEX_HOME` is unset, so aliases, admin profiles,
+process history, logs, and generated native `tunnel-client` profiles are not
+rewritten by the plugin cache upgrade.
+
+After upgrading, start a new Codex session and rerun the install verification
+commands above so Codex reloads the updated plugin and skill inventory.
 
 Optional:
 
