@@ -1,0 +1,33 @@
+# Enterprise sample for environments with outbound HTTP(S) proxies or private PKI.
+# Runtime key used by `tunnel-client run`:
+#   export CONTROL_PLANE_API_KEY="sk-..."
+# Optional admin key for `tunnel-client admin tunnels ...`:
+#   export OPENAI_ADMIN_KEY="sk-admin-..."
+# Explicit proxy route used by this profile:
+#   export HTTPS_PROXY="http://proxy.internal.example.com:8080"
+# Private root bundle for the proxy or internal PKI:
+#   export ENTERPRISE_CA_BUNDLE="/etc/ssl/certs/proxy-root.pem"
+config_version: 1
+ca_bundle: "env:ENTERPRISE_CA_BUNDLE"
+http_proxy: "env:HTTPS_PROXY"
+control_plane:
+  base_url: {{ printf "%q" .BaseURL }}
+  tunnel_id: {{ printf "%q" .TunnelID }}
+  api_key: {{ printf "%q" .APIKeyRef }}
+health:
+  listen_addr: {{ printf "%q" .HealthListenAddr }}
+admin_ui:
+  open_browser: {{ .OpenBrowser }}
+log:
+  level: info
+  format: json
+mcp:
+{{- if .MCPServerURL }}
+  server_urls:
+    - channel: main
+      url: {{ printf "%q" .MCPServerURL }}
+{{- else }}
+  commands:
+    - channel: main
+      command: {{ printf "%q" .MCPCommand }}
+{{- end }}

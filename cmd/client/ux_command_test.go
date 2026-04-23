@@ -105,6 +105,7 @@ func TestProfilesSamplesListAndShow(t *testing.T) {
 	require.Contains(t, stdout, "sample_mcp_with_dcr")
 	require.Contains(t, stdout, "sample_mcp_stdio_local")
 	require.Contains(t, stdout, "sample_mcp_remote_no_auth")
+	require.Contains(t, stdout, "sample_mcp_enterprise_proxy")
 
 	stdout, stderr, err = executeCommand(t, map[string]string{
 		"HOME": t.TempDir(),
@@ -115,6 +116,19 @@ func TestProfilesSamplesListAndShow(t *testing.T) {
 	require.Contains(t, stdout, "Summary:")
 	require.Contains(t, stdout, "Required:")
 	require.Contains(t, stdout, "control_plane:")
+}
+
+func TestProfilesSamplesShowEnterpriseProxyMentionsEnvRefs(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, err := executeCommand(t, map[string]string{
+		"HOME": t.TempDir(),
+	}, "profiles", "samples", "show", "sample_mcp_enterprise_proxy")
+
+	require.NoError(t, err, stderr)
+	require.Contains(t, stdout, "env:HTTPS_PROXY")
+	require.Contains(t, stdout, "env:ENTERPRISE_CA_BUNDLE")
+	require.Contains(t, stdout, "OPENAI_ADMIN_KEY")
 }
 
 func TestInitCanUseExplicitStdioSample(t *testing.T) {

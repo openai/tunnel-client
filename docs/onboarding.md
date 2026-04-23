@@ -47,6 +47,11 @@ Other fast starts:
 
 - Remote HTTP MCP server with no OAuth/PRMD metadata:
   `tunnel-client init --sample sample_mcp_remote_no_auth --profile remote-http --tunnel-id tunnel_... --mcp-server-url https://mcp.example.com/mcp`
+- Outbound proxy or private PKI environment:
+  `export HTTPS_PROXY="http://proxy.internal.example.com:8080"`
+  `export ENTERPRISE_CA_BUNDLE="/etc/ssl/certs/proxy-root.pem"`
+  then
+  `tunnel-client init --sample sample_mcp_enterprise_proxy --profile corp-proxy --tunnel-id tunnel_... --mcp-server-url https://mcp.internal.example.com/mcp`
 - Embedded demo MCP server for end-to-end validation:
   `tunnel-client dev mcp-stub`
   then
@@ -106,6 +111,8 @@ Auth split to keep straight:
   read-only metadata lookup.
 - `admin tunnels list/create/update/delete` require `OPENAI_ADMIN_KEY` or
   `--admin-key`.
+- The enterprise proxy sample documents both keys in comments so runtime and
+  admin flows stay separate.
 
 Example:
 

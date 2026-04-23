@@ -410,6 +410,28 @@ func TestLoadCABundleFlag(t *testing.T) {
 	}
 }
 
+func TestLoadCABundleEnvReference(t *testing.T) {
+	bundlePath := writeTempCABundle(t)
+	args := []string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "https://mcp.example",
+	}
+	cfg, err := Load(args, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+		"CA_BUNDLE":             "env:ENTERPRISE_CA_BUNDLE",
+		"ENTERPRISE_CA_BUNDLE":  bundlePath,
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.TLS == nil {
+		t.Fatalf("expected TLS bundle to be populated")
+	}
+	if cfg.TLS.Path != bundlePath {
+		t.Fatalf("expected bundle path %q, got %q", bundlePath, cfg.TLS.Path)
+	}
+}
+
 func TestLoadCABundleRejectsInvalidPEM(t *testing.T) {
 	dir := t.TempDir()
 	bundlePath := filepath.Join(dir, "bad.pem")

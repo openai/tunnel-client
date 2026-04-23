@@ -42,6 +42,28 @@ func TestProfilesAddSampleAndList(t *testing.T) {
 	require.Equal(t, []profileListEntry{{Name: "sample_mcp_with_dcr", Path: path}}, entries)
 }
 
+func TestProfilesAddEnterpriseProxySample(t *testing.T) {
+	t.Parallel()
+
+	profileDir := t.TempDir()
+	stdout, stderr, err := executeProfilesCommand(t, map[string]string{
+		"HOME": t.TempDir(),
+	}, "profiles", "--profile-dir", profileDir, "add", "corp-proxy",
+		"--sample", "sample_mcp_enterprise_proxy",
+		"--tunnel-id", "tunnel_0123456789abcdef0123456789abcdef",
+		"--mcp-server-url", "https://mcp.internal.example.com/mcp",
+	)
+
+	require.NoError(t, err, stderr)
+	require.Contains(t, stdout, "Added profile corp-proxy")
+	path := filepath.Join(profileDir, "corp-proxy.yaml")
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(contents), `ca_bundle: "env:ENTERPRISE_CA_BUNDLE"`)
+	require.Contains(t, string(contents), `http_proxy: "env:HTTPS_PROXY"`)
+	require.Contains(t, string(contents), `OPENAI_ADMIN_KEY`)
+}
+
 func TestProfilesListJSONUsesEmptyArrayForMissingDir(t *testing.T) {
 	t.Parallel()
 

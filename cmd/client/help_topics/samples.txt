@@ -7,7 +7,14 @@ Current built-in samples:
   - sample_mcp_with_dcr: HTTP or stdio MCP target with the full OAuth/DCR-friendly contract
   - sample_mcp_stdio_local: local stdio MCP command with the shortest first-use path
   - sample_mcp_remote_no_auth: remote HTTP MCP server that does not advertise OAuth/PRMD metadata
+  - sample_mcp_enterprise_proxy: HTTP or stdio MCP target for outbound proxies or private PKI
 
 Profile creation surfaces:
   - tunnel-client init --sample <name>
   - tunnel-client profiles add <name> --sample sample_mcp_with_dcr ...
+  - tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tunnel-id tunnel_... --mcp-server-url https://mcp.internal.example.com/mcp
+
+Enterprise proxy notes:
+  - The sample writes `http_proxy: env:HTTPS_PROXY` so the profile uses an explicit global proxy route.
+  - The sample writes `ca_bundle: env:ENTERPRISE_CA_BUNDLE` so private root CAs can stay outside the profile file.
+  - `CONTROL_PLANE_API_KEY` is the runtime key. `OPENAI_ADMIN_KEY` is only for `tunnel-client admin ...`.

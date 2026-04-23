@@ -100,6 +100,26 @@ func profileSamples() []profileSampleDefinition {
 			},
 			Generate: generateSampleMCPRemoteNoAuthProfile,
 		},
+		{
+			Name:          "sample_mcp_enterprise_proxy",
+			Summary:       "HTTP or stdio MCP target for outbound proxies or private PKI environments",
+			UseWhen:       "Use this when tunnel-client must egress through a corporate HTTP(S) proxy, trust a private CA bundle, or keep runtime and admin credentials clearly separated for operators.",
+			RequiredFlags: []string{"--tunnel-id", "exactly one of --mcp-server-url or --mcp-command"},
+			OptionalFlags: []string{"--control-plane-base-url", "--control-plane-api-key-ref", "--health-listen-addr", "--open-web-ui"},
+			Caveats: []string{
+				"The profile pins a global explicit proxy via env:HTTPS_PROXY so control-plane, MCP HTTP, and Harpoon traffic use the same outbound route.",
+				"The CA bundle is loaded from env:ENTERPRISE_CA_BUNDLE; unset or remove that line if your environment uses public trust only.",
+				"OPENAI_ADMIN_KEY is documented in the sample comments for admin flows, but tunnel-client run only consumes the runtime key reference.",
+			},
+			Example: sampleProfileRequest{
+				TunnelID:         "tunnel_0123456789abcdef0123456789abcdef",
+				BaseURL:          "https://api.openai.com",
+				APIKeyRef:        "env:CONTROL_PLANE_API_KEY",
+				HealthListenAddr: defaultInitHealthListenAddr,
+				MCPServerURL:     "https://mcp.internal.example.com/mcp",
+			},
+			Generate: generateSampleMCPEntProxyProfile,
+		},
 	}
 }
 
@@ -174,6 +194,24 @@ func generateSampleMCPRemoteNoAuthProfile(req sampleProfileRequest) ([]byte, err
 	}
 	req.MCPCommand = ""
 	return renderEmbeddedSampleTemplate("profile_samples/sample_mcp_remote_no_auth.yaml.tmpl", req)
+}
+
+func generateSampleMCPEntProxyProfile(req sampleProfileRequest) ([]byte, error) {
+	req, err := normalizeSampleRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	req.MCPServerURL = strings.TrimSpace(req.MCPServerURL)
+	req.MCPCommand = strings.TrimSpace(req.MCPCommand)
+	if (req.MCPServerURL == "") == (req.MCPCommand == "") {
+		return nil, fmt.Errorf("sample_mcp_enterprise_proxy requires exactly one of --mcp-server-url or --mcp-command")
+	}
+	if req.MCPServerURL != "" {
+		if _, err := url.Parse(req.MCPServerURL); err != nil {
+			return nil, fmt.Errorf("invalid MCP server URL %q: %w", req.MCPServerURL, err)
+		}
+	}
+	return renderEmbeddedSampleTemplate("profile_samples/sample_mcp_enterprise_proxy.yaml.tmpl", req)
 }
 
 func normalizeSampleRequest(req sampleProfileRequest) (sampleProfileRequest, error) {

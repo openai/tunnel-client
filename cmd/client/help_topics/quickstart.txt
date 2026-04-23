@@ -21,7 +21,12 @@ Pick the shortest matching starter sample:
 2. Remote HTTP MCP server with no OAuth/PRMD metadata:
    tunnel-client init --sample sample_mcp_remote_no_auth --profile remote-http --tunnel-id tunnel_... --mcp-server-url https://mcp.example.com/mcp
 
-3. HTTP MCP server with OAuth/DCR metadata, or when you want to exercise the full contract:
+3. HTTP or stdio MCP target behind an outbound proxy or private PKI:
+   export HTTPS_PROXY="http://proxy.internal.example.com:8080"
+   export ENTERPRISE_CA_BUNDLE="/etc/ssl/certs/proxy-root.pem"
+   tunnel-client init --sample sample_mcp_enterprise_proxy --profile corp-proxy --tunnel-id tunnel_... --mcp-server-url https://mcp.internal.example.com/mcp
+
+4. HTTP MCP server with OAuth/DCR metadata, or when you want to exercise the full contract:
    tunnel-client dev mcp-stub
    tunnel-client init --sample sample_mcp_with_dcr --profile sample_mcp_with_dcr --tunnel-id tunnel_... --mcp-server-url http://127.0.0.1:NNNN/mcp
 
@@ -53,6 +58,7 @@ Useful follow-ups:
   tunnel-client profiles samples list
   tunnel-client profiles samples show sample_mcp_stdio_local
   tunnel-client profiles samples show sample_mcp_remote_no_auth
+  tunnel-client profiles samples show sample_mcp_enterprise_proxy
   tunnel-client help samples
   tunnel-client help oauth
   tunnel-client help plugin

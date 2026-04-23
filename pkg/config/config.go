@@ -549,9 +549,13 @@ func buildTLSBundle(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (*
 	if path == "" {
 		return nil, nil
 	}
-	bundle, err := tlsconfig.LoadBundle(path)
+	resolvedPath, err := resolvePathReference("ca-bundle", path, lookupEnv)
 	if err != nil {
-		return nil, fmt.Errorf("invalid ca-bundle %q: %w", path, err)
+		return nil, err
+	}
+	bundle, err := tlsconfig.LoadBundle(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ca-bundle %q: %w", resolvedPath, err)
 	}
 	return bundle, nil
 }

@@ -176,6 +176,10 @@ The starter sample set is:
 - `sample_mcp_stdio_local`: shortest path for a local stdio MCP command.
 - `sample_mcp_remote_no_auth`: remote HTTP MCP server that does not advertise
   OAuth/PRMD metadata.
+- `sample_mcp_enterprise_proxy`: HTTP or stdio MCP target for outbound proxies
+  or private PKI, with `http_proxy: env:HTTPS_PROXY`,
+  `ca_bundle: env:ENTERPRISE_CA_BUNDLE`, and sample comments that separate the
+  runtime key from the admin key.
 
 Use the sample surfaces instead of guessing sample names:
 
@@ -183,6 +187,7 @@ Use the sample surfaces instead of guessing sample names:
 tunnel-client profiles samples list
 tunnel-client profiles samples show sample_mcp_with_dcr
 tunnel-client profiles add my-profile --sample sample_mcp_with_dcr --tunnel-id tunnel_0123456789abcdef0123456789abcdef --mcp-server-url http://127.0.0.1:3001/mcp
+tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tunnel-id tunnel_0123456789abcdef0123456789abcdef --mcp-server-url https://mcp.internal.example.com/mcp
 ```
 
 ## Control plane
@@ -233,6 +238,10 @@ Harpoon).
 
 Use explicit proxy flags to force tunnel-client traffic through a corporate
 proxy. Each flag accepts a proxy URL or `env:VAR` reference.
+
+If you want a ready-made profile instead of wiring the YAML by hand, start from
+`sample_mcp_enterprise_proxy` and export `HTTPS_PROXY` plus
+`ENTERPRISE_CA_BUNDLE` before `tunnel-client doctor` or `run`.
 
 - **Global proxy (all outbound HTTP)**
   - Flag: `--http-proxy=<url|env:VAR>`

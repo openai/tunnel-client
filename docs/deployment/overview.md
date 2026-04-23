@@ -54,6 +54,10 @@ Common options:
 
 When no explicit proxy is set for a target, standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` semantics apply.
 
+For a ready-made profile, `tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy ...`
+materializes a YAML profile with `http_proxy: env:HTTPS_PROXY` and
+`ca_bundle: env:ENTERPRISE_CA_BUNDLE`.
+
 ## Choose a deployment pattern
 
 - **Docker**: [`docker.md`](docker.md)

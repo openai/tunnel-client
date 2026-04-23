@@ -24,6 +24,7 @@ Binary-first flow:
 ```bash
 tunnel-client help quickstart
 tunnel-client profiles samples list
+tunnel-client profiles samples show sample_mcp_enterprise_proxy
 tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_0123456789abcdef0123456789abcdef --mcp-command "python /path/to/server.py"
 tunnel-client doctor --profile local-stdio --explain
 tunnel-client run --profile local-stdio
@@ -123,6 +124,8 @@ make admin-ui
 - `tunnel-client doctor` validates config and explains what is missing before
   startup.
 - `tunnel-client profiles samples list|show` exposes built-in sample profiles.
+- `sample_mcp_enterprise_proxy` is the built-in starter for outbound proxies
+  and private PKI, with env-backed proxy and CA bundle references.
 - `tunnel-client admin-profiles list|set|delete` manages saved admin-key
   profiles for native session workflows.
 - `tunnel-client sessions create|connect|list|status|stop|rm` manages native
