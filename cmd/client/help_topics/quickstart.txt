@@ -5,6 +5,11 @@ What tunnel-client is for:
   to the OpenAI control plane over an outbound tunnel. Once running, it exposes local
   operator surfaces at /healthz, /readyz, and /ui.
 
+If you only have the source checkout:
+  make admin-ui
+  go build -o bin/tunnel-client ./cmd/client
+  ./bin/tunnel-client help quickstart
+
 Pick the shortest matching starter sample:
 
 0. One-command demo path with the embedded MCP server:
@@ -37,6 +42,7 @@ Starter prompts for Codex:
 
 If you already know a tunnel id and only need metadata:
   tunnel-client admin tunnels get tunnel_...     # runtime key or admin key
+  tunnel-client admin --json tunnels get tunnel_...   # inspect organization_ids/workspace_ids for admin CRUD scope
 
 If you need create/list/update/delete:
   tunnel-client admin tunnels ...                # admin key required

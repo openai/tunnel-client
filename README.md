@@ -29,6 +29,14 @@ tunnel-client doctor --profile local-stdio --explain
 tunnel-client run --profile local-stdio
 ```
 
+Source-checkout build path:
+
+```bash
+make admin-ui
+go build -o bin/tunnel-client ./cmd/client
+./bin/tunnel-client help quickstart
+```
+
 Fastest Codex terminal path:
 
 ```bash
@@ -122,7 +130,9 @@ make admin-ui
 - `tunnel-client run` starts the client poller.
 - `tunnel-client admin tunnels get <id>` is the read-only metadata lookup used
   on the runtime-user path; broader `admin tunnels` CRUD still requires an
-  admin key.
+  admin key. When you need admin CRUD scope, inspect the returned
+  `organization_ids` / `workspace_ids` from `tunnel-client admin --json tunnels get <id>`
+  and reuse those live values instead of guessing ids.
 
 ## License
 This project is licensed under the [Apache License 2.0](LICENSE).

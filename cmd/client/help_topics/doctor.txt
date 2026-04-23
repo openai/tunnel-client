@@ -20,4 +20,6 @@ Use doctor to confirm:
 Auth model to keep straight:
   - tunnel-client runtime uses CONTROL_PLANE_API_KEY / OPENAI_API_KEY
   - tunnel-client admin tunnels get <id> can use that runtime key
+  - `tunnel-client admin --json tunnels get <id>` returns `organization_ids` / `workspace_ids`;
+    reuse those live values for admin list/create/update/delete scope instead of guessing ids
   - admin tunnels list/create/update/delete require OPENAI_ADMIN_KEY / --admin-key
