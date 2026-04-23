@@ -131,6 +131,10 @@ This read-only metadata lookup works with either:
 
 tunnel-client itself uses this lookup during startup to fetch tunnel metadata such as
 the operator-visible tunnel name and description.
+
+When you need explicit admin CRUD scope for list/create/update/delete, prefer
+the --json form here and reuse the returned organization_ids / workspace_ids
+instead of guessing ids.
 `),
 		Example: strings.TrimSpace(`
   # Inspect a known tunnel with the runtime key used by tunnel-client itself
@@ -140,6 +144,9 @@ the operator-visible tunnel name and description.
   # Inspect the same tunnel with an explicit admin key
   export OPENAI_ADMIN_KEY=...
   tunnel-client admin tunnels get tunnel_0123456789abcdef0123456789abcdef
+
+  # Reuse the live scope values for admin CRUD
+  tunnel-client admin --json tunnels get tunnel_0123456789abcdef0123456789abcdef
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
