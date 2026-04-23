@@ -81,7 +81,7 @@ func newInitCommand(lookupEnv func(string) (string, bool), stdout io.Writer, std
 	cmd.Flags().StringVar(&controlPlaneAPIKey, "control-plane-api-key-ref", "env:CONTROL_PLANE_API_KEY", "Secret reference for the runtime control-plane API key")
 	cmd.Flags().StringVar(&mcpServerURL, "mcp-server-url", "", "MCP server URL for the generated profile")
 	cmd.Flags().StringVar(&mcpCommand, "mcp-command", "", "MCP command for the generated profile")
-	cmd.Flags().StringVar(&healthListenAddr, "health-listen-addr", defaultInitHealthListenAddr, "Health listener address to write into the generated profile")
+	cmd.Flags().StringVar(&healthListenAddr, "health-listen-addr", defaultInitHealthListenAddr, "Health listener address to write into the generated profile. Use :0 to request an ephemeral port at runtime.")
 	cmd.Flags().BoolVar(&openWebUI, "open-web-ui", false, "Set admin_ui.open_browser=true in the generated profile")
 	return cmd
 }

@@ -25,5 +25,5 @@ docker run --rm \
 ## Notes
 
 - Prefer mounting secrets as files and using `--control-plane.api-key=file:/...` if you avoid environment variables.
-- If you bind `HEALTH_LISTEN_ADDR=:0`, set `HEALTH_URL_FILE` so probes can discover the resolved port.
+- `HEALTH_LISTEN_ADDR=:0` explicitly asks the OS to assign an ephemeral port. Set `HEALTH_URL_FILE` so probes can discover the resolved base URL.
 - If you set `PID_FILE`, the client writes its process ID to that path on startup and removes it on shutdown (useful for supervisors).

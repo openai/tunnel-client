@@ -43,6 +43,10 @@ type doctorReport struct {
 	Checks       []doctorCheck `json:"checks"`
 }
 
+type doctorHealthListenerResult struct {
+	Check doctorCheck
+}
+
 func newDoctorCommand(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer) *cobra.Command {
 	var explain bool
 	var jsonOutput bool
@@ -177,9 +181,9 @@ func runDoctor(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) doctorR
 		}
 	}
 
-	healthCheck := doctorHealthListenerCheck(cfg.Health.ListenAddr)
-	checks = append(checks, healthCheck)
-	checks = append(checks, doctorUICheck(cfg.Health.ListenAddr, healthCheck.Status))
+	healthResult := doctorHealthListenerCheck(cfg.Health.ListenAddr)
+	checks = append(checks, healthResult.Check)
+	checks = append(checks, doctorUICheck(cfg.Health.ListenAddr, healthResult.Check.Status))
 	checks = append(checks, doctorCodexCheck(lookupEnv))
 	return finalizeDoctorReport(checks, source)
 }
@@ -444,37 +448,46 @@ func doctorBaseURL(listenAddr string) string {
 	return "http://" + net.JoinHostPort(host, port)
 }
 
-func doctorHealthListenerCheck(listenAddr string) doctorCheck {
-	listener, err := net.Listen("tcp", listenAddr)
+func doctorHealthListenerCheck(listenAddr string) doctorHealthListenerResult {
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		return doctorCheck{
-			ID:      "health_listener",
-			Status:  doctorStatusFail,
-			Summary: err.Error(),
-			Why:     "tunnel-client must bind the local health/admin listener before it can serve /healthz, /readyz, or /ui.",
-			Evidence: []string{
-				listenAddr,
-				err.Error(),
-			},
-			Next: []string{
-				"choose a different --health.listen-addr or stop the conflicting process",
-				"rerun: tunnel-client doctor",
+		return doctorHealthListenerResult{
+			Check: doctorCheck{
+				ID:      "health_listener",
+				Status:  doctorStatusFail,
+				Summary: err.Error(),
+				Why:     "tunnel-client must bind the local health/admin listener before it can serve /healthz, /readyz, or /ui.",
+				Evidence: []string{
+					listenAddr,
+					err.Error(),
+				},
+				Next: []string{
+					"choose a different --health.listen-addr or stop the conflicting process",
+					"rerun: tunnel-client doctor",
+				},
 			},
 		}
 	}
-	actualAddr := listener.Addr().String()
-	_ = listener.Close()
+	actualAddr := ln.Addr().String()
+	_ = ln.Close()
 	if _, port, err := net.SplitHostPort(listenAddr); err == nil && port == "0" {
-		return doctorCheck{
+		return doctorHealthListenerResult{
+			Check: doctorCheck{
+				ID:      "health_listener",
+				Status:  doctorStatusPass,
+				Summary: "ephemeral bind ok on " + doctorBaseURL(actualAddr),
+				Next: []string{
+					"inspect startup summary or HEALTH_URL_FILE for the final /ui URL",
+				},
+			},
+		}
+	}
+	return doctorHealthListenerResult{
+		Check: doctorCheck{
 			ID:      "health_listener",
 			Status:  doctorStatusPass,
-			Summary: "ephemeral bind ok on " + doctorBaseURL(actualAddr),
-		}
-	}
-	return doctorCheck{
-		ID:      "health_listener",
-		Status:  doctorStatusPass,
-		Summary: "will bind " + doctorBaseURL(listenAddr),
+			Summary: "will bind " + doctorBaseURL(listenAddr),
+		},
 	}
 }
 

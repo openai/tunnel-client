@@ -317,8 +317,8 @@ Optional mTLS configuration for MCP server authentication:
 
 Operational helpers (optional):
 
-- `HEALTH_LISTEN_ADDR` (default `:8080`)
-- `HEALTH_URL_FILE` (write resolved health URL when binding to port `0`)
+- `HEALTH_LISTEN_ADDR` (default `:8080`; set to `:0` only when you explicitly want an ephemeral port)
+- `HEALTH_URL_FILE` (write resolved health URL; recommended with `HEALTH_LISTEN_ADDR=:0`)
 - `PID_FILE` (write pid on start, remove on stop)
 
 ### Configuration examples

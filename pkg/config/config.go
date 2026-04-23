@@ -305,6 +305,8 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  TUNNEL_CLIENT_PROFILE\tProfile name to load from the profile directory (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  TUNNEL_CLIENT_PROFILE_DIR\tProfile directory override (default: $XDG_CONFIG_HOME/tunnel-client or ~/.config/tunnel-client)")
 	_, _ = fmt.Fprintln(fs.Output(), "  XDG_CONFIG_HOME\tBase directory for default tunnel-client profiles (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  HEALTH_LISTEN_ADDR\tHealth/admin listen address; use :0 to request an ephemeral port (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  HEALTH_URL_FILE\tWrite the resolved health base URL after startup; recommended with HEALTH_LISTEN_ADDR=:0 (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  ALLOW_REMOTE_UI\tSet to true to allow non-loopback access to the embedded web UI (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  OPEN_WEB_UI\tSet to true to open the embedded web UI in a browser on startup (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  ADMIN_UI_LOG_BUFFER_EVENTS\tRecent log-event capacity for the embedded web UI and export archive (optional)")
@@ -331,7 +333,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("log.format", defaultLogFormat.String(), "Log format (struct-text, json) (env.LOG_FORMAT)")
 	fs.String("log.file", "", "Log file path; defaults to stdout when empty (env.LOG_FILE)")
 	fs.Bool("log.http-raw-unsafe", false, "Log full raw HTTP requests and responses (including bodies/headers). WARNING: May include PII or sensitive data. Use only for debugging. (env.LOG_HTTP_RAW_UNSAFE)")
-	fs.String("health.listen-addr", defaultHealthListenAddr, "Address the health HTTP server listens on (ip:port) (env.HEALTH_LISTEN_ADDR)")
+	fs.String("health.listen-addr", defaultHealthListenAddr, "Address the health HTTP server listens on (ip:port). Use :0 to request an ephemeral port from the OS. (env.HEALTH_LISTEN_ADDR)")
 	fs.String("health.url-file", "", "File to write the health base URL to after startup (env.HEALTH_URL_FILE)")
 	fs.Bool("allow-remote-ui", false, "Allow remote access to the embedded web UI and log endpoints (env.ALLOW_REMOTE_UI)")
 	fs.Bool("open-web-ui", false, "Open the embedded web UI in your default browser on startup (env.OPEN_WEB_UI)")
@@ -884,6 +886,8 @@ func registerFlagAliases(fs *pflag.FlagSet) {
 			fs.String(alias.Alias, "", fmt.Sprintf("Alias of --%s", alias.Canonical))
 		case "stringArray":
 			fs.StringArray(alias.Alias, nil, fmt.Sprintf("Alias of --%s", alias.Canonical))
+		case "bool":
+			fs.Bool(alias.Alias, false, fmt.Sprintf("Alias of --%s", alias.Canonical))
 		default:
 			continue
 		}
@@ -917,6 +921,10 @@ func applyFlagAliases(fs *pflag.FlagSet) {
 				}
 			}
 			canonicalFlag.Changed = true
+		case "bool":
+			if err := canonicalFlag.Value.Set(aliasFlag.Value.String()); err == nil {
+				canonicalFlag.Changed = true
+			}
 		}
 	}
 }

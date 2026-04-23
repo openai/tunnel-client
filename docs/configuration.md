@@ -445,10 +445,11 @@ registered. If there are no targets, `harpoon` commands return
   - Flag: `--health.listen-addr`
   - Env: `HEALTH_LISTEN_ADDR`
   - Default: `:8080`
+  - Set the port to `0` only when you explicitly want the OS to assign an ephemeral port at startup.
 - **URL file (optional)**
   - Flag: `--health.url-file`
   - Env: `HEALTH_URL_FILE`
-  - Use when binding to a random port (e.g., `:0`) and you need to publish the resolved base URL.
+  - Recommended with `HEALTH_LISTEN_ADDR=:0` when another process needs the resolved `/healthz`, `/readyz`, or `/ui` base URL.
 
 ## Embedded web UI
 

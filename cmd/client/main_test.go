@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -147,6 +149,51 @@ func TestAppBoots(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist, "pid file removed on shutdown")
 	_, err = os.Stat(healthURLPath)
 	require.ErrorIs(t, err, os.ErrNotExist, "health URL file removed on shutdown")
+}
+
+func TestAppFailsToStartWithBusyHealthPort(t *testing.T) {
+	busyListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, busyListener.Close())
+	}()
+
+	cfg := &config.Config{
+		ControlPlane: config.ControlPlaneConfig{
+			BaseURL:             mustParseURL(t, "http://127.0.0.1"),
+			TunnelID:            types.TunnelID("tunnel_0123456789abcdef0123456789abcdef"),
+			APIKey:              "test-api-key",
+			MaxInFlightRequests: 1,
+			PollTimeout:         100 * time.Millisecond,
+		},
+		Logging: config.LoggingConfig{
+			Level: slog.LevelInfo,
+		},
+		Health: config.HealthConfig{
+			ListenAddr: busyListener.Addr().String(),
+		},
+		MCP: config.MCPConfig{
+			TransportKind:         config.MCPTransportStdio,
+			Command:               "cat",
+			CommandArgs:           []string{"cat"},
+			ConnectionMaxTTL:      time.Minute,
+			MaxConcurrentRequests: 10,
+		},
+	}
+
+	app := fxtest.New(t,
+		app.Options(
+			cfg,
+			fx.StartTimeout(5*time.Second),
+			fx.StopTimeout(5*time.Second),
+		)...,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = app.Start(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "address already in use")
 }
 
 func waitForReady(client *http.Client, baseURL string, timeout time.Duration) error {

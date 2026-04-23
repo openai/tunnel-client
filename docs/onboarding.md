@@ -59,6 +59,9 @@ Other fast starts:
 
 The embedded UI is served from the health listener. With the default
 `127.0.0.1:8080`, the UI is at `http://127.0.0.1:8080/ui`.
+If you set `HEALTH_LISTEN_ADDR=:0` or `--health.listen-addr=:0`, the OS picks
+an ephemeral port at startup; use `HEALTH_URL_FILE` or `--health.url-file` if
+another tool needs the resolved UI URL.
 
 If Codex is installed locally and you want the plugin surface instead of the raw
 binary flow, install it directly from the binary:
@@ -157,6 +160,7 @@ The process will:
 - Start polling the OpenAI tunnel service for work.
 - Forward JSON-RPC requests to your MCP server.
 - Expose health endpoints on `HEALTH_LISTEN_ADDR` (default `:8080`).
+  Set it to `:0` only when you explicitly want an ephemeral port chosen at startup.
 
 ## 6) Verify
 

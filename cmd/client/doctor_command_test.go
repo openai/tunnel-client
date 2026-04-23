@@ -71,7 +71,7 @@ func TestDoctorFailureExplain(t *testing.T) {
 	require.Contains(t, stdout, "What to do next:")
 }
 
-func TestDoctorDetectsHealthListenerBindConflict(t *testing.T) {
+func TestDoctorDetectsHealthListenerBindConflictByDefault(t *testing.T) {
 	t.Parallel()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -106,11 +106,11 @@ func TestDoctorDetectsHealthListenerBindConflict(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, stderr)
 	require.Equal(t, 2, exitCode(err))
-	require.Contains(t, stdout, "FAILED_CHECKS health_listener")
 	require.Contains(t, stdout, "CHECK health_listener")
 	require.Contains(t, stdout, "address already in use")
 	require.Contains(t, stdout, "CHECK ui")
 	require.Contains(t, stdout, "blocked by health listener check")
+	require.Contains(t, stdout, "FAILED_CHECKS health_listener")
 }
 
 func TestDoctorJSONOutput(t *testing.T) {
