@@ -78,7 +78,7 @@ After create succeeds, wait 25-30 seconds before expecting the tunnel to be acti
     --description "WS-only tunnel" \
     --workspace-id ws_456
 `),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: wrapAdminJSONErrors(func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(name) == "" {
 				return errors.New("name is required (set --name)")
 			}
@@ -111,7 +111,7 @@ After create succeeds, wait 25-30 seconds before expecting the tunnel to be acti
 				return err
 			}
 			return printTunnelCreateReadyDelay(cmd)
-		},
+		}),
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "Name for the tunnel (required)")
@@ -154,7 +154,7 @@ instead of guessing ids.
   tunnel-client admin --json tunnels get tunnel_0123456789abcdef0123456789abcdef
 `),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: wrapAdminJSONErrors(func(cmd *cobra.Command, args []string) error {
 			client, _, err := readOnlyAdminClientFromCmd(cmd, lookupEnv)
 			if err != nil {
 				return err
@@ -168,7 +168,7 @@ instead of guessing ids.
 				return err
 			}
 			return printTunnel(cmd, t)
-		},
+		}),
 	}
 	return cmd
 }
@@ -183,7 +183,7 @@ List tunnels filtered by organization, workspace, or tenant.
 
 This command requires a real admin API key and exactly one explicit scope filter.
 `),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: wrapAdminJSONErrors(func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := adminClientFromCmd(cmd, lookupEnv)
 			if err != nil {
 				return err
@@ -215,7 +215,7 @@ This command requires a real admin API key and exactly one explicit scope filter
 				return err
 			}
 			return printTunnelList(cmd, resp)
-		},
+		}),
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "Tenant identifier to filter tunnels by (optional)")
 	requireOrgsOrWorkspaces(cmd)
@@ -240,7 +240,7 @@ func newTunnelUpdateCmd(lookupEnv func(string) (string, bool)) *cobra.Command {
     --description "New description"
 `),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: wrapAdminJSONErrors(func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := adminClientFromCmd(cmd, lookupEnv)
 			if err != nil {
 				return err
@@ -276,7 +276,7 @@ func newTunnelUpdateCmd(lookupEnv func(string) (string, bool)) *cobra.Command {
 				return err
 			}
 			return printTunnel(cmd, t)
-		},
+		}),
 	}
 	cmd.Flags().StringVar(&name, "name", "", "New name (optional; omit to keep current)")
 	cmd.Flags().StringVar(&description, "description", "", "New description (optional; omit to keep current)")
@@ -293,7 +293,7 @@ func newTunnelDeleteCmd(lookupEnv func(string) (string, bool)) *cobra.Command {
 			"Optional org/workspace flags are accepted for symmetry with other admin subcommands,\n" +
 			"but the current delete endpoint identifies the tunnel solely by id.",
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: wrapAdminJSONErrors(func(cmd *cobra.Command, args []string) error {
 			if !confirm {
 				return errors.New("refusing to delete without --confirm")
 			}
@@ -311,7 +311,7 @@ func newTunnelDeleteCmd(lookupEnv func(string) (string, bool)) *cobra.Command {
 				return err
 			}
 			return printTunnel(cmd, t)
-		},
+		}),
 	}
 	cmd.Flags().BoolVar(&confirm, "confirm", false, "Required to delete a tunnel")
 	requireOrgsOrWorkspaces(cmd)
@@ -484,4 +484,59 @@ func strPtr(s string) *string {
 func requireOrgsOrWorkspaces(cmd *cobra.Command) {
 	cmd.Flags().StringSlice("organization-id", nil, "Organization identifier(s) used for scope and tunnel attachment (repeatable)")
 	cmd.Flags().StringSlice("workspace-id", nil, "Workspace identifier(s) used for scope and tunnel attachment (repeatable)")
+}
+
+func wrapAdminJSONErrors(run func(cmd *cobra.Command, args []string) error) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := run(cmd, args); err != nil {
+			return maybeWriteAdminJSONError(cmd, err)
+		}
+		return nil
+	}
+}
+
+func maybeWriteAdminJSONError(cmd *cobra.Command, err error) error {
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	if !jsonOut {
+		return err
+	}
+
+	payload := map[string]any{
+		"error": map[string]any{
+			"message": err.Error(),
+		},
+	}
+
+	var requestErr *admin.RequestError
+	if errors.As(err, &requestErr) {
+		errorPayload := payload["error"].(map[string]any)
+		errorPayload["method"] = requestErr.Method
+		errorPayload["path"] = requestErr.Path
+		errorPayload["status_code"] = requestErr.StatusCode
+		if requestErr.RequestID != "" {
+			errorPayload["request_id"] = requestErr.RequestID
+		}
+	}
+
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetIndent("", "  ")
+	if writeErr := enc.Encode(payload); writeErr != nil {
+		return writeErr
+	}
+	return silentExitError{code: 1}
+}
+
+type silentExitError struct {
+	code int
+}
+
+func (e silentExitError) Error() string {
+	return ""
+}
+
+func (e silentExitError) ExitCode() int {
+	if e.code == 0 {
+		return 1
+	}
+	return e.code
 }

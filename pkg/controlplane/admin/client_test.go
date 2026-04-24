@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,9 +22,11 @@ func TestAdminTunnelClientCreateAndGet(t *testing.T) {
 			if got := r.Header.Get("Authorization"); got != "Bearer admin-key" {
 				t.Fatalf("unexpected Authorization header %q", got)
 			}
+			w.Header().Set("X-Request-Id", "req_create_123")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n","description":"d","creator":"u","organization_ids":["org1"],"workspace_ids":["ws1"]}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels/tunnel_1":
+			w.Header().Set("X-Request-Id", "req_get_123")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n"}`))
 		default:
@@ -47,7 +50,7 @@ func TestAdminTunnelClientCreateAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTunnel: %v", err)
 	}
-	if created.ID != "tunnel_1" || created.Creator != "u" {
+	if created.ID != "tunnel_1" || created.Creator != "u" || created.RequestID != "req_create_123" {
 		t.Fatalf("unexpected create response %+v", created)
 	}
 
@@ -55,7 +58,7 @@ func TestAdminTunnelClientCreateAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTunnel: %v", err)
 	}
-	if fetched.Name != "n" {
+	if fetched.Name != "n" || fetched.RequestID != "req_get_123" {
 		t.Fatalf("unexpected get response %+v", fetched)
 	}
 }
@@ -127,6 +130,13 @@ func TestAdminTunnelClientErrorIncludesRequestID(t *testing.T) {
 	_, err = client.GetTunnel(context.Background(), "id")
 	if err == nil {
 		t.Fatalf("expected error, got nil")
+	}
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) {
+		t.Fatalf("expected RequestError, got %T", err)
+	}
+	if requestErr.RequestID != "req_test_123" || requestErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("unexpected request error details: %+v", requestErr)
 	}
 	if got := err.Error(); !containsAll(got, "500", "boom", "req_test_123") {
 		t.Fatalf("error missing request id or details: %s", got)

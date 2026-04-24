@@ -22,6 +22,31 @@ const (
 	defaultTimeout    = 30 * time.Second
 )
 
+// RequestError captures a non-2xx admin API response so CLI callers can surface
+// structured details in JSON mode without having to parse stderr text.
+type RequestError struct {
+	Method       string
+	Path         string
+	StatusCode   int
+	ResponseBody string
+	RequestID    string
+}
+
+type requestIDSetter interface {
+	setRequestID(string)
+}
+
+func (e *RequestError) Error() string {
+	if e == nil {
+		return ""
+	}
+	errMsg := formatAdminRequestError(e.Method, e.Path, e.StatusCode, e.ResponseBody)
+	if e.RequestID != "" {
+		errMsg = fmt.Sprintf("%s (x-request-id: %s)", errMsg, e.RequestID)
+	}
+	return errMsg
+}
+
 // AdminTunnelClient is a lightweight HTTP client for the tunnel management API.
 type AdminTunnelClient struct {
 	httpClient *http.Client
@@ -156,11 +181,13 @@ func (c *AdminTunnelClient) do(ctx context.Context, method, path string, query u
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		errMsg := formatAdminRequestError(method, target.Path, resp.StatusCode, strings.TrimSpace(string(msg)))
-		if requestID != "" {
-			errMsg = fmt.Sprintf("%s (x-request-id: %s)", errMsg, requestID)
+		return &RequestError{
+			Method:       method,
+			Path:         target.Path,
+			StatusCode:   resp.StatusCode,
+			ResponseBody: strings.TrimSpace(string(msg)),
+			RequestID:    requestID,
 		}
-		return errors.New(errMsg)
 	}
 
 	if out == nil {
@@ -176,6 +203,9 @@ func (c *AdminTunnelClient) do(ctx context.Context, method, path string, query u
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
+	}
+	if setter, ok := out.(requestIDSetter); ok {
+		setter.setRequestID(requestID)
 	}
 	return nil
 }

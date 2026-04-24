@@ -247,6 +247,7 @@ func TestCreateOmitsReadyDelayNoteForJSONOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v1/tunnels", r.URL.Path)
 		require.Equal(t, http.MethodPost, r.Method)
+		w.Header().Set("X-Request-Id", "req_create_json_123")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"tunnel_123","name":"created tunnel","description":"created description","organization_ids":["org-1"],"workspace_ids":["ws-1"]}`))
 	}))
@@ -271,6 +272,7 @@ func TestCreateOmitsReadyDelayNoteForJSONOutput(t *testing.T) {
 	require.NoError(t, root.Execute())
 	require.NotContains(t, out.String(), tunnelCreateReadyDelayNote)
 	require.Contains(t, out.String(), `"id": "tunnel_123"`)
+	require.Contains(t, out.String(), `"request_id": "req_create_json_123"`)
 }
 
 func TestCreateRejectsDuplicateScope(t *testing.T) {
