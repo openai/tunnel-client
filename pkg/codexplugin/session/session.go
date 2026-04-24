@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -81,6 +82,7 @@ type CompletedProcess struct {
 }
 
 type Runner func(args []string, env map[string]string) (CompletedProcess, error)
+type RunnerWithInput func(args []string, env map[string]string, stdin string) (CompletedProcess, error)
 
 type Process interface {
 	PID() int
@@ -90,14 +92,16 @@ type Process interface {
 type Starter func(args []string, env map[string]string, logPath string) (Process, error)
 
 type Runtime struct {
-	Run   Runner
-	Start Starter
+	Run      Runner
+	RunInput RunnerWithInput
+	Start    Starter
 }
 
 func DefaultRuntime() Runtime {
 	return Runtime{
-		Run:   runCommand,
-		Start: startProcess,
+		Run:      runCommand,
+		RunInput: runCommandWithInput,
+		Start:    startProcess,
 	}
 }
 
@@ -282,7 +286,7 @@ func StartOrReuse(
 		if result, err := StartTmux(rt, sessionName, tunnelClientBin, profileName, profileDir, envOverrides); err != nil {
 			return LaunchResult{}, err
 		} else if result.ReturnCode != 0 {
-			return LaunchResult{}, fmt.Errorf("tmux new-session failed: %s", strings.TrimSpace(firstNonEmpty(result.Stderr, result.Stdout)))
+			return LaunchResult{}, fmt.Errorf("tmux launch failed: %s", strings.TrimSpace(firstNonEmpty(result.Stderr, result.Stdout)))
 		}
 		observation := WaitForRuntimeHealth(rt, alias, root, "tmux", 0, sessionName)
 		return LaunchResult{
@@ -387,6 +391,30 @@ func TmuxHasSessionName(rt Runtime, sessionName string) (bool, error) {
 }
 
 func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileName string, profileDir string, env map[string]string) (CompletedProcess, error) {
+	if len(env) > 0 && rt.RunInput != nil {
+		if result, err := rt.Run([]string{"tmux", "new-session", "-d", "-s", sessionName}, nil); err != nil {
+			return result, err
+		} else if result.ReturnCode != 0 {
+			return result, nil
+		}
+		cleanupSession := func() {
+			_, _ = StopTmux(rt, sessionName)
+		}
+		paneID, err := tmuxFirstPaneID(rt, sessionName)
+		if err != nil {
+			cleanupSession()
+			return CompletedProcess{}, err
+		}
+		result, err := rt.RunInput([]string{"tmux", "source-file", "-"}, nil, tmuxLaunchScript(sessionName, paneID, tunnelClientBin, profileName, profileDir, env))
+		if err != nil {
+			cleanupSession()
+			return result, err
+		}
+		if result.ReturnCode != 0 {
+			cleanupSession()
+		}
+		return result, nil
+	}
 	args := []string{"tmux", "new-session", "-d"}
 	keys := make([]string, 0, len(env))
 	for key := range env {
@@ -398,6 +426,36 @@ func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileNa
 	}
 	args = append(args, "-s", sessionName, TunnelClientCommand(tunnelClientBin, profileName, profileDir))
 	return rt.Run(args, childEnv(env))
+}
+
+func tmuxLaunchScript(sessionName string, paneID string, tunnelClientBin string, profileName string, profileDir string, env map[string]string) string {
+	lines := make([]string, 0, len(env)+1)
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		lines = append(lines, fmt.Sprintf("set-environment -t =%s %s %s", shellQuote(sessionName), shellQuote(key), shellQuote(env[key])))
+	}
+	lines = append(lines, fmt.Sprintf("respawn-pane -k -t %s %s", shellQuote(paneID), shellQuote(TunnelClientCommand(tunnelClientBin, profileName, profileDir))))
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func tmuxFirstPaneID(rt Runtime, sessionName string) (string, error) {
+	result, err := rt.Run([]string{"tmux", "list-panes", "-t", "=" + sessionName, "-F", "#{pane_id}"}, nil)
+	if err != nil {
+		return "", err
+	}
+	if result.ReturnCode != 0 {
+		return "", fmt.Errorf("tmux list-panes failed: %s", strings.TrimSpace(firstNonEmpty(result.Stderr, result.Stdout)))
+	}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed, nil
+		}
+	}
+	return "", fmt.Errorf("tmux list-panes returned no pane id for session %s", sessionName)
 }
 
 func StopTmux(rt Runtime, sessionName string) (CompletedProcess, error) {
@@ -476,19 +534,29 @@ func WaitForProcessExit(pid int) bool {
 }
 
 func runCommand(args []string, env map[string]string) (CompletedProcess, error) {
+	return runCommandWithInput(args, env, "")
+}
+
+func runCommandWithInput(args []string, env map[string]string, stdin string) (CompletedProcess, error) {
 	cmd := exec.Command(args[0], args[1:]...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	if env != nil {
 		cmd.Env = envList(env)
 	}
-	output, err := cmd.CombinedOutput()
-	result := CompletedProcess{Stdout: string(output)}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result := CompletedProcess{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err == nil {
 		return result, nil
 	}
 	var exitErr *exec.ExitError
 	if ok := AsExitError(err, &exitErr); ok {
 		result.ReturnCode = exitErr.ExitCode()
-		result.Stderr = string(exitErr.Stderr)
 		return result, nil
 	}
 	return result, err

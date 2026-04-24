@@ -47,6 +47,18 @@ func TestBuildTunnelMCPPromptContextSelectsBinaryReference(t *testing.T) {
 	if !strings.Contains(text, "https://github.com/openai/tunnel-client/releases/latest") {
 		t.Fatalf("expected public release guidance in prompt context, got:\n%s", text)
 	}
+	for _, snippet := range []string{
+		"https://github.com/openai/tunnel-client",
+		"git clone https://github.com/openai/tunnel-client.git",
+		"go build -o bin/tunnel-client ./cmd/client",
+		"go build -o bin/tunnel-client.exe ./cmd/client",
+		"TUNNEL_CLIENT_BIN",
+		"--tunnel-client-bin /path/to/tunnel-client",
+	} {
+		if !strings.Contains(text, snippet) {
+			t.Fatalf("expected binary guidance snippet %q in prompt context, got:\n%s", snippet, text)
+		}
+	}
 }
 
 func TestBuildTunnelMCPPromptContextSelectsProfileAndKeyReference(t *testing.T) {
@@ -106,6 +118,53 @@ func TestTunnelMCPExportToDirIncludesSkillReferences(t *testing.T) {
 		path := filepath.Join(dir, rel)
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected exported reference %s: %v", rel, err)
+		}
+	}
+}
+
+func TestEmbeddedSkillIncludesMissingBinaryResponseContract(t *testing.T) {
+	t.Parallel()
+
+	data, err := embeddedPluginFiles.ReadFile("tunnel-mcp/skills/tunnel-mcp/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded skill: %v", err)
+	}
+	text := string(data)
+	for _, snippet := range []string{
+		"Missing-binary response contract:",
+		"https://github.com/openai/tunnel-client/releases/latest",
+		"https://github.com/openai/tunnel-client",
+		"git clone https://github.com/openai/tunnel-client.git",
+		"go build -o bin/tunnel-client ./cmd/client",
+		"go build -o bin/tunnel-client.exe ./cmd/client",
+		"TUNNEL_CLIENT_BIN",
+		"--tunnel-client-bin /path/to/tunnel-client",
+	} {
+		if !strings.Contains(text, snippet) {
+			t.Fatalf("expected embedded skill to contain %q, got:\n%s", snippet, text)
+		}
+	}
+}
+
+func TestEmbeddedAgentsIncludesMissingBinaryResponseContract(t *testing.T) {
+	t.Parallel()
+
+	data, err := embeddedPluginFiles.ReadFile("tunnel-mcp/AGENTS.md")
+	if err != nil {
+		t.Fatalf("read embedded AGENTS: %v", err)
+	}
+	text := string(data)
+	for _, snippet := range []string{
+		"https://github.com/openai/tunnel-client/releases/latest",
+		"https://github.com/openai/tunnel-client",
+		"git clone https://github.com/openai/tunnel-client.git",
+		"go build -o bin/tunnel-client ./cmd/client",
+		"go build -o bin/tunnel-client.exe ./cmd/client",
+		"TUNNEL_CLIENT_BIN",
+		"--tunnel-client-bin /path/to/tunnel-client",
+	} {
+		if !strings.Contains(text, snippet) {
+			t.Fatalf("expected embedded AGENTS to contain %q, got:\n%s", snippet, text)
 		}
 	}
 }

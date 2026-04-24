@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -99,4 +100,81 @@ func TestStartOrReuseFallsBackToProcessMode(t *testing.T) {
 	require.Equal(t, "process", result.Mode)
 	require.True(t, result.Launched)
 	require.Equal(t, os.Getpid(), result.PID)
+}
+
+func TestStartTmuxUsesSourceFileForSecretEnv(t *testing.T) {
+	t.Parallel()
+
+	var gotRunArgs [][]string
+	var gotArgs []string
+	var gotStdin string
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
+			if len(args) >= 2 && args[0] == "tmux" && args[1] == "list-panes" {
+				return CompletedProcess{ReturnCode: 0, Stdout: "%42\n"}, nil
+			}
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+		RunInput: func(args []string, env map[string]string, stdin string) (CompletedProcess, error) {
+			gotArgs = append([]string{}, args...)
+			gotStdin = stdin
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+	}
+
+	_, err := StartTmux(
+		rt,
+		"tunnel-mcp__docs-mcp__deadbeef",
+		"/tmp/tunnel-client",
+		"docs-mcp",
+		"/tmp/profiles",
+		map[string]string{"OPENAI_TUNNEL_KEY_PROD": "sk-proj-runtime-secret"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{
+		{"tmux", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
+		{"tmux", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
+	}, gotRunArgs)
+	require.Equal(t, []string{"tmux", "source-file", "-"}, gotArgs)
+	require.Contains(t, gotStdin, "set-environment -t =tunnel-mcp__docs-mcp__deadbeef OPENAI_TUNNEL_KEY_PROD sk-proj-runtime-secret")
+	require.Contains(t, gotStdin, "respawn-pane -k -t %42")
+	require.Contains(t, gotStdin, "tunnel-client run --profile-dir /tmp/profiles --profile docs-mcp")
+	require.NotContains(t, strings.Join(gotRunArgs[0], " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
+	require.NotContains(t, strings.Join(gotRunArgs[1], " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
+	require.NotContains(t, strings.Join(gotArgs, " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
+}
+
+func TestStartTmuxCleansUpSessionWhenSourceFileFails(t *testing.T) {
+	t.Parallel()
+
+	var gotRunArgs [][]string
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
+			if len(args) >= 2 && args[0] == "tmux" && args[1] == "list-panes" {
+				return CompletedProcess{ReturnCode: 0, Stdout: "%42\n"}, nil
+			}
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+		RunInput: func(args []string, env map[string]string, stdin string) (CompletedProcess, error) {
+			return CompletedProcess{ReturnCode: 1, Stderr: "boom"}, nil
+		},
+	}
+
+	result, err := StartTmux(
+		rt,
+		"tunnel-mcp__docs-mcp__deadbeef",
+		"/tmp/tunnel-client",
+		"docs-mcp",
+		"/tmp/profiles",
+		map[string]string{"OPENAI_TUNNEL_KEY_PROD": "sk-proj-runtime-secret"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.ReturnCode)
+	require.Equal(t, [][]string{
+		{"tmux", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
+		{"tmux", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
+		{"tmux", "kill-session", "-t", "=tunnel-mcp__docs-mcp__deadbeef"},
+	}, gotRunArgs)
 }

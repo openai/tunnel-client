@@ -373,6 +373,9 @@ func TestCodexAssistantInjectsBundledBinaryAcquisitionGuidance(t *testing.T) {
 	require.Contains(t, found, "plugins/tunnel-mcp/skills/tunnel-mcp/references/binary.md")
 	require.Contains(t, found, "https://github.com/openai/tunnel-client/releases/latest")
 	require.Contains(t, found, "https://github.com/openai/tunnel-client")
+	require.Contains(t, found, "git clone https://github.com/openai/tunnel-client.git")
+	require.Contains(t, found, "TUNNEL_CLIENT_BIN")
+	require.Contains(t, found, "--tunnel-client-bin /path/to/tunnel-client")
 	require.NotContains(t, found, prompt)
 }
 

@@ -56,8 +56,8 @@ If Codex is installed locally and you want the plugin surface instead of the raw
 binary flow, install it directly from the binary:
 
 ```bash
-tunnel-client plugin codex install
-tunnel-client plugin codex uninstall
+tunnel-client codex plugin install
+tunnel-client codex plugin uninstall
 ```
 
 If you want a named profile instead of the one-command demo path:

@@ -39,6 +39,26 @@ Binary setup order:
 - after building, set `TUNNEL_CLIENT_BIN` or reinstall the plugin with
   `--tunnel-client-bin`
 
+Missing-binary response contract:
+
+- If the prompt says the plugin cannot find `tunnel-client`, says
+  `command -v tunnel-client` fails, or asks how to install/download the binary,
+  do not answer with generic "public distribution" wording alone.
+- Include these exact public-safe anchors in the answer:
+  - `https://github.com/openai/tunnel-client/releases/latest`
+  - `https://github.com/openai/tunnel-client`
+  - `git clone https://github.com/openai/tunnel-client.git`
+  - `go build -o bin/tunnel-client ./cmd/client`
+  - Windows: `go build -o bin/tunnel-client.exe ./cmd/client`
+  - `TUNNEL_CLIENT_BIN`
+  - `--tunnel-client-bin /path/to/tunnel-client`
+- Also say that routed plugin commands do not auto-download, auto-clone, or
+  auto-run remote binaries. Codex should only clone/build when the user
+  explicitly asks it to set up or install `tunnel-client`.
+- If the user asks only for guidance, keep the answer guidance-only. If the
+  user explicitly asks Codex to install or set up `tunnel-client`, Codex may
+  follow the public repo build path above.
+
 Preferred install surfaces:
 
 - `tunnel-client codex plugin install` when the binary is available

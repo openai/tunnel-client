@@ -26,6 +26,21 @@ func TestBuildPromptContextFindsChatGPTTunnelSetupGuidance(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContextUsesCanonicalCodexPluginCommands(t *testing.T) {
+	t.Parallel()
+
+	text := BuildPromptContext("How do I install the codex plugin from the tunnel-client binary?")
+	if text == "" {
+		t.Fatal("expected packaged knowledge context")
+	}
+	if !strings.Contains(text, "tunnel-client codex plugin install") {
+		t.Fatalf("expected canonical codex plugin install command, got:\n%s", text)
+	}
+	if strings.Contains(text, "tunnel-client plugin codex install") {
+		t.Fatalf("expected stale codex plugin alias to be absent, got:\n%s", text)
+	}
+}
+
 func TestBuildPromptContextDoesNotEchoRawUserPrompt(t *testing.T) {
 	t.Parallel()
 
