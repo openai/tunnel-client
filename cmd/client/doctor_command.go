@@ -275,6 +275,17 @@ func doctorNextCommand(source config.ConfigSource) string {
 	}
 }
 
+func doctorExplainCommand(source config.ConfigSource) string {
+	switch {
+	case source.ProfileName != "":
+		return fmt.Sprintf("tunnel-client doctor --profile %s --explain", source.ProfileName)
+	case source.Path != "":
+		return fmt.Sprintf("tunnel-client doctor --config %s --explain", source.Path)
+	default:
+		return "tunnel-client doctor --explain"
+	}
+}
+
 func mapConfigErrorToDoctorCheck(err error, source config.ConfigSource) doctorCheck {
 	message := err.Error()
 	check := doctorCheck{
@@ -289,11 +300,14 @@ func mapConfigErrorToDoctorCheck(err error, source config.ConfigSource) doctorCh
 		check.Why = "tunnel-client cannot register or poll the control plane without a valid tunnel id."
 		check.Next = []string{
 			fmt.Sprintf("create or inspect the tunnel in %s", canonicalTunnelsManagementURL),
+			fmt.Sprintf("create a runtime key in %s for `tunnel-client doctor` and `tunnel-client run`", canonicalRuntimeAPIKeysURL),
 			"run `tunnel-client admin tunnels get <tunnel_id>` if you already know the tunnel id; this read-only lookup works with the runtime key",
-			fmt.Sprintf("if you need admin CRUD or discovery, create or inspect an admin key in %s and then run `tunnel-client admin tunnels create --help` or `tunnel-client admin tunnels list --help`", canonicalAdminAPIKeysURL),
-			"once you have a tunnel id, create a first profile with `tunnel-client init --sample sample_mcp_with_dcr --profile sample_mcp_with_dcr --tunnel-id tunnel_... --mcp-server-url http://127.0.0.1:3001/mcp`",
+			fmt.Sprintf("if you still need tunnel CRUD or tunnel discovery, create or inspect an admin key in %s and then run `tunnel-client admin tunnels create --help` or `tunnel-client admin tunnels list --help`", canonicalAdminAPIKeysURL),
+			"once you have a tunnel id, create a first profile with `tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command \"python /path/to/server.py\"`",
+			"rerun: tunnel-client doctor --profile local-stdio --explain",
+			"if it passes, run: tunnel-client run --profile local-stdio",
 			"or set --control-plane.tunnel-id or CONTROL_PLANE_TUNNEL_ID to a tunnel_<32 lowercase hex> value",
-			connectorSettingsRuntimeNote(doctorNextCommand(source)),
+			connectorSettingsRuntimeNote("tunnel-client run --profile local-stdio"),
 			"for the full first-use flow run `tunnel-client help quickstart`",
 		}
 	case strings.Contains(message, "control plane API key") || strings.Contains(message, "CONTROL_PLANE_API_KEY") || strings.Contains(message, "OPENAI_API_KEY"):
@@ -303,8 +317,9 @@ func mapConfigErrorToDoctorCheck(err error, source config.ConfigSource) doctorCh
 			fmt.Sprintf("create or inspect the runtime key in %s", canonicalRuntimeAPIKeysURL),
 			"export CONTROL_PLANE_API_KEY=...",
 			"if your tunnel key already lives in another environment variable, map it with `export CONTROL_PLANE_API_KEY=$YOUR_EXISTING_TUNNEL_KEY_ENV`",
+			"if you already know the tunnel id, no admin key is required for `tunnel-client doctor` or `tunnel-client run`",
 			fmt.Sprintf("if you also need admin CRUD, create a separate admin key in %s", canonicalAdminAPIKeysURL),
-			"rerun: tunnel-client doctor",
+			"rerun: " + doctorExplainCommand(source),
 			"if it passes, run: " + doctorNextCommand(source),
 		}
 	case strings.Contains(message, "control-plane.base-url"):
@@ -314,11 +329,16 @@ func mapConfigErrorToDoctorCheck(err error, source config.ConfigSource) doctorCh
 	case strings.Contains(message, "main channel is required") || strings.Contains(message, "mcp.server-url") || strings.Contains(message, "mcp.command"):
 		check.ID = "mcp_target"
 		check.Why = "tunnel-client needs one main MCP binding before the daemon can forward requests."
-		check.Next = []string{"set --mcp.server-url or --mcp.command, or update the profile to include channel=main"}
+		check.Next = []string{
+			"for a local MCP server, run `tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command \"python /path/to/server.py\"`",
+			"rerun: tunnel-client doctor --profile local-stdio --explain",
+			"if it passes, run: tunnel-client run --profile local-stdio",
+			"or set --mcp.server-url or --mcp.command directly, or update the profile to include channel=main",
+		}
 	case source.Path != "" && strings.Contains(message, source.Path):
 		check.ID = "profile_load"
 		check.Why = "the selected profile file must parse cleanly before tunnel-client can validate the rest of the config."
-		check.Next = []string{fmt.Sprintf("fix %s and rerun tunnel-client doctor", source.Path)}
+		check.Next = []string{fmt.Sprintf("fix %s and rerun %s", source.Path, doctorExplainCommand(source))}
 	default:
 		check.Why = "tunnel-client found a configuration problem that prevents the daemon from starting cleanly."
 		check.Next = []string{"rerun with --explain or inspect the selected profile/config file"}

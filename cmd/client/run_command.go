@@ -202,10 +202,10 @@ func needsFirstUseGuidance(err error) bool {
 func firstUseGuidance(err error) string {
 	message := err.Error()
 	if strings.Contains(message, "tunnel ID is required") {
-		return "run `tunnel-client admin tunnels create --help` or `tunnel-client admin tunnels list --help` to acquire a tunnel id, then materialize a profile with `tunnel-client init`; for the full first-use flow run `tunnel-client help quickstart`"
+		return "create `CONTROL_PLANE_API_KEY` in Runtime API keys for `tunnel-client doctor` and `tunnel-client run`; if you still need a tunnel id, create `OPENAI_ADMIN_KEY` only for `tunnel-client admin tunnels create|list ...`, then run `tunnel-client admin tunnels create --help` or `tunnel-client admin tunnels list --help`; then run `tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command \"python /path/to/server.py\"`, `tunnel-client doctor --profile local-stdio --explain`, and `tunnel-client run --profile local-stdio`; for the full first-use flow run `tunnel-client help quickstart`"
 	}
 	if strings.Contains(message, "main channel is required") {
-		return "for the shortest demo path run `tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_... --health.listen-addr 127.0.0.1:0 --health.url-file /tmp/tunnel-client-health.url`; otherwise create a profile with `tunnel-client init` or run `tunnel-client help quickstart`"
+		return "for a local MCP server, run `tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command \"python /path/to/server.py\"`, then `tunnel-client doctor --profile local-stdio --explain`, then `tunnel-client run --profile local-stdio`; for the shortest demo path run `tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_... --health.listen-addr 127.0.0.1:0 --health.url-file /tmp/tunnel-client-health.url`; for the full first-use flow run `tunnel-client help quickstart`"
 	}
-	return "for first-time setup run `tunnel-client help quickstart` or create a profile with `tunnel-client init`"
+	return "create `CONTROL_PLANE_API_KEY` in Runtime API keys for `tunnel-client run`, keep `OPENAI_ADMIN_KEY` separate for `tunnel-client admin ...`, then follow `tunnel-client init`, `tunnel-client doctor --profile <name> --explain`, and `tunnel-client run --profile <name>`; for first-time setup run `tunnel-client help quickstart`"
 }

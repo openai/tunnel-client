@@ -215,6 +215,37 @@ func TestPackagedDocsUseRuntimesCommandSurface(t *testing.T) {
 	)
 }
 
+func TestOnboardingDocSpellsOutLocalMCPFirstRunFlow(t *testing.T) {
+	t.Parallel()
+
+	docs, err := loadKnowledgeDocuments()
+	if err != nil {
+		t.Fatalf("load knowledge documents: %v", err)
+	}
+	for _, doc := range docs {
+		if doc.Path != "docs/onboarding.md" {
+			continue
+		}
+		var sections []string
+		for _, section := range doc.Sections {
+			sections = append(sections, section.Heading, section.Body)
+		}
+		text := strings.Join(sections, "\n")
+		requireContainsAll(t, text,
+			"Create `CONTROL_PLANE_API_KEY` before you run `tunnel-client doctor` or",
+			"Create `OPENAI_ADMIN_KEY` only if you still need",
+			"init -> doctor --explain -> run",
+			"export CONTROL_PLANE_API_KEY=\"sk-...\"",
+			"tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio",
+			"tunnel-client doctor --profile local-stdio --explain",
+			"tunnel-client run --profile local-stdio",
+			"Codex uses the same native daemon/profile flow as ChatGPT.",
+		)
+		return
+	}
+	t.Fatal("expected docs/onboarding.md in packaged knowledge documents")
+}
+
 func requireContainsAll(t *testing.T, text string, snippets ...string) {
 	t.Helper()
 	for _, snippet := range snippets {

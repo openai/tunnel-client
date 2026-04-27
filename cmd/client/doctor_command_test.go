@@ -76,6 +76,8 @@ func TestDoctorFailureExplain(t *testing.T) {
 	require.Contains(t, stdout, "What to do next:")
 	require.Contains(t, stdout, canonicalRuntimeAPIKeysURL)
 	require.Contains(t, stdout, canonicalAdminAPIKeysURL)
+	require.Contains(t, stdout, "no admin key is required for `tunnel-client doctor` or `tunnel-client run`")
+	require.Contains(t, stdout, "rerun: tunnel-client doctor --explain")
 }
 
 func TestDoctorMissingTunnelIDExplainIncludesConnectorRuntimeNote(t *testing.T) {
@@ -94,10 +96,13 @@ func TestDoctorMissingTunnelIDExplainIncludesConnectorRuntimeNote(t *testing.T) 
 	require.Equal(t, 2, exitCode(err))
 	require.Contains(t, stdout, "FAILED_CHECKS tunnel_id")
 	require.Contains(t, stdout, canonicalTunnelsManagementURL)
+	require.Contains(t, stdout, canonicalRuntimeAPIKeysURL)
 	require.Contains(t, stdout, canonicalAdminAPIKeysURL)
 	require.Contains(t, stdout, canonicalChatGPTConnectorSettingsURL)
-	require.Contains(t, stdout, "tunnel-client init --sample sample_mcp_with_dcr --profile sample_mcp_with_dcr")
-	require.Contains(t, stdout, "Create or verify the connector in https://chatgpt.com/#settings/Connectors only while `tunnel-client run` is running.")
+	require.Contains(t, stdout, "tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio")
+	require.Contains(t, stdout, "tunnel-client doctor --profile local-stdio --explain")
+	require.Contains(t, stdout, "tunnel-client run --profile local-stdio")
+	require.Contains(t, stdout, "Create or verify the connector in https://chatgpt.com/#settings/Connectors only while `tunnel-client run --profile local-stdio` is running.")
 	require.Contains(t, stdout, "Keep the daemon up for connector discovery and every MCP call from ChatGPT.")
 }
 

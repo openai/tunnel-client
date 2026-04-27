@@ -57,8 +57,12 @@ func TestRunReportsTunnelIDBeforeMissingMCPBinding(t *testing.T) {
 	err := root.Execute()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tunnel ID is required")
+	require.Contains(t, err.Error(), "create `CONTROL_PLANE_API_KEY` in Runtime API keys")
+	require.Contains(t, err.Error(), "OPENAI_ADMIN_KEY")
 	require.Contains(t, err.Error(), "tunnel-client admin tunnels create --help")
-	require.Contains(t, err.Error(), "tunnel-client init")
+	require.Contains(t, err.Error(), "tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio")
+	require.Contains(t, err.Error(), "tunnel-client doctor --profile local-stdio --explain")
+	require.Contains(t, err.Error(), "tunnel-client run --profile local-stdio")
 	require.Contains(t, err.Error(), "tunnel-client help quickstart")
 }
 
@@ -83,10 +87,13 @@ func TestRunReportsHowToConfigureMainMCPChannel(t *testing.T) {
 	err := root.Execute()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "set --mcp.server-url or --mcp.command")
+	require.Contains(t, err.Error(), "tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio")
+	require.Contains(t, err.Error(), "tunnel-client doctor --profile local-stdio --explain")
+	require.Contains(t, err.Error(), "tunnel-client run --profile local-stdio")
 	require.Contains(t, err.Error(), "tunnel-client run --embedded-mcp-stub")
 	require.Contains(t, err.Error(), "--health.listen-addr 127.0.0.1:0")
 	require.Contains(t, err.Error(), "--health.url-file /tmp/tunnel-client-health.url")
-	require.Contains(t, err.Error(), "tunnel-client init")
+	require.Contains(t, err.Error(), "tunnel-client help quickstart")
 }
 
 func TestRunEmbeddedMCPStubConfiguresMainChannel(t *testing.T) {

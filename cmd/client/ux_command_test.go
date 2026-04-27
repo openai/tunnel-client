@@ -55,8 +55,15 @@ func TestHelpTopicQuickstart(t *testing.T) {
 	require.Contains(t, stdout, "CONTROL_PLANE_TUNNEL_ID")
 	require.Contains(t, stdout, "CONTROL_PLANE_API_KEY")
 	require.Contains(t, stdout, "Do not give the admin key to the long-lived daemon.")
+	require.Contains(t, stdout, "Local-MCP first-run key split:")
+	require.Contains(t, stdout, "If you already know `tunnel_...`, you can finish `init -> doctor --explain -> run`")
+	require.Contains(t, stdout, "export CONTROL_PLANE_API_KEY=\"sk-...\"")
+	require.Contains(t, stdout, "tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio")
+	require.Contains(t, stdout, "tunnel-client doctor --profile local-stdio --explain")
+	require.Contains(t, stdout, "tunnel-client run --profile local-stdio")
 	require.Contains(t, stdout, "Create or verify the connector in ChatGPT settings only while tunnel-client is running.")
 	require.Contains(t, stdout, "Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.")
+	require.Contains(t, stdout, "tunnel-client codex plugin install")
 }
 
 func TestHelpTopicDoctor(t *testing.T) {
@@ -74,6 +81,10 @@ func TestHelpTopicDoctor(t *testing.T) {
 	require.Contains(t, stdout, "CONTROL_PLANE_TUNNEL_ID")
 	require.Contains(t, stdout, "CONTROL_PLANE_API_KEY")
 	require.Contains(t, stdout, "OPENAI_ADMIN_KEY")
+	require.Contains(t, stdout, "Exact first-run flow for ChatGPT/Codex")
+	require.Contains(t, stdout, "tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio")
+	require.Contains(t, stdout, "tunnel-client doctor --profile local-stdio --explain")
+	require.Contains(t, stdout, "tunnel-client run --profile local-stdio")
 	require.Contains(t, stdout, "Create or verify the connector in ChatGPT settings only while tunnel-client is running.")
 	require.Contains(t, stdout, "Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.")
 }
@@ -134,7 +145,9 @@ func TestInitWritesValidatedProfile(t *testing.T) {
 	require.NoError(t, readErr)
 	require.NoError(t, config.ValidateProfileBytes(path, data))
 	require.Contains(t, stdout, "Created profile demo")
-	require.Contains(t, stdout, "tunnel-client doctor --profile demo")
+	require.Contains(t, stdout, "create or verify `CONTROL_PLANE_API_KEY` in Runtime API keys before `tunnel-client run`")
+	require.Contains(t, stdout, "if you still need tunnel CRUD, create `OPENAI_ADMIN_KEY` separately for `tunnel-client admin tunnels ...`")
+	require.Contains(t, stdout, "tunnel-client doctor --profile demo --explain")
 	require.Contains(t, stdout, "tunnel-client run --profile demo")
 	require.Contains(t, stdout, canonicalTunnelsManagementURL)
 	require.Contains(t, stdout, canonicalRuntimeAPIKeysURL)

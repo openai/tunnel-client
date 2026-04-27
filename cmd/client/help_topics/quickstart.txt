@@ -35,6 +35,14 @@ Which value comes from where:
   - `OPENAI_ADMIN_KEY`: only for `tunnel-client admin tunnels list|create|update|delete`.
     Do not give the admin key to the long-lived daemon.
 
+Local-MCP first-run key split:
+  - Create `CONTROL_PLANE_API_KEY` in Runtime API keys before you run `tunnel-client doctor`
+    or `tunnel-client run`.
+  - Create `OPENAI_ADMIN_KEY` only if you still need `tunnel-client admin tunnels create|list|update|delete`
+    to get or manage a tunnel id.
+  - If you already know `tunnel_...`, you can finish `init -> doctor --explain -> run`
+    without an admin key.
+
 Tunnel permission split:
   - Runtime users and the principal that creates CONTROL_PLANE_API_KEY need Tunnels Read + Use.
   - Tunnel CRUD operators need Tunnels Read + Manage.
@@ -64,13 +72,23 @@ Pick the shortest matching starter sample:
    tunnel-client dev mcp-stub
    tunnel-client init --sample sample_mcp_with_dcr --profile sample_mcp_with_dcr --tunnel-id tunnel_... --mcp-server-url http://127.0.0.1:NNNN/mcp
 
-Then validate and start:
+Exact local-MCP flow for ChatGPT/Codex with an existing tunnel id:
+  export CONTROL_PLANE_API_KEY="sk-..."
+  tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command "python /path/to/server.py"
+  tunnel-client doctor --profile local-stdio --explain
+  tunnel-client run --profile local-stdio
+
+Then validate and start any other sample the same way:
   tunnel-client doctor --profile <name> --explain
   tunnel-client run --profile <name>
 
 ChatGPT connector note:
   Create or verify the connector in ChatGPT settings only while tunnel-client is running.
   Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.
+
+Codex note:
+  Install the plugin with `tunnel-client codex plugin install`, then keep using the same
+  running daemon/profile for Codex-local tunnel workflows.
 
 If you used the embedded demo MCP server and connected the tunnel in ChatGPT, try:
   - Use the server_info tool and summarize the demo MCP server.

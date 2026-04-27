@@ -73,7 +73,9 @@ func newInitCommand(lookupEnv func(string) (string, bool), stdout io.Writer, std
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created profile %s at %s\n", name, path)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Sample: %s\n", sample)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Next:\n")
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  tunnel-client doctor --profile %s\n", name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  create or verify `CONTROL_PLANE_API_KEY` in Runtime API keys before `tunnel-client run`\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  if you still need tunnel CRUD, create `OPENAI_ADMIN_KEY` separately for `tunnel-client admin tunnels ...`\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  tunnel-client doctor --profile %s --explain\n", name)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  tunnel-client run --profile %s\n", name)
 			for _, line := range canonicalWebPropertyLines("Canonical setup URLs:") {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)

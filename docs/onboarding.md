@@ -37,6 +37,16 @@ Which value comes from where:
   list|create|update|delete`. Do not use the admin key for the long-lived
   daemon.
 
+Local-MCP first-run key split:
+
+- Create `CONTROL_PLANE_API_KEY` before you run `tunnel-client doctor` or
+  `tunnel-client run`.
+- Create `OPENAI_ADMIN_KEY` only if you still need
+  `tunnel-client admin tunnels create|list|update|delete` to get or manage a
+  tunnel id.
+- If you already know the tunnel id, you can finish the local-MCP
+  `init -> doctor --explain -> run` flow without an admin key.
+
 Required permissions:
 
 - The runtime key principal needs Tunnels **Read** + **Use** for the target
@@ -79,13 +89,18 @@ tunnel-client runtimes list
 tunnel-client codex plugin uninstall
 ```
 
-If you want a named profile instead of the one-command demo path:
+If you want the explicit local-MCP profile flow for ChatGPT or Codex and
+already know the tunnel id:
 
 ```bash
+export CONTROL_PLANE_API_KEY="sk-..."
 tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_0123456789abcdef0123456789abcdef --mcp-command "python /path/to/server.py"
 tunnel-client doctor --profile local-stdio --explain
 tunnel-client run --profile local-stdio
 ```
+
+That exact `init -> doctor --explain -> run` flow is the supported first-run
+path when you are attaching a local MCP server to an existing tunnel id.
 
 If you still need the tunnel id or runtime/admin keys, open the matching setup
 URL above before running `init`. If your rollout has self-serve tunnel access,
@@ -95,6 +110,9 @@ create the tunnel yourself in Tunnels management or with
 `CONTROL_PLANE_API_KEY`. Create or verify the connector from the ChatGPT
 settings URL above only while `tunnel-client run ...` is healthy, and keep the
 daemon running for connector discovery and every MCP call from ChatGPT.
+
+Use `OPENAI_ADMIN_KEY` only for the `tunnel-client admin ...` step above. Once
+the tunnel id exists, return to `CONTROL_PLANE_API_KEY` for `doctor` and `run`.
 
 Other fast starts:
 
@@ -126,6 +144,10 @@ tunnel-client codex plugin install
 tunnel-client runtimes list
 tunnel-client codex plugin uninstall
 ```
+
+Codex uses the same native daemon/profile flow as ChatGPT. Keep
+`tunnel-client run --profile local-stdio` alive while you use the installed
+plugin or the `runtimes` command family.
 Starter prompts for Codex:
 
 - `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`

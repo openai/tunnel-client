@@ -1,8 +1,13 @@
 tunnel-client doctor checks your selected config before the long-lived daemon starts.
 
-Recommended flow:
+Exact first-run flow for ChatGPT/Codex after you create `CONTROL_PLANE_API_KEY`
+and know a tunnel id:
+  tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command "python /path/to/server.py"
+  tunnel-client doctor --profile local-stdio --explain
+  tunnel-client run --profile local-stdio
+
+Other doctor entrypoints:
   tunnel-client doctor --profile <name>
-  tunnel-client doctor --profile <name> --explain
   tunnel-client doctor --profile <name> --json
 
 Canonical setup URLs:
@@ -19,6 +24,8 @@ Which value comes from where:
   - `CONTROL_PLANE_API_KEY`: create it in Runtime API keys; this is the key doctor
     expects for the daemon path.
   - `OPENAI_ADMIN_KEY`: only for tunnel CRUD. Do not swap it in for the runtime key.
+  - If you already know the tunnel id, `tunnel-client doctor` and `tunnel-client run`
+    do not require an admin key.
 
 Use doctor to confirm:
   - what product surface you are about to start: the tunnel daemon plus /healthz, /readyz, and /ui
@@ -48,4 +55,7 @@ Self-serve tunnel flow:
   - create or inspect the tunnel in Tunnels management or with `tunnel-client admin tunnels create`
   - export the returned tunnel id as `CONTROL_PLANE_TUNNEL_ID`
   - create a separate runtime key from Runtime API keys and export it as `CONTROL_PLANE_API_KEY`
-  - rerun `tunnel-client doctor --profile <name> --explain`
+  - if you needed tunnel CRUD to get that tunnel id, keep `OPENAI_ADMIN_KEY` separate for `tunnel-client admin ...`
+  - run `tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_... --mcp-command "python /path/to/server.py"`
+  - rerun `tunnel-client doctor --profile local-stdio --explain`
+  - if it passes, start `tunnel-client run --profile local-stdio`
