@@ -62,7 +62,7 @@ Assign this role to:
 - The person or service-account owner that creates the runtime API key exported
   as `CONTROL_PLANE_API_KEY`.
 - Operators who need to select an existing tunnel in ChatGPT connector settings.
-- Codex users who run `tunnel-client sessions connect --tunnel-id ...` without
+- Codex users who run `tunnel-client runtimes connect --tunnel-id ...` without
   admin tunnel CRUD.
 
 Do not give this group Admin keys permissions or Tunnels **Manage** unless they
@@ -158,7 +158,7 @@ For Codex plugin flows, store references, not literal keys:
 tunnel-client admin-profiles set platform-admin \
   --admin-key env:OPENAI_ADMIN_KEY
 
-tunnel-client sessions connect \
+tunnel-client runtimes connect \
   --alias prod-mcp \
   --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
   --runtime-api-key env:CONTROL_PLANE_API_KEY \

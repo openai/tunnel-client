@@ -19,8 +19,9 @@ Attach to an existing tunnel without admin CRUD:
 
 - `tunnel-client runtimes connect --alias existing-mcp --tunnel-id tunnel_... --runtime-api-key env:TUNNEL_RUNTIME_KEY --mcp-command "python /path/to/server.py"`
 
-Inspect or stop the managed local runtime:
+Inspect, list, or stop managed local runtimes:
 
+- `tunnel-client runtimes list`
 - `tunnel-client runtimes status docs-mcp`
 - `tunnel-client runtimes stop docs-mcp`
 - `tunnel-client runtimes rm docs-mcp`

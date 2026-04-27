@@ -29,6 +29,7 @@ Use the first-run helpers before editing YAML by hand:
 - `tunnel-client codex assistant "Summarize what tunnel-client is for."`
 - `tunnel-client codex status`
 - `tunnel-client runtimes list`
+- `tunnel-client runtimes status <alias>`
 - `tunnel-client admin-profiles list`
 - `tunnel-client codex plugin install`
 - `tunnel-client codex plugin uninstall`
@@ -59,6 +60,7 @@ Starter prompts for Codex:
 - `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`
 - `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
+- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
 
 ## YAML config file
 

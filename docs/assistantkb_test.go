@@ -188,6 +188,33 @@ func TestSearchFindsPermissionsDocForTunnelRolePrompt(t *testing.T) {
 	}
 }
 
+func TestPackagedDocsUseRuntimesCommandSurface(t *testing.T) {
+	t.Parallel()
+
+	docs, err := loadKnowledgeDocuments()
+	if err != nil {
+		t.Fatalf("load knowledge documents: %v", err)
+	}
+	joinedByPath := map[string]string{}
+	for _, doc := range docs {
+		var sections []string
+		for _, section := range doc.Sections {
+			sections = append(sections, section.Heading, section.Body)
+		}
+		joined := strings.Join(sections, "\n")
+		joinedByPath[doc.Path] = joined
+		if strings.Contains(joined, "tunnel-client sessions") {
+			t.Fatalf("expected %s to use runtimes command surface, found stale sessions command", doc.Path)
+		}
+	}
+
+	permissions := joinedByPath["docs/permissions.md"]
+	requireContainsAll(t, permissions,
+		"tunnel-client runtimes connect --tunnel-id",
+		"tunnel-client runtimes connect \\",
+	)
+}
+
 func requireContainsAll(t *testing.T, text string, snippets ...string) {
 	t.Helper()
 	for _, snippet := range snippets {

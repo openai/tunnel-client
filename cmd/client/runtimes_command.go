@@ -11,7 +11,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
 )
 
-type sessionsCommonFlags struct {
+type runtimesCommonFlags struct {
 	adminProfileName    string
 	adminKeyRef         string
 	controlPlaneBaseURL string
@@ -24,7 +24,7 @@ func newRuntimesCommand(lookupEnv func(string) (string, bool), stdout io.Writer,
 
 func newRuntimesCommandWithRuntime(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer, runtime session.Runtime) *cobra.Command {
 	manager := codexplugin.NewManager(lookupEnv, runtime)
-	common := &sessionsCommonFlags{}
+	common := &runtimesCommonFlags{}
 
 	cmd := &cobra.Command{
 		Use:   "runtimes",
@@ -151,7 +151,7 @@ func newRuntimesCommandWithRuntime(lookupEnv func(string) (string, bool), stdout
 			if err := validateRuntimeListScope(listOrgIDs, listWorkspaceIDs, listTenantID); err != nil {
 				return err
 			}
-			payload, err := manager.ListSessions(codexplugin.ListOptions{
+			payload, err := manager.ListRuntimes(codexplugin.ListOptions{
 				AdminProfileName:    common.adminProfileName,
 				AdminKeyRef:         common.adminKeyRef,
 				ControlPlaneBaseURL: common.controlPlaneBaseURL,

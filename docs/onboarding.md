@@ -66,10 +66,13 @@ open "$(cat /tmp/tunnel-client-health.url)/ui"
 ```
 
 If Codex is installed locally and you want the plugin surface instead of the raw
-binary flow, install it directly from the binary:
+binary flow, install it directly from the binary and keep lifecycle operations
+on the native `runtimes` command family:
 
 ```bash
 tunnel-client codex plugin install
+tunnel-client help plugin
+tunnel-client runtimes list
 tunnel-client codex plugin uninstall
 ```
 
@@ -126,6 +129,7 @@ Starter prompts for Codex:
 - `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
 - `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
+- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
 
 ## 3) Build from source
 

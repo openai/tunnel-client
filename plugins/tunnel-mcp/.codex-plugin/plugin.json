@@ -1,5 +1,5 @@
 {
-  "description": "Create, connect, list, and inspect secure MCP tunnels from Codex using tunnel-client.",
+  "description": "Create, connect, list, and inspect secure MCP tunnel runtimes from Codex using tunnel-client.",
   "interface": {
     "category": "Developer Tools",
     "displayName": "Tunnel MCP",

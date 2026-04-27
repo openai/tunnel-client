@@ -97,6 +97,43 @@ func TestBuildTunnelMCPPromptContextSelectsRuntimeGuidanceForInstalledPlugin(t *
 	)
 }
 
+func TestBundledPluginSurfacesUseRuntimesCommandSurface(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range tunnelMCPPluginFiles {
+		data, err := embeddedPluginFiles.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read embedded plugin file %s: %v", path, err)
+		}
+		if strings.Contains(string(data), "tunnel-client sessions") {
+			t.Fatalf("expected embedded plugin file %s to use runtimes command surface", path)
+		}
+	}
+
+	read := func(path string) string {
+		t.Helper()
+		data, err := embeddedPluginFiles.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read embedded plugin file %s: %v", path, err)
+		}
+		return string(data)
+	}
+	requirePluginContainsAll(t, read("tunnel-mcp/README.md"),
+		"tunnel-client runtimes create ...",
+		"tunnel-client admin-profiles ...",
+		"tunnel-client codex plugin install",
+	)
+	requirePluginContainsAll(t, read("tunnel-mcp/skills/tunnel-mcp/SKILL.md"),
+		"`tunnel-client runtimes ...`",
+		"`references/runtime-flows.md`: create, connect, list, status, stop, rm, attach by tunnel id",
+	)
+	requirePluginContainsAll(t, read("tunnel-mcp/skills/tunnel-mcp/references/runtime-flows.md"),
+		"Use `tunnel-client runtimes ...` for native runtime lifecycle management.",
+		"`tunnel-client runtimes list`",
+		"`tunnel-client runtimes connect --alias existing-mcp --tunnel-id",
+	)
+}
+
 func TestBuildTunnelMCPPromptContextDoesNotTreatPermissionsAsRuntimeRM(t *testing.T) {
 	t.Parallel()
 

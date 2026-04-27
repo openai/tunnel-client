@@ -1,6 +1,6 @@
 ---
 name: tunnel-mcp
-description: Create, connect, list, and inspect MCP tunnels through the local tunnel-client plugin. Use when Codex needs to manage secure MCP tunnels with aliases and native tunnel-client runtime processes.
+description: Create, connect, list, and inspect MCP tunnel runtimes through the local tunnel-client plugin. Use when Codex needs to manage secure MCP tunnels with aliases and native tunnel-client runtime processes.
 ---
 
 # Tunnel MCP
@@ -16,7 +16,7 @@ Before acting, consult only the relevant curated reference file under
 - `references/binary.md`: how to find or obtain a public-safe `tunnel-client` binary
 - `references/setup-and-install.md`: install, export, reset, binary-vs-bundle setup
 - `references/profiles-state-and-keys.md`: profiles, state dirs, admin/runtime key split
-- `references/runtime-flows.md`: create, connect, status, stop, rm, attach by tunnel id
+- `references/runtime-flows.md`: create, connect, list, status, stop, rm, attach by tunnel id
 - `references/troubleshooting.md`: `/healthz`, `/readyz`, `/ui`, status, logs, stale aliases
 
 Do not open every reference by default. Pick the smallest relevant set for the

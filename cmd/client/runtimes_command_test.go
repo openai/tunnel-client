@@ -41,7 +41,7 @@ func TestAdminProfilesSetAndListJSON(t *testing.T) {
 	require.Contains(t, stdout.String(), `"deleted_profile": "sandbox"`)
 }
 
-func TestSessionsCreateConnectStatusStopJSON(t *testing.T) {
+func TestRuntimesCreateConnectStatusStopJSON(t *testing.T) {
 	t.Parallel()
 
 	codexHome := t.TempDir()
@@ -92,7 +92,7 @@ func TestSessionsCreateConnectStatusStopJSON(t *testing.T) {
 		"CONTROL_PLANE_API_KEY":   "runtime-key",
 		"CONTROL_PLANE_BASE_URL":  server.URL,
 	}
-	activeSessions := map[string]bool{}
+	activeTmuxSessions := map[string]bool{}
 	runtime := session.Runtime{
 		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
 			if len(args) >= 2 && args[0] == "tmux" && args[1] == "-V" {
@@ -100,14 +100,14 @@ func TestSessionsCreateConnectStatusStopJSON(t *testing.T) {
 			}
 			if len(args) >= 4 && args[0] == "tmux" && args[1] == "has-session" {
 				name := args[3][1:]
-				if activeSessions[name] {
+				if activeTmuxSessions[name] {
 					return session.CompletedProcess{ReturnCode: 0}, nil
 				}
 				return session.CompletedProcess{ReturnCode: 1}, nil
 			}
 			if len(args) >= 6 && args[0] == "tmux" && args[1] == "new-session" {
 				name := args[len(args)-2]
-				activeSessions[name] = true
+				activeTmuxSessions[name] = true
 				healthPath := filepath.Join(codexHome, "health", "docs-mcp.url")
 				require.NoError(t, os.MkdirAll(filepath.Dir(healthPath), 0o755))
 				require.NoError(t, os.WriteFile(healthPath, []byte(healthServer.URL+"/healthz"), 0o600))
@@ -115,7 +115,7 @@ func TestSessionsCreateConnectStatusStopJSON(t *testing.T) {
 			}
 			if len(args) >= 4 && args[0] == "tmux" && args[1] == "kill-session" {
 				name := args[3][1:]
-				delete(activeSessions, name)
+				delete(activeTmuxSessions, name)
 				return session.CompletedProcess{ReturnCode: 0}, nil
 			}
 			return session.CompletedProcess{}, nil

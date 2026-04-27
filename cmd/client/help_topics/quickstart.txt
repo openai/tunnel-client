@@ -99,6 +99,7 @@ If your rollout has self-serve tunnel access:
 Useful follow-ups:
   tunnel-client codex assistant "Summarize what tunnel-client is for."
   tunnel-client codex plugin install
+  tunnel-client runtimes list
   tunnel-client profiles samples list
   tunnel-client profiles samples show sample_mcp_stdio_local
   tunnel-client profiles samples show sample_mcp_remote_no_auth

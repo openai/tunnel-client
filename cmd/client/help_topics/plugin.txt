@@ -1,4 +1,4 @@
-Use the Codex plugin when you want a Codex-local entrypoint over the public native tunnel runtime commands.
+Use the Codex plugin when you want a Codex-local entrypoint over the public native runtimes and admin-profiles commands.
 If you only need a terminal assistant over the same Codex app-server bridge, start with:
   tunnel-client codex assistant "Summarize the current tunnel setup."
 

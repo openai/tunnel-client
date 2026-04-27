@@ -462,7 +462,7 @@ func (m *Manager) Connect(opts ConnectOptions) (map[string]any, error) {
 	return payload, nil
 }
 
-func (m *Manager) ListSessions(opts ListOptions) (map[string]any, error) {
+func (m *Manager) ListRuntimes(opts ListOptions) (map[string]any, error) {
 	root := pluginstate.ResolveRoot(m.lookupEnv)
 	if err := pluginstate.EnsureDirs(root); err != nil {
 		return nil, err

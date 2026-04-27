@@ -203,7 +203,7 @@ tunnel-client codex plugin install
 
 Optional:
 
-- `tmux` for tmux-managed background sessions. When `tmux` is unavailable, the
+- `tmux` for tmux-managed background runtimes. When `tmux` is unavailable, the
   plugin starts `tunnel-client run --profile-dir <dir> --profile <name>`
   directly as a detached background process and records its PID and log path in
   local state.
@@ -339,7 +339,7 @@ immediately or never becomes healthy, `connect` returns a non-zero JSON payload
 instead of claiming `started=true`.
 
 `stop` and `disconnect` are local runtime controls only. They stop the managed
-tmux session or detached process, clear the local health URL file, and leave the
+tmux runtime or detached process, clear the local health URL file, and leave the
 remote tunnel itself intact.
 
 Auth split to keep straight:

@@ -26,7 +26,10 @@ If you searched for "How do I connect local MCP server to ChatGPT",
 ## For Codex / Claude / Copilot
 
 If you want the shortest supported path from a local or localhost MCP server to
-ChatGPT or Codex, start with `tunnel-client help quickstart`.
+ChatGPT or Codex, start with `tunnel-client help quickstart`. For Codex plugin
+lifecycle work, use the native `tunnel-client runtimes ...` and
+`tunnel-client admin-profiles ...` command trees surfaced by
+`tunnel-client help plugin`.
 
 Use these exact setup pages during first use:
 
@@ -110,6 +113,7 @@ Starter prompts for Codex:
 - `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
 - `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
+- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
 ## What it does
 
 - The client **long-polls** the OpenAI tunnel control plane over HTTPS:
