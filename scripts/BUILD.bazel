@@ -1,0 +1,11 @@
+exports_files([
+    "build_distribution_package.sh",
+    "build_admin_ui.sh",
+    "capture_end_user_guide_screenshots.sh",
+    "release_tag.sh",
+    "render_end_user_guide_html.sh",
+    "render_end_user_guide_pages.py",
+    "render_end_user_guide_slides.mjs",
+    "render_end_user_guide_slides.sh",
+    "verify_admin_ui.sh",
+])

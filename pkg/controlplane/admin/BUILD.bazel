@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "admin",
+    srcs = [
+        "tunnel_client.go",
+        "types.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/controlplane/admin",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/transport",
+    ],
+)
+
+go_test(
+    name = "admin_test",
+    srcs = ["client_test.go"],
+    embed = [":admin"],
+    deps = ["//api/tunnel-client/pkg/config"],
+)

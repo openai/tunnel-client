@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "transport",
+    srcs = [
+        "default.go",
+        "proxy.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/transport",
+    visibility = ["//visibility:public"],
+    deps = ["//api/tunnel-client/pkg/tlsconfig"],
+)

@@ -1,0 +1,35 @@
+[project]
+name = "tunnel-client"
+version = "0.0.1"
+dependencies = []
+
+[project.scripts]
+tunnel-client = "tunnel_service_oaipkg.launcher:main"
+
+[build-system]
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "../tunnel-service"}
+
+[tool.setuptools.packages.find]
+where = ["../tunnel-service"]
+include = ["tunnel_service_oaipkg*"]
+
+[tool.buildkite]
+applied_spec = "manage/applied_spec.py"
+
+[tool.oaipkg]
+owner = "api-enterprise"
+unsafe-provides-packages = []
+ruff_full_check = true
+
+[tool.oaipkg.install-spec]
+method = [{ action = "pip_editable" }]
+[tool.ruff]
+extend = "../pyproject.toml"
+lint.extend-ignore = ["UP045"] # pyupgrade: keep plugin source parseable on Python 3.9
+
+[tool.ruff.lint.per-file-ignores]
+"plugins/tunnel-mcp/scripts/tunnel_mcp_cli/runtime.py" = ["TID251"] # standalone plugin uses stdlib urllib to avoid monorepo-only HTTP client deps

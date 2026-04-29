@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -43,6 +45,8 @@ func TestControlPlaneRoundTripperAddsDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "Bearer "+apiKey, seen.Get("Authorization"), "expected Authorization header to be set")
 	assert.Equal(t, "application/json", seen.Get("Accept"), "expected Accept header to be set")
 	assert.Equal(t, userAgent, seen.Get("User-Agent"), "expected User-Agent header to be set")
+	assert.Equal(t, version.ClientName, seen.Get(headerTunnelClientName), "expected tunnel client name header to be set")
+	assert.Equal(t, version.Version, seen.Get(headerTunnelClientVersion), "expected tunnel client version header to be set")
 	assert.Equal(t, "true", seen.Get("extra-header"), "expected extra header to be forwarded")
 }
 

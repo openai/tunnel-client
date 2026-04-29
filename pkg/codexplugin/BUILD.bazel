@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "codexplugin",
+    srcs = [
+        "codexplugin.go",
+        "manager.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/codexplugin",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/codexplugin/session",
+        "//api/tunnel-client/pkg/codexplugin/state",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane/admin",
+        "//api/tunnel-client/plugins",
+    ],
+)
+
+go_test(
+    name = "codexplugin_test",
+    srcs = ["codexplugin_test.go"],
+    embed = [":codexplugin"],
+    deps = [
+        "@com_github_stretchr_testify//require",
+    ],
+)

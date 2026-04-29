@@ -100,6 +100,11 @@ go build -o bin/tunnel-client ./cmd/client
 ./bin/tunnel-client help quickstart
 ```
 
+Source archives from release tags carry the release version in
+`pkg/version/VERSION`. A plain `go build` from a downloaded release `.tar.gz`
+therefore reports the tag semantic version through `tunnel-client --version`,
+`User-Agent`, and the explicit control-plane version headers.
+
 Fastest Codex terminal path:
 
 ```bash
@@ -129,6 +134,7 @@ Starter prompts for Codex:
 - The client **long-polls** the OpenAI tunnel control plane over HTTPS:
   - `GET /v1/tunnel/{tunnel_id}/poll`
   - `POST /v1/tunnel/{tunnel_id}/response`
+- Control-plane requests include `User-Agent: oai-tunnel-client/<version>` for compatibility, plus explicit `X-Tunnel-Client-Name` and `X-Tunnel-Client-Version` headers for service-side logs and metrics.
 - On startup, it fetches tunnel metadata for operator visibility:
   - `GET /v1/tunnels/{tunnel_id}`
 - It forwards received JSON-RPC requests to your configured MCP server over

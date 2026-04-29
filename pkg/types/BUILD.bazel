@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "types",
+    srcs = [
+        "channel.go",
+        "tunnel_response.go",
+        "types.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/types",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "types_test",
+    srcs = [
+        "channel_test.go",
+        "tunnel_response_test.go",
+    ],
+    embed = [":types"],
+    deps = ["@com_github_stretchr_testify//require"],
+)

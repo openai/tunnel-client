@@ -90,6 +90,8 @@ func TestTunnelServiceClientPollSuccess(t *testing.T) {
 		assert.Empty(t, r.Header.Get("X-Tunnel-ID"), "X-Tunnel-ID header should be omitted")
 		assert.Equal(t, "application/json", r.Header.Get("Accept"), "unexpected Accept header")
 		assert.Equal(t, version.UserAgent, r.Header.Get("User-Agent"), "unexpected User-Agent header")
+		assert.Equal(t, version.ClientName, r.Header.Get(headerTunnelClientName), "unexpected tunnel client name header")
+		assert.Equal(t, version.Version, r.Header.Get(headerTunnelClientVersion), "unexpected tunnel client version header")
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(jsonrpcPayload))
@@ -237,6 +239,8 @@ func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 		assert.Empty(t, r.Header.Get("X-Tunnel-ID"), "X-Tunnel-ID header should be omitted")
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"), "unexpected Content-Type header")
 		assert.Equal(t, version.UserAgent, r.Header.Get("User-Agent"), "unexpected User-Agent header")
+		assert.Equal(t, version.ClientName, r.Header.Get(headerTunnelClientName), "unexpected tunnel client name header")
+		assert.Equal(t, version.Version, r.Header.Get(headerTunnelClientVersion), "unexpected tunnel client version header")
 
 		var err error
 		seenBody, err = io.ReadAll(r.Body)

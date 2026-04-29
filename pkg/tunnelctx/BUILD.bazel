@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tunnelctx",
+    srcs = ["ctx.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/tunnelctx",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+    ],
+)
+
+go_test(
+    name = "tunnelctx_test",
+    srcs = ["ctx_test.go"],
+    deps = [
+        ":tunnelctx",
+        "//api/tunnel-client/pkg/types",
+    ],
+)

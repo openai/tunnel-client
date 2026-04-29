@@ -7,6 +7,12 @@ import (
 	"net/http"
 
 	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/version"
+)
+
+const (
+	headerTunnelClientName    = "X-Tunnel-Client-Name"
+	headerTunnelClientVersion = "X-Tunnel-Client-Version"
 )
 
 type controlPlaneRoundTripper struct {
@@ -37,6 +43,8 @@ func (c *controlPlaneRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set(headerTunnelClientName, version.ClientName)
+	req.Header.Set(headerTunnelClientVersion, version.Version)
 	c.applyExtraHeaders(req.Context(), req.Header)
 
 	return c.base.RoundTrip(req)

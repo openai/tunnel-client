@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "controlplane",
+    srcs = [
+        "doc.go",
+        "metadata.go",
+        "polled_command.go",
+        "responder.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/controlplane",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+    ],
+)
+
+go_test(
+    name = "controlplane_test",
+    srcs = ["metadata_test.go"],
+    embed = [":controlplane"],
+)

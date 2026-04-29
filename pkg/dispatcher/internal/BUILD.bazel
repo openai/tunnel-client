@@ -1,0 +1,54 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "internal",
+    srcs = [
+        "metrics.go",
+        "processor.go",
+        "queue_listener.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/dispatcher/internal",
+    visibility = ["//api/tunnel-client/pkg/dispatcher:__pkg__"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/oauth",
+        "//api/tunnel-client/pkg/tunnelctx",
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_panjf2000_ants_v2//:ants",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "internal_test",
+    srcs = [
+        "metrics_test.go",
+        "processor_test.go",
+        "queue_listener_test.go",
+    ],
+    embed = [":internal"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/tunnelctx",
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_stretchr_testify//require",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk_metric//metricdata",
+    ],
+)

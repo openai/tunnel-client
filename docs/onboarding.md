@@ -147,7 +147,11 @@ go build -o bin/tunnel-client ./cmd/client
 can skip it for a docs-only checkout when the committed assets under
 `pkg/adminui/assets` are already present and unchanged.
 
-Or from the monorepo root:
+Release source archives include the release semantic version in
+`pkg/version/VERSION`, so a plain `go build` from a downloaded release `.tar.gz`
+keeps the same client name and version metadata used by released binaries.
+
+Or from a repository checkout with Bazel available:
 
 ```bash
 bazel build //api/tunnel-client/cmd/client:client

@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "app",
+    srcs = ["app.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/app",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/adminui",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane/fx",
+        "//api/tunnel-client/pkg/dispatcher",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/health",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/metrics",
+        "//api/tunnel-client/pkg/oauth",
+        "//api/tunnel-client/pkg/process",
+        "//api/tunnel-client/pkg/proxyhealth",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "@org_uber_go_fx//:fx",
+    ],
+)

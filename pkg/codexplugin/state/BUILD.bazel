@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "state",
+    srcs = ["state.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/codexplugin/state",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "state_test",
+    srcs = ["state_test.go"],
+    embed = [":state"],
+    deps = [
+        "@com_github_stretchr_testify//require",
+    ],
+)

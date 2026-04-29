@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "proxy",
+    srcs = [
+        "logging.go",
+        "route.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/proxy",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+    ],
+)
+
+go_test(
+    name = "proxy_test",
+    srcs = ["route_test.go"],
+    embed = [":proxy"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+    ],
+)

@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "docs",
+    srcs = ["assistantkb.go"],
+    # keep
+    embedsrcs = glob([
+        "*.md",
+        "deployment/*.md",
+    ]),
+    importpath = "go.openai.org/api/tunnel-client/docs",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "docs_test",
+    srcs = ["assistantkb_test.go"],
+    embed = [":docs"],
+)

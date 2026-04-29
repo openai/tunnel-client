@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "codexappserver",
+    srcs = ["bridge.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/codexappserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "codexappserver_test",
+    srcs = ["bridge_test.go"],
+    embed = [":codexappserver"],
+    deps = [
+        "@com_github_stretchr_testify//require",
+    ],
+)

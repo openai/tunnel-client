@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "e2e",
+    srcs = ["harness.go"],
+    importpath = "go.openai.org/api/tunnel-client/testsupport/e2e",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/app",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/testsupport/mockmcpserver",
+        "//api/tunnel-client/testsupport/mocktunnelservice",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@org_uber_go_fx//:fx",
+        "@org_uber_go_fx//fxevent",
+        "@org_uber_go_fx//fxtest",
+    ],
+)

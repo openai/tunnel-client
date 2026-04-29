@@ -1,0 +1,63 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "harpoon",
+    srcs = [
+        "call_buffer.go",
+        "fxmodule.go",
+        "host_registration.go",
+        "metadata.go",
+        "metrics.go",
+        "registry.go",
+        "server.go",
+        "transform.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/harpoon",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "//api/tunnel-client/pkg/harpoon/internal/hostclassifier",
+        "//api/tunnel-client/pkg/health",
+        "//api/tunnel-client/pkg/httpguard",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/proxy",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/transport",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_invopop_jsonschema//:jsonschema",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//:metric",
+        "@io_opentelemetry_go_otel_metric//noop",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_golang_x_net//publicsuffix",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "harpoon_test",
+    srcs = [
+        "call_buffer_test.go",
+        "host_registration_test.go",
+        "integration_test.go",
+        "metrics_test.go",
+        "registry_test.go",
+        "server_test.go",
+        "transform_test.go",
+    ],
+    embed = [":harpoon"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "//api/tunnel-client/pkg/harpoon/internal/hostclassifier",
+        "//api/tunnel-client/pkg/transport",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_stretchr_testify//require",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk_metric//metricdata",
+    ],
+)

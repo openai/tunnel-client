@@ -1,0 +1,63 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "internal",
+    srcs = [
+        "command_parser.go",
+        "command_types.go",
+        "metrics.go",
+        "poller.go",
+        "roundtripper.go",
+        "tunnel_service_client.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/controlplane/internal",
+    visibility = [
+        "//api/tunnel-client/pkg/controlplane:__subpackages__",
+        "//api/tunnel-client/pkg/controlplane/internal:__pkg__",
+    ],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/controlplane/wiretypes",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/metrics",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/transport",
+        "//api/tunnel-client/pkg/tunnelctx",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_jpillora_backoff//:backoff",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+        "@io_opentelemetry_go_contrib_instrumentation_net_http_otelhttp//:otelhttp",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//:metric",
+    ],
+)
+
+go_test(
+    name = "internal_test",
+    srcs = [
+        "command_parser_test.go",
+        "metrics_test.go",
+        "poller_test.go",
+        "roundtripper_test.go",
+        "tunnel_service_client_test.go",
+    ],
+    embed = [":internal"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/controlplane/wiretypes",
+        "//api/tunnel-client/pkg/tunnelctx",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//noop",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk_metric//metricdata",
+    ],
+)

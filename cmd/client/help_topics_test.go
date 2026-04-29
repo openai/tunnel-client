@@ -31,7 +31,6 @@ func TestHelpTopicsUseRuntimesCommandSurface(t *testing.T) {
 	quickstart, ok := loadHelpTopic("quickstart")
 	require.True(t, ok)
 	require.Contains(t, quickstart, "tunnel-client runtimes list")
-	require.Contains(t, quickstart, "tunnel-client help troubleshooting")
 }
 
 func TestRootHelpDoesNotExposeLegacySessionsCommand(t *testing.T) {
@@ -44,35 +43,4 @@ func TestRootHelpDoesNotExposeLegacySessionsCommand(t *testing.T) {
 	require.NoError(t, root.Execute())
 	require.Contains(t, stdout.String(), "runtimes")
 	require.NotContains(t, stdout.String(), "sessions")
-}
-
-func TestTroubleshootingHelpTopicIsDiscoverable(t *testing.T) {
-	t.Parallel()
-
-	require.Contains(t, availableHelpTopics(), "troubleshooting")
-
-	var stdout strings.Builder
-	root := newRootCommand(func(string) (string, bool) { return "", false }, &stdout, &strings.Builder{})
-	root.SetArgs([]string{"--help"})
-
-	require.NoError(t, root.Execute())
-	require.Contains(t, stdout.String(), "tunnel-client help troubleshooting")
-}
-
-func TestTroubleshootingHelpTopicCoversRuntimeDebugging(t *testing.T) {
-	t.Parallel()
-
-	body, ok := loadHelpTopic("troubleshooting")
-	require.True(t, ok)
-	for _, snippet := range []string{
-		"curl -fsS http://127.0.0.1:8080/healthz",
-		"/readyz includes startup gates for OAuth discovery and MCP probing.",
-		"If /readyz is 200 with a ready detail:",
-		"tunnel-client doctor --profile <name> --explain",
-		"tunnel-client runtimes status <alias>",
-		"curl -fsSJO \"http://127.0.0.1:8080/api/logs/export?minutes=30\"",
-		"docs/troubleshooting.md",
-	} {
-		require.Contains(t, body, snippet)
-	}
 }

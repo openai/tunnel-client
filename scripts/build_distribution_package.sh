@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly BINARY_NAME="tunnel-client"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -57,6 +58,8 @@ done
 [[ -n "$binary_dir" ]] || die "--binary-dir is required"
 [[ -n "$output_dir" ]] || die "--output-dir is required"
 [[ -d "$binary_dir" ]] || die "binary directory does not exist: $binary_dir"
+
+"${SCRIPT_DIR}/release_tag.sh" check-source-version "$tag"
 
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"

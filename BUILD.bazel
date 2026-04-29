@@ -1,0 +1,46 @@
+load("//project/bazel/rules:oai_metadata.bzl", "oai_package_metadata")
+load("//project/bazel/rules:python.bzl", "oai_py_library")
+load("//project/bazel/rules/applied_specs:applied_specs.bzl", "typecheck_applied_spec", "validate_applied_spec")
+
+exports_files([
+    "go.mod",
+    "go.sum",
+])
+
+typecheck_applied_spec(name = "applied_spec_typecheck")
+
+validate_applied_spec(name = "validate_applied_spec")
+
+oai_package_metadata(
+    oai_owner_name = "api-enterprise",
+)
+
+# Some downstream Python targets treat `tunnel-client` as a monorepo dependency and expect a
+# `py_library`-shaped Bazel target. This package intentionally exports no Python sources, but we
+# provide an empty library target so those deps are representable in the graph.
+oai_py_library(
+    name = "tunnel_client",
+    degenerate = True,
+    visibility = [
+        "//visibility:public",
+    ],
+)
+
+# Used by downstream compliance checks; avoids placing enforcement logic in this package.
+filegroup(
+    name = "go_mod",
+    srcs = [
+        "go.mod",
+        "go.sum",
+    ],
+    visibility = [
+        "//api/tunnel-service/client-compliance:__pkg__",
+    ],
+)
+
+test_suite(
+    name = "client_compliance_tests",
+    tests = [
+        "//api/tunnel-service/client-compliance:tunnel_client_license_compliance_test",
+    ],
+)

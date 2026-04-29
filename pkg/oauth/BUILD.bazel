@@ -1,0 +1,47 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "oauth",
+    srcs = [
+        "auth_meta.go",
+        "discovery.go",
+        "discovery_failure.go",
+        "discovery_retry_policy.go",
+        "hostbundle.go",
+        "module.go",
+        "resource_meta.go",
+        "state.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/oauth",
+    visibility = ["//api/tunnel-client:__subpackages__"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_jpillora_backoff//:backoff",
+        "@com_github_modelcontextprotocol_go_sdk//oauthex",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "oauth_test",
+    srcs = [
+        "auth_meta_test.go",
+        "discovery_failure_test.go",
+        "discovery_test.go",
+        "hostbundle_test.go",
+        "module_test.go",
+        "resource_meta_test.go",
+    ],
+    embed = [":oauth"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon/hostbus",
+        "@com_github_modelcontextprotocol_go_sdk//oauthex",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_fx//:fx",
+    ],
+)

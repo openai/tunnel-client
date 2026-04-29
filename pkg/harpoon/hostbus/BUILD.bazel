@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hostbus",
+    srcs = ["hostbus.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/harpoon/hostbus",
+    visibility = ["//api/tunnel-client:__subpackages__"],
+)
+
+go_test(
+    name = "hostbus_test",
+    srcs = ["hostbus_test.go"],
+    embed = [":hostbus"],
+)

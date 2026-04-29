@@ -1,0 +1,101 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_pkg//:pkg.bzl", "pkg_zip")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
+load("//project/bazel/rules:python.bzl", "oai_py_test", "oai_pytest_main")
+
+filegroup(
+    name = "tunnel_mcp_plugin_files",
+    srcs = glob(
+        [
+            "tunnel-mcp/.codex-plugin/**",
+            "tunnel-mcp/README.md",
+            "tunnel-mcp/scripts/**",
+            "tunnel-mcp/skills/**",
+            "tunnel-mcp/tests/**",
+        ],
+        allow_empty = False,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "tunnel_mcp_plugin_bundle_files",
+    srcs = glob(
+        [
+            "tunnel-mcp/.codex-plugin/**",
+            "tunnel-mcp/AGENTS.md",
+            "tunnel-mcp/README.md",
+            "tunnel-mcp/scripts/**",
+            "tunnel-mcp/skills/**",
+        ],
+        allow_empty = False,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "tunnel_mcp_plugin_marketplace_layout",
+    srcs = [":tunnel_mcp_plugin_bundle_files"],
+    strip_prefix = "tunnel-mcp",
+)
+
+pkg_zip(
+    name = "tunnel_mcp_plugin_marketplace_zip",
+    srcs = [":tunnel_mcp_plugin_marketplace_layout"],
+    out = "tunnel-mcp-marketplace.zip",
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "plugins",
+    srcs = [
+        "assistantkb.go",
+        "bundle.go",
+    ],
+    embedsrcs = [
+        "tunnel-mcp/.codex-plugin/plugin.json",
+        "tunnel-mcp/AGENTS.md",
+        "tunnel-mcp/README.md",
+        "tunnel-mcp/scripts/Install-Plugin.ps1",
+        "tunnel-mcp/scripts/install_plugin.py",
+        "tunnel-mcp/scripts/install_plugin.sh",
+        "tunnel-mcp/scripts/tunnel_mcp",
+        "tunnel-mcp/scripts/tunnel_mcp.cmd",
+        "tunnel-mcp/scripts/tunnel_mcp.ps1",
+        "tunnel-mcp/skills/tunnel-mcp/SKILL.md",
+        "tunnel-mcp/skills/tunnel-mcp/references/binary.md",
+        "tunnel-mcp/skills/tunnel-mcp/references/profiles-state-and-keys.md",
+        "tunnel-mcp/skills/tunnel-mcp/references/runtime-flows.md",
+        "tunnel-mcp/skills/tunnel-mcp/references/setup-and-install.md",
+        "tunnel-mcp/skills/tunnel-mcp/references/troubleshooting.md",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/plugins",
+    visibility = ["//visibility:public"],
+    deps = ["//api/tunnel-client/docs"],
+)
+
+go_test(
+    name = "plugins_test",
+    srcs = ["bundle_test.go"],
+    embed = [":plugins"],
+    deps = ["//api/tunnel-client/docs"],
+)
+
+oai_py_test(
+    name = "test_tunnel_mcp",
+    data = [
+        "tunnel-mcp/scripts/tunnel_mcp",
+        "tunnel-mcp/scripts/tunnel_mcp.ps1",
+    ],
+    pytest_main = ":pytest_main",
+    src_includes = [
+        "tunnel-mcp/tests/test_tunnel_mcp_router.py",
+    ],
+    deps = [
+        "@pypi//pytest",
+    ],
+)
+
+oai_pytest_main(
+    name = "pytest_main",
+)

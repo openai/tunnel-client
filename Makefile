@@ -21,7 +21,7 @@ ABS_BIN := $(abspath $(BIN))
 GIT_SHA    := $(if $(GIT_SHA),$(GIT_SHA),$(shell git rev-parse --short HEAD 2>/dev/null))
 LDFLAGS    := -X go.openai.org/api/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
 
-.PHONY: all help fmt test clean build-image mod-tidy admin-ui release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides
+.PHONY: all help fmt test clean build-image mod-tidy admin-ui release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides
 
 all: clean mod-tidy fmt test $(TARGET)
 
@@ -36,6 +36,7 @@ help:
 	@echo "  end-user-guide-screenshots - Capture the local /ui screenshots used by the shareable guide"
 	@echo "  end-user-guide-html - Render docs/end-user-guide.md to a standalone HTML archive"
 	@echo "  end-user-guide-slides - Render docs/end-user-guide.md to a local .pptx deck for on-demand slide import/distribution"
+	@echo "  release-source-version - Write VERSION into pkg/version/VERSION before creating a release tag"
 	@echo "  release-tag   - Generate a release tag like v1.2.3--ember-orchid"
 	@echo "  clean         - Remove built binaries"
 	@echo "  build-image   - Build Docker image with tunnel-client binary"
@@ -59,10 +60,12 @@ test:
 
 mod-tidy:
 	go mod tidy
-	@git diff --exit-code -- go.mod go.sum || { \
-		echo "go mod tidy updated go.mod/go.sum; please commit changes."; \
-		exit 1; \
-	}
+	@if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		git diff --exit-code -- go.mod go.sum || { \
+			echo "go mod tidy updated go.mod/go.sum; please commit changes."; \
+			exit 1; \
+		}; \
+	fi
 
 fmt:
 	@before=$$(mktemp); \
@@ -90,11 +93,19 @@ end-user-guide-html:
 end-user-guide-slides:
 	./scripts/render_end_user_guide_slides.sh
 
+release-source-version:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "usage: make release-source-version VERSION=1.2.3"; \
+		exit 1; \
+	fi
+	@./scripts/release_tag.sh set-source-version "$(VERSION)"
+
 release-tag:
 	@if [ -z "$(VERSION)" ] || [ -z "$(WORD)" ]; then \
 		echo "usage: make release-tag VERSION=1.2.3 WORD=ember-orchid"; \
 		exit 1; \
 	fi
+	@./scripts/release_tag.sh check-source-version "$(VERSION)"
 	@./scripts/release_tag.sh make "$(VERSION)" "$(WORD)"
 
 $(TARGET): clean | $(dir $(BIN))

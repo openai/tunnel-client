@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "admin",
+    srcs = [
+        "admin_command.go",
+        "tunnels_command.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/cmd/client/admin",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane/admin",
+        "@com_github_spf13_cobra//:cobra",
+        "@com_github_spf13_pflag//:pflag",
+    ],
+)
+
+go_test(
+    name = "admin_test",
+    srcs = ["tunnels_command_test.go"],
+    embed = [":admin"],
+    deps = [
+        "@com_github_spf13_cobra//:cobra",
+        "@com_github_stretchr_testify//require",
+    ],
+)

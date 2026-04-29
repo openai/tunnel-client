@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mockmcpserver",
+    srcs = [
+        "doc.go",
+        "mock_mcp_server.go",
+        "stdio_server.go",
+    ],
+    embedsrcs = ["stdio_server.sh"],
+    importpath = "go.openai.org/api/tunnel-client/testsupport/mockmcpserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_invopop_jsonschema//:jsonschema",
+        "@com_github_modelcontextprotocol_go_sdk//auth",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_modelcontextprotocol_go_sdk//oauthex",
+    ],
+)
+
+go_test(
+    name = "mockmcpserver_test",
+    srcs = [
+        "mock_mcp_server_test.go",
+        "parallel_limit_test.go",
+    ],
+    args = ["-test.parallel=2"],
+    embed = [":mockmcpserver"],
+    deps = [
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_modelcontextprotocol_go_sdk//oauthex",
+    ],
+)

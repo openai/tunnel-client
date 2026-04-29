@@ -1,0 +1,30 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "session",
+    srcs = [
+        "process_unix.go",
+        "process_windows.go",
+        "session.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/codexplugin/session",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/codexplugin/state",
+    ] + select({
+        "@rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "session_test",
+    srcs = ["session_test.go"],
+    embed = [":session"],
+    deps = [
+        "//api/tunnel-client/pkg/codexplugin/state",
+        "@com_github_stretchr_testify//require",
+    ],
+)

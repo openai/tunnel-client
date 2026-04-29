@@ -1,0 +1,31 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "dispatcher",
+    srcs = ["fxmodule.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/dispatcher",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/dispatcher/internal",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "dispatcher_test",
+    srcs = ["fxmodule_test.go"],
+    embed = [":dispatcher"],
+    deps = [
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//jsonrpc",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_stretchr_testify//require",
+    ],
+)

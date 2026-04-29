@@ -1,0 +1,121 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+filegroup(
+    name = "checked_in_assets",
+    srcs = glob(["assets/**"]),
+)
+
+genrule(
+    name = "adminui_assets",
+    srcs = [
+        "//api/tunnel-client/adminui:index.prod.html",
+        "//api/tunnel-client/adminui:ui",
+    ],
+    outs = [
+        "app.js",
+        "index.html",
+        "styles.css",
+    ],
+    cmd = """
+set -euo pipefail
+cp "$(location //api/tunnel-client/adminui:ui)/app.js" "$(@D)/app.js"
+cp "$(location //api/tunnel-client/adminui:ui)/styles.css" "$(@D)/styles.css"
+cp "$(location //api/tunnel-client/adminui:index.prod.html)" "$(@D)/index.html"
+""",
+    visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "adminui_assets_check_up_to_date_test",
+    srcs = ["//api/tunnel-client/scripts:verify_admin_ui.sh"],
+    args = ["$(locations :adminui_assets)"],
+    data = [
+        ":adminui_assets",
+        ":checked_in_assets",
+        "//api/tunnel-client/adminui:srcs",
+    ],
+    env = {
+        "ADMIN_UI_REBUILD_HINT": "bazel run //api/tunnel-client/adminui:update_assets",
+    },
+)
+
+test_suite(
+    name = "adminui_assets_test",
+    tests = [":adminui_assets_check_up_to_date_test"],
+)
+
+go_library(
+    name = "adminui",
+    srcs = [
+        "channel_status.go",
+        "codex.go",
+        "fxmodule.go",
+        "harpoon.go",
+        "log_buffer.go",
+        "log_export.go",
+        "log_level.go",
+        "oauth.go",
+        "startup.go",
+        "system.go",
+        "ui.go",
+    ],
+    # keep
+    embedsrcs = glob(["assets/**"]),
+    importpath = "go.openai.org/api/tunnel-client/pkg/adminui",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/docs",
+        "//api/tunnel-client/pkg/codexappserver",
+        "//api/tunnel-client/pkg/codexplugin",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/health",
+        "//api/tunnel-client/pkg/httpguard",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/metrics",
+        "//api/tunnel-client/pkg/oauth",
+        "//api/tunnel-client/pkg/proxy",
+        "//api/tunnel-client/pkg/proxyhealth",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "//api/tunnel-client/plugins",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "adminui_test",
+    srcs = [
+        "codex_test.go",
+        "harpoon_integration_test.go",
+        "harpoon_test.go",
+        "log_buffer_test.go",
+        "log_export_test.go",
+        "log_level_test.go",
+        "oauth_test.go",
+        "startup_test.go",
+        "status_test.go",
+        "system_test.go",
+    ],
+    embed = [":adminui"],
+    deps = [
+        "//api/tunnel-client/docs",
+        "//api/tunnel-client/pkg/codexplugin",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/mcpclient",
+        "//api/tunnel-client/pkg/oauth",
+        "//api/tunnel-client/pkg/proxy",
+        "//api/tunnel-client/pkg/proxyhealth",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_stretchr_testify//require",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)

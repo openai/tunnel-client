@@ -1,0 +1,41 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+filegroup(
+    name = "test_certs",
+    testonly = True,
+    srcs = glob(["testdata/*.pem"]),
+)
+
+go_test(
+    name = "e2e_test",
+    srcs = [
+        "ca_bundle_e2e_test.go",
+        "harpoon_channel_tools_list_e2e_test.go",
+        "harpoon_inmemory_tool_e2e_test.go",
+        "notification_forwarding_e2e_test.go",
+        "oauth_discovery_e2e_test.go",
+        "oauth_protection_e2e_test.go",
+        "parallel_limit_test.go",
+        "proxy_e2e_test.go",
+        "simple_tool_e2e_call_test.go",
+        "stdio_tool_e2e_call_test.go",
+    ],
+    args = ["-test.parallel=2"],
+    data = [":test_certs"],
+    embedsrcs = [
+        "testdata/test_ca_bundle.pem",
+        "testdata/test_server_cert.pem",
+        "testdata/test_server_key.pem",
+    ],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane/wiretypes",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/transport",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/testsupport/e2e",
+        "//api/tunnel-client/testsupport/mockmcpserver",
+        "//api/tunnel-client/testsupport/mockproxy",
+        "//api/tunnel-client/testsupport/mocktunnelservice",
+    ],
+)

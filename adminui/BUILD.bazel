@@ -1,0 +1,115 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@tunnel_client_adminui_npm//:defs.bzl", "npm_link_all_packages")
+load("@tunnel_client_adminui_npm//api/tunnel-client/adminui:vite/package_json.bzl", vite_bin = "bin")
+load("@tunnel_client_adminui_npm//api/tunnel-client/adminui:vitest/package_json.bzl", vitest_bin = "bin")
+load("//project/bazel/rules:js.bzl", "oai_js_library")
+load("//project/bazel/rules:vite.bzl", "vite")
+
+exports_files([
+    "index.html",
+    "index.prod.html",
+    "pnpm-lock.yaml",
+])
+
+npm_link_all_packages(
+    name = "node_modules",
+)
+
+vite_bin.vite_binary(
+    name = "vite",
+    visibility = ["//visibility:public"],
+)
+
+vitest_bin.vitest_binary(
+    name = "vitest",
+    visibility = ["//visibility:public"],
+)
+
+vite(
+    name = "ui",
+    srcs = [
+        ":pkg",
+    ],
+    data = [
+        "index.html",
+        "package.json",
+        "svelte.config.js",
+        "tsconfig.json",
+        "vite.config.ts",
+        ":node_modules",
+    ],
+    visibility = ["//visibility:public"],
+    vite_bin = "./node_modules/vite/bin/vite.js",
+    vite_js_binary = ":vite",
+)
+
+sh_test(
+    name = "vitest_test",
+    srcs = ["scripts/vitest_test.sh"],
+    args = ["$(rootpath :vitest)"],
+    data = [
+        ":node_modules",
+        ":srcs",
+        ":vitest",
+    ],
+)
+
+sh_binary(
+    name = "update_assets",
+    srcs = ["scripts/update_assets.sh"],
+    args = [
+        "$(location :ui)/app.js",
+        "$(location :ui)/styles.css",
+        "$(location :index.prod.html)",
+        "api/tunnel-client/pkg/adminui/assets",
+    ],
+    data = [
+        ":index.prod.html",
+        ":ui",
+    ],
+)
+
+oai_js_library(
+    name = "pkg",
+    srcs = glob(
+        [
+            "**/*.css",
+            "**/*.js",
+            "**/*.json",
+            "**/*.mjs",
+            "**/*.svelte",
+            "**/*.ts",
+        ],
+        allow_empty = True,
+        exclude = [
+            "BUILD.bazel",
+            "dist/**",
+            "node_modules/**",
+            "src/**/*.test.ts",
+            "src/test/**",
+            "vitest.config.ts",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":node_modules/@sveltejs/vite-plugin-svelte",
+        ":node_modules/@types/node",
+        ":node_modules/svelte",
+        ":node_modules/typescript",
+        ":node_modules/vite",
+    ],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "BUILD.bazel",
+            "dist/**",
+            "node_modules/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)

@@ -21,6 +21,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/config"
 	"go.openai.org/api/tunnel-client/pkg/oauth"
 	"go.openai.org/api/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 func TestHandleLogsExportReturnsRedactedTarGz(t *testing.T) {
@@ -104,8 +105,16 @@ func TestHandleLogsExportReturnsRedactedTarGz(t *testing.T) {
 	require.Contains(t, manifest.Files, "admin/status.json")
 	require.Contains(t, manifest.Files, "admin/system.json")
 	require.Contains(t, manifest.Files, "admin/oauth.json")
+	require.Equal(t, version.ClientName, manifest.Runtime.Client.ClientName)
+	require.Equal(t, version.SemanticVersion, manifest.Runtime.Client.SemanticVersion)
+	require.Equal(t, version.Version, manifest.Runtime.Client.Version)
+	require.Equal(t, version.UserAgent, manifest.Runtime.Client.UserAgent)
 	require.Contains(t, files[runtimeSnapshotFile], "argv:")
 	require.Contains(t, files[runtimeSnapshotFile], "environment:")
+	require.Contains(t, files[runtimeSnapshotFile], "client:")
+	require.Contains(t, files[runtimeSnapshotFile], "client_name: "+version.ClientName)
+	require.Contains(t, files[runtimeSnapshotFile], "semantic_version: "+version.SemanticVersion)
+	require.Contains(t, files[runtimeSnapshotFile], "user_agent: "+version.UserAgent)
 	require.Contains(t, files[runtimeSnapshotFile], "OPENAI_TUNNEL_KEY_PROD: '[REDACTED]'")
 	require.NotContains(t, files[runtimeSnapshotFile], "sk-proj-runtime-secret123456")
 
@@ -257,6 +266,10 @@ func TestCollectLogExportRuntimeKeepsReproMetadataAndRedactsSecrets(t *testing.T
 	require.Equal(t, "[REDACTED]", got.Environment["OPENAI_TUNNEL_KEY_PROD"])
 	require.NotContains(t, got.Environment, "UNRELATED_SECRET")
 	require.NotContains(t, got.Environment, "should-not-be-exported-because-not-relevant")
+	require.Equal(t, version.ClientName, got.Client.ClientName)
+	require.Equal(t, version.SemanticVersion, got.Client.SemanticVersion)
+	require.Equal(t, version.Version, got.Client.Version)
+	require.Equal(t, version.UserAgent, got.Client.UserAgent)
 }
 
 func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {

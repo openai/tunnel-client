@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tlsconfig",
+    srcs = [
+        "bundle.go",
+        "client_certificate.go",
+        "trust.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/tlsconfig",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tlsconfig_test",
+    srcs = [
+        "client_certificate_test.go",
+        "trust_test.go",
+    ],
+    embed = [":tlsconfig"],
+)

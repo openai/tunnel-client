@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "httpguard",
+    srcs = ["guard.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/httpguard",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "httpguard_test",
+    srcs = ["guard_test.go"],
+    embed = [":httpguard"],
+)

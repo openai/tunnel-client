@@ -17,6 +17,7 @@ import (
 
 	"go.openai.org/api/tunnel-client/pkg/config"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (
@@ -42,8 +43,16 @@ type logExportManifest struct {
 type logExportRuntime struct {
 	Argv            []string                     `json:"argv" yaml:"argv"`
 	Environment     map[string]string            `json:"environment" yaml:"environment"`
+	Client          logExportClientDetails       `json:"client" yaml:"client"`
 	ActualConfig    *logExportConfigFileSnapshot `json:"actual_config,omitempty" yaml:"actual_config,omitempty"`
 	EffectiveConfig any                          `json:"effective_config,omitempty" yaml:"effective_config,omitempty"`
+}
+
+type logExportClientDetails struct {
+	ClientName      string `json:"client_name" yaml:"client_name"`
+	SemanticVersion string `json:"semantic_version" yaml:"semantic_version"`
+	Version         string `json:"version" yaml:"version"`
+	UserAgent       string `json:"user_agent" yaml:"user_agent"`
 }
 
 type logExportConfigFileSnapshot struct {
@@ -148,10 +157,12 @@ func handleLogsExport(
 }
 
 func callRuntimeSnapshot(runtime RuntimeSnapshotProvider) logExportRuntime {
+	var snapshot logExportRuntime
 	if runtime == nil {
-		return logExportRuntime{}
+		return withClientDetails(snapshot)
 	}
-	return runtime()
+	snapshot = runtime()
+	return withClientDetails(snapshot)
 }
 
 func callMetricsSnapshot(metrics MetricsSnapshotProvider) (metricsSnapshot, error) {
@@ -177,6 +188,8 @@ func buildLogsArchive(
 	snapshot metricsSnapshot,
 	adminSnapshots logExportAdminSnapshots,
 ) ([]byte, error) {
+	runtime = withClientDetails(runtime)
+
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -267,6 +280,23 @@ func collectLogExportRuntime(argv []string, environ []string) logExportRuntime {
 	return logExportRuntime{
 		Argv:        redactArgv(argv),
 		Environment: outEnv,
+		Client:      currentClientDetails(),
+	}
+}
+
+func withClientDetails(runtime logExportRuntime) logExportRuntime {
+	if runtime.Client.ClientName == "" {
+		runtime.Client = currentClientDetails()
+	}
+	return runtime
+}
+
+func currentClientDetails() logExportClientDetails {
+	return logExportClientDetails{
+		ClientName:      version.ClientName,
+		SemanticVersion: version.SemanticVersion,
+		Version:         version.Version,
+		UserAgent:       version.UserAgent,
 	}
 }
 

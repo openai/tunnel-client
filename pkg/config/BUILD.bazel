@@ -1,0 +1,38 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "config",
+    srcs = [
+        "admin.go",
+        "config.go",
+        "file_config.go",
+        "profile.go",
+        "proxy.go",
+        "proxy_logging.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/tlsconfig",
+        "//api/tunnel-client/pkg/types",
+        "//api/tunnel-client/pkg/version",
+        "@com_github_spf13_pflag//:pflag",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)
+
+go_test(
+    name = "config_test",
+    srcs = [
+        "admin_test.go",
+        "config_alias_test.go",
+        "config_test.go",
+        "profile_test.go",
+    ],
+    embed = [":config"],
+    deps = [
+        "//api/tunnel-client/pkg/types",
+        "@com_github_spf13_pflag//:pflag",
+        "@com_github_stretchr_testify//require",
+    ],
+)

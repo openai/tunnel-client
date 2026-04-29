@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "wiretypes",
+    srcs = ["wire.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "wiretypes_test",
+    srcs = ["wire_test.go"],
+    embed = [":wiretypes"],
+)

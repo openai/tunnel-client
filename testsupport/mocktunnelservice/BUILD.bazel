@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mocktunnelservice",
+    srcs = [
+        "doc.go",
+        "mock_tunnel_service.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/testsupport/mocktunnelservice",
+    visibility = ["//visibility:public"],
+    deps = ["//api/tunnel-client/pkg/controlplane/wiretypes"],
+)
+
+go_test(
+    name = "mocktunnelservice_test",
+    srcs = [
+        "mock_tunnel_service_test.go",
+        "parallel_limit_test.go",
+    ],
+    args = ["-test.parallel=2"],
+    embed = [":mocktunnelservice"],
+    deps = ["//api/tunnel-client/pkg/controlplane/wiretypes"],
+)

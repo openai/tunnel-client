@@ -1,0 +1,32 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "fx",
+    srcs = ["fxmodule.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/controlplane/fx",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/controlplane/internal",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/proxy",
+        "//api/tunnel-client/pkg/tlsconfig",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "fx_test",
+    srcs = ["fxmodule_test.go"],
+    embed = [":fx"],
+    deps = [
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/controlplane/internal",
+        "//api/tunnel-client/pkg/types",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_uber_go_fx//:fx",
+        "@org_uber_go_fx//fxtest",
+    ],
+)

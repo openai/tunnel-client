@@ -1,0 +1,106 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//project/bazel/rules:go.bzl", "oai_go_cli_binary")
+
+filegroup(
+    name = "embedded_help_topics",
+    srcs = glob(["help_topics/*.txt"]),
+)
+
+filegroup(
+    name = "embedded_profile_samples",
+    srcs = glob(["profile_samples/*.tmpl"]),
+)
+
+go_library(
+    name = "client_lib",
+    srcs = [
+        "admin_profiles_command.go",
+        "codex_assistant_command.go",
+        "codex_assistant_kb.go",
+        "codex_command.go",
+        "dev_command.go",
+        "dev_mcp_stub.go",
+        "doctor_command.go",
+        "exit_error.go",
+        "help_topics.go",
+        "init_command.go",
+        "main.go",
+        "plugin_command.go",
+        "profile_samples.go",
+        "profiles_command.go",
+        "root_command.go",
+        "run_command.go",
+        "runtimes_command.go",
+        "stdio_preflight.go",
+        "web_properties.go",
+    ],
+    embedsrcs = [
+        "help_topics/doctor.txt",
+        "help_topics/oauth.txt",
+        "help_topics/plugin.txt",
+        "help_topics/quickstart.txt",
+        "help_topics/samples.txt",
+        "profile_samples/sample_mcp_enterprise_proxy.yaml.tmpl",
+        "profile_samples/sample_mcp_remote_no_auth.yaml.tmpl",
+        "profile_samples/sample_mcp_stdio_local.yaml.tmpl",
+        "profile_samples/sample_mcp_with_dcr.yaml.tmpl",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/cmd/client",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//api/tunnel-client/cmd/client/admin",
+        "//api/tunnel-client/docs",
+        "//api/tunnel-client/pkg/app",
+        "//api/tunnel-client/pkg/codexappserver",
+        "//api/tunnel-client/pkg/codexplugin",
+        "//api/tunnel-client/pkg/codexplugin/session",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/controlplane",
+        "//api/tunnel-client/pkg/oauth",
+        "//api/tunnel-client/pkg/version",
+        "//api/tunnel-client/plugins",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_spf13_cobra//:cobra",
+        "@com_github_spf13_pflag//:pflag",
+        "@org_uber_go_fx//:fx",
+        "@org_uber_go_fx//fxevent",
+    ],
+)
+
+oai_go_cli_binary(
+    name = "client",
+    embed = [":client_lib"],
+    visibility = ["//visibility:public"],
+    x_defs = {
+        "go.openai.org/api/tunnel-client/pkg/version.GitSHA": "{STABLE_GIT_LONG_COMMIT}",
+    },
+)
+
+go_test(
+    name = "client_test",
+    srcs = [
+        "codex_command_test.go",
+        "dev_command_test.go",
+        "doctor_command_test.go",
+        "help_topics_test.go",
+        "main_test.go",
+        "profiles_command_test.go",
+        "root_command_test.go",
+        "run_command_test.go",
+        "runtimes_command_test.go",
+        "ux_command_test.go",
+    ],
+    embed = [":client_lib"],
+    deps = [
+        "//api/tunnel-client/pkg/app",
+        "//api/tunnel-client/pkg/codexplugin",
+        "//api/tunnel-client/pkg/codexplugin/session",
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/health",
+        "//api/tunnel-client/pkg/types",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_fx//:fx",
+        "@org_uber_go_fx//fxtest",
+    ],
+)

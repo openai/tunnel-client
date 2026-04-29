@@ -1,0 +1,31 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "proxyhealth",
+    srcs = [
+        "checker.go",
+        "metrics.go",
+    ],
+    importpath = "go.openai.org/api/tunnel-client/pkg/proxyhealth",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/harpoon",
+        "//api/tunnel-client/pkg/log",
+        "//api/tunnel-client/pkg/proxy",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_test(
+    name = "proxyhealth_test",
+    srcs = ["checker_test.go"],
+    embed = [":proxyhealth"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+        "//api/tunnel-client/pkg/proxy",
+    ],
+)

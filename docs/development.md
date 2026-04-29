@@ -14,6 +14,14 @@ go build -o bin/tunnel-client ./cmd/client
 Use `./bin/tunnel-client` for local source-checkout runs unless `bin/` is on
 your `PATH`.
 
+Before creating a release tag, stamp the source version so downloaded release
+archives build with the tag semantic version:
+
+```bash
+make release-source-version VERSION=1.2.3
+make release-tag VERSION=1.2.3 WORD=ember-orchid
+```
+
 ## Unit tests
 
 ```bash

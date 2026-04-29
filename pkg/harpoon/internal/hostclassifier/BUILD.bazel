@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hostclassifier",
+    srcs = ["classifier.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/harpoon/internal/hostclassifier",
+    visibility = ["//api/tunnel-client/pkg/harpoon:__subpackages__"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+    ],
+)
+
+go_test(
+    name = "hostclassifier_test",
+    srcs = ["classifier_test.go"],
+    embed = [":hostclassifier"],
+    deps = [
+        "//api/tunnel-client/pkg/config",
+    ],
+)

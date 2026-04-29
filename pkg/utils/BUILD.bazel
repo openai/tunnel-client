@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "utils",
+    srcs = ["stable_uuid.go"],
+    importpath = "go.openai.org/api/tunnel-client/pkg/utils",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//api/tunnel-client/pkg/version",
+        "@com_github_google_uuid//:uuid",
+    ],
+)
+
+go_test(
+    name = "stable_uuid_test",
+    srcs = ["stable_uuid_test.go"],
+    embed = [":utils"],
+)
+
+go_test(
+    name = "utils_test",
+    srcs = ["stable_uuid_test.go"],
+    embed = [":utils"],
+    deps = ["@com_github_google_uuid//:uuid"],
+)
