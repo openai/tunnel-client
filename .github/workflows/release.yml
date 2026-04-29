@@ -118,7 +118,7 @@ jobs:
     name: Release
     if: ${{ startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref_name, 'v0.0.6-probe.') }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Derive release metadata
@@ -144,7 +144,11 @@ jobs:
         working-directory: dist/public
         run: |
           shopt -s nullglob
-          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          else
+            shasum -a 256 *.zip *.tar.gz > SHA256SUMS.txt
+          fi
 
       - name: Generate public URLs
         working-directory: dist/public
@@ -156,6 +160,15 @@ jobs:
               printf '%s/%s\n' "${PUBLIC_BASE_URL}" "${file}"
             done
           } > PUBLIC_URLS.txt
+
+      - name: Install Azure CLI on macOS
+        run: |
+          set -euo pipefail
+          if ! command -v az >/dev/null 2>&1; then
+            brew update
+            brew install azure-cli
+          fi
+          az version
 
       - name: Azure login for public artifact upload
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -229,7 +242,6 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          - ubuntu-latest
           - macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -264,21 +276,23 @@ jobs:
           RUNNER_LABEL: ${{ matrix.runner }}
         run: |
           set -euo pipefail
-          blob_name="${PUBLIC_BUCKET_PREFIX}/probes/${GITHUB_REF_NAME}/${RUNNER_LABEL}/probe.txt"
+          blob_path="${PUBLIC_BUCKET_PREFIX}/probes/${GITHUB_REF_NAME}/${RUNNER_LABEL}"
+          blob_name="${blob_path}/probe.txt"
           public_url="${PUBLIC_BASE_URL_ROOT}/${blob_name}"
+          mkdir -p probe-public
           {
             echo "tag=${GITHUB_REF_NAME}"
             echo "runner=${RUNNER_LABEL}"
             echo "sha=${GITHUB_SHA}"
             echo "run_id=${GITHUB_RUN_ID}"
             date -u '+created_at=%Y-%m-%dT%H:%M:%SZ'
-          } > probe.txt
-          az storage blob upload \
+          } > probe-public/probe.txt
+          az storage blob upload-batch \
             --subscription "${AZURE_SUBSCRIPTION_ID}" \
             --account-name "${PUBLIC_STORAGE_ACCOUNT}" \
-            --container-name "${PUBLIC_STORAGE_CONTAINER}" \
-            --name "${blob_name}" \
-            --file probe.txt \
+            --destination "${PUBLIC_STORAGE_CONTAINER}" \
+            --destination-path "${blob_path}" \
+            --source probe-public \
             --auth-mode login \
             --overwrite true \
             --only-show-errors
