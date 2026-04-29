@@ -30,7 +30,6 @@ env:
 jobs:
   test:
     name: Test
-    if: ${{ !startsWith(github.ref_name, 'v0.0.6-probe.') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -116,7 +115,7 @@ jobs:
 
   release:
     name: Release
-    if: ${{ startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref_name, 'v0.0.6-probe.') }}
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: macos-latest
     steps:
@@ -233,68 +232,3 @@ jobs:
             dist/public/*.tar.gz
             dist/public/SHA256SUMS.txt
             dist/public/PUBLIC_URLS.txt
-
-  upload_probe:
-    name: Upload Probe (${{ matrix.runner }})
-    if: ${{ startsWith(github.ref_name, 'v0.0.6-probe.') }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          - macos-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Validate probe tag
-        run: ./scripts/release_tag.sh parse "${GITHUB_REF_NAME}"
-      - name: Install Azure CLI on macOS
-        if: ${{ runner.os == 'macOS' }}
-        run: |
-          set -euo pipefail
-          if ! command -v az >/dev/null 2>&1; then
-            brew update
-            brew install azure-cli
-          fi
-          az version
-      - name: Runner network diagnostics
-        run: |
-          set -euo pipefail
-          echo "runner=${{ matrix.runner }}"
-          echo "runner_os=${RUNNER_OS}"
-          echo "uname=$(uname -a)"
-          echo "egress_ip=$(curl -fsS https://api.ipify.org || true)"
-          nslookup "${PUBLIC_STORAGE_ACCOUNT}.blob.core.windows.net" || true
-          nslookup "persistent.oaistatic.com" || true
-      - name: Azure login for public artifact upload
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-      - name: Upload probe blob
-        env:
-          RUNNER_LABEL: ${{ matrix.runner }}
-        run: |
-          set -euo pipefail
-          blob_path="${PUBLIC_BUCKET_PREFIX}/probes/${GITHUB_REF_NAME}/${RUNNER_LABEL}"
-          blob_name="${blob_path}/probe.txt"
-          public_url="${PUBLIC_BASE_URL_ROOT}/${blob_name}"
-          mkdir -p probe-public
-          {
-            echo "tag=${GITHUB_REF_NAME}"
-            echo "runner=${RUNNER_LABEL}"
-            echo "sha=${GITHUB_SHA}"
-            echo "run_id=${GITHUB_RUN_ID}"
-            date -u '+created_at=%Y-%m-%dT%H:%M:%SZ'
-          } > probe-public/probe.txt
-          az storage blob upload-batch \
-            --subscription "${AZURE_SUBSCRIPTION_ID}" \
-            --account-name "${PUBLIC_STORAGE_ACCOUNT}" \
-            --destination "${PUBLIC_STORAGE_CONTAINER}" \
-            --destination-path "${blob_path}" \
-            --source probe-public \
-            --auth-mode login \
-            --overwrite true \
-            --only-show-errors
-          curl -fsS "${public_url}"
-          echo "public_url=${public_url}"
