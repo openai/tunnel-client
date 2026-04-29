@@ -30,6 +30,7 @@ env:
 jobs:
   test:
     name: Test
+    if: ${{ !startsWith(github.ref_name, 'v0.0.6-backfill.') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -115,7 +116,7 @@ jobs:
 
   release:
     name: Release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref_name, 'v0.0.6-backfill.') }}
     needs: build
     runs-on: macos-latest
     steps:
@@ -232,3 +233,73 @@ jobs:
             dist/public/*.tar.gz
             dist/public/SHA256SUMS.txt
             dist/public/PUBLIC_URLS.txt
+
+  backfill_v006_public_bucket:
+    name: Backfill v0.0.6 Public Bucket
+    if: ${{ startsWith(github.ref_name, 'v0.0.6-backfill.') }}
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: v0.0.6--context-conduit-zircon
+      RELEASE_BLOB_PATH: tunnel-client/v0.0.6--context-conduit-zircon
+      RELEASE_PUBLIC_BASE_URL: https://persistent.oaistatic.com/tunnel-client/v0.0.6--context-conduit-zircon
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install Azure CLI on macOS
+        run: |
+          set -euo pipefail
+          if ! command -v az >/dev/null 2>&1; then
+            brew update
+            brew install azure-cli
+          fi
+          az version
+      - name: Download GitHub Release assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist/public
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir dist/public
+          (
+            cd dist/public
+            for file in *; do
+              [[ -f "${file}" ]] || continue
+              printf '%s/%s\n' "${RELEASE_PUBLIC_BASE_URL}" "${file}"
+            done
+          ) > dist/public/PUBLIC_URLS.txt
+          gh release upload "${RELEASE_TAG}" dist/public/PUBLIC_URLS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+      - name: Azure login for public artifact upload
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Upload public artifacts
+        run: |
+          set -euo pipefail
+          az storage blob upload-batch \
+            --subscription "${AZURE_SUBSCRIPTION_ID}" \
+            --account-name "${PUBLIC_STORAGE_ACCOUNT}" \
+            --destination "${PUBLIC_STORAGE_CONTAINER}" \
+            --destination-path "${RELEASE_BLOB_PATH}" \
+            --source dist/public \
+            --auth-mode login \
+            --overwrite true \
+            --only-show-errors
+      - name: Verify public artifact URLs
+        run: |
+          set -euo pipefail
+          while IFS= read -r url; do
+            for attempt in 1 2 3 4 5; do
+              if curl -fsSI "${url}" >/dev/null; then
+                break
+              fi
+              if [[ "${attempt}" -eq 5 ]]; then
+                echo "failed to verify ${url}" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done < dist/public/PUBLIC_URLS.txt
