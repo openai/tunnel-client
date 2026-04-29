@@ -117,7 +117,7 @@ jobs:
     name: Release
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Derive release metadata
@@ -143,7 +143,11 @@ jobs:
         working-directory: dist/public
         run: |
           shopt -s nullglob
-          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          else
+            shasum -a 256 *.zip *.tar.gz > SHA256SUMS.txt
+          fi
 
       - name: Generate public URLs
         working-directory: dist/public
@@ -155,6 +159,15 @@ jobs:
               printf '%s/%s\n' "${PUBLIC_BASE_URL}" "${file}"
             done
           } > PUBLIC_URLS.txt
+
+      - name: Install Azure CLI on macOS
+        run: |
+          set -euo pipefail
+          if ! command -v az >/dev/null 2>&1; then
+            brew update
+            brew install azure-cli
+          fi
+          az version
 
       - name: Azure login for public artifact upload
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
