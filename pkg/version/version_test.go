@@ -18,6 +18,12 @@ func TestBuildVersion(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSourceVersionIsDevRelease(t *testing.T) {
+	if got := strings.TrimSpace(sourceSemanticVersion); got != "0.0.8-dev" {
+		t.Fatalf("expected source VERSION to be 0.0.8-dev, got %q", got)
+	}
+}
+
 func TestDetectBuildGitSHA(t *testing.T) {
 	emptyRead := func() (*debug.BuildInfo, bool) { return nil, false }
 	if got := detectBuildGitSHAFrom(emptyRead); got != "" {

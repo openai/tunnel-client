@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 func TestAdminTunnelClientCreateAndGet(t *testing.T) {
@@ -108,6 +109,62 @@ func TestAdminTunnelClientUpdateEncodesEmptySlices(t *testing.T) {
 	}
 }
 
+func TestAdminTunnelClientSendsIdentityHeadersForAllMethods(t *testing.T) {
+	t.Parallel()
+
+	seen := map[string]bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertIdentityHeaders(t, r)
+		seen[r.Method+" "+r.URL.Path] = true
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels":
+			_, _ = w.Write([]byte(`{"tunnels":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n"}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.AdminConfig{
+		BaseURL:  mustParseURL(t, server.URL),
+		AdminKey: "key",
+	}
+	client, err := NewAdminTunnelClient(cfg)
+	if err != nil {
+		t.Fatalf("NewAdminTunnelClient: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := client.CreateTunnel(ctx, TunnelCreateRequest{Name: "n"}); err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	if _, err := client.GetTunnel(ctx, "tunnel_1"); err != nil {
+		t.Fatalf("GetTunnel: %v", err)
+	}
+	if _, err := client.ListTunnels(ctx, "org_1", "", ""); err != nil {
+		t.Fatalf("ListTunnels: %v", err)
+	}
+	if _, err := client.UpdateTunnel(ctx, "tunnel_1", TunnelUpdateRequest{}); err != nil {
+		t.Fatalf("UpdateTunnel: %v", err)
+	}
+	if _, err := client.DeleteTunnel(ctx, "tunnel_1"); err != nil {
+		t.Fatalf("DeleteTunnel: %v", err)
+	}
+
+	for _, want := range []string{
+		"POST /v1/tunnels",
+		"GET /v1/tunnels/tunnel_1",
+		"GET /v1/tunnels",
+		"POST /v1/tunnels/tunnel_1",
+		"DELETE /v1/tunnels/tunnel_1",
+	} {
+		if !seen[want] {
+			t.Fatalf("missing request %s; saw %#v", want, seen)
+		}
+	}
+}
+
 func TestAdminTunnelClientErrorIncludesRequestID(t *testing.T) {
 	t.Parallel()
 
@@ -167,6 +224,19 @@ func TestAdminTunnelClientDeleteUnsupportedHostExplainsProblem(t *testing.T) {
 	}
 	if got := err.Error(); !containsAll(got, "delete is not exposed on this control-plane base URL yet", "DELETE /v1/tunnels/tunnel_123") {
 		t.Fatalf("unexpected delete error: %s", got)
+	}
+}
+
+func assertIdentityHeaders(t *testing.T, r *http.Request) {
+	t.Helper()
+	if got := r.Header.Get("User-Agent"); got != version.UserAgent {
+		t.Fatalf("unexpected User-Agent header %q", got)
+	}
+	if got := r.Header.Get("X-Tunnel-Client-Name"); got != version.ClientName {
+		t.Fatalf("unexpected X-Tunnel-Client-Name header %q", got)
+	}
+	if got := r.Header.Get("X-Tunnel-Client-Version"); got != version.Version {
+		t.Fatalf("unexpected X-Tunnel-Client-Version header %q", got)
 	}
 }
 

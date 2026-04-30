@@ -14,6 +14,7 @@ import (
 
 	"go.openai.org/api/tunnel-client/pkg/config"
 	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (
@@ -168,6 +169,9 @@ func (c *AdminTunnelClient) do(ctx context.Context, method, path string, query u
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.adminKey))
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", version.UserAgent)
+	req.Header.Set("X-Tunnel-Client-Name", version.ClientName)
+	req.Header.Set("X-Tunnel-Client-Version", version.Version)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
