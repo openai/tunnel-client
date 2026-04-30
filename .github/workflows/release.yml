@@ -100,6 +100,16 @@ jobs:
           GOFLAGS="-trimpath -buildvcs=false"
           RAW_BINARY_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
           go build $GOFLAGS -ldflags "$LDFLAGS" -o "dist/package-input/$RAW_BINARY_NAME" ./cmd/client
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
+            expected_version="${release_version}+${GITHUB_SHA} (git sha: ${GITHUB_SHA})"
+            actual_version="$("dist/package-input/$RAW_BINARY_NAME" --version)"
+            if [[ "${actual_version}" != "${expected_version}" ]]; then
+              echo "release binary version mismatch" >&2
+              printf 'expected: %s\n' "${expected_version}" >&2
+              printf 'actual:   %s\n' "${actual_version}" >&2
+              exit 1
+            fi
+          fi
 
           # Package as zip with OS/Arch/Tag in name
           ASSET_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}
