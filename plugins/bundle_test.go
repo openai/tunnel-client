@@ -230,6 +230,7 @@ func TestTunnelMCPExportToDirIncludesSkillReferences(t *testing.T) {
 		"skills/tunnel-mcp/references/profiles-state-and-keys.md",
 		"skills/tunnel-mcp/references/runtime-flows.md",
 		"skills/tunnel-mcp/references/troubleshooting.md",
+		"assets/tunnel-mcp-logo.png",
 		"scripts/Install-Plugin.ps1",
 		"scripts/install_plugin.sh",
 		"scripts/tunnel_mcp.cmd",
@@ -249,6 +250,7 @@ func TestBundledCodexPluginManifestPointsAtBundledSkillDir(t *testing.T) {
 		DisplayName      string   `json:"displayName"`
 		Capabilities     []string `json:"capabilities"`
 		ShortDescription string   `json:"shortDescription"`
+		Logo             string   `json:"logo"`
 	}
 	type manifest struct {
 		Name        string            `json:"name"`
@@ -287,8 +289,14 @@ func TestBundledCodexPluginManifestPointsAtBundledSkillDir(t *testing.T) {
 	if parsed.Interface.ShortDescription == "" {
 		t.Fatalf("expected non-empty shortDescription in bundled codex plugin manifest")
 	}
+	if parsed.Interface.Logo != "./assets/tunnel-mcp-logo.png" {
+		t.Fatalf("unexpected logo path %q", parsed.Interface.Logo)
+	}
 	if len(parsed.Interface.Capabilities) == 0 {
 		t.Fatalf("expected at least one capability in bundled codex plugin manifest")
+	}
+	if _, err := embeddedPluginFiles.ReadFile("tunnel-mcp/assets/tunnel-mcp-logo.png"); err != nil {
+		t.Fatalf("read bundled codex plugin logo: %v", err)
 	}
 	if !containsString(parsed.Keywords, "tunnel-client") {
 		t.Fatalf("expected tunnel-client keyword in bundled codex plugin manifest: %#v", parsed.Keywords)

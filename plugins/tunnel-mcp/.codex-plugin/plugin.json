@@ -1,6 +1,6 @@
 {
   "name": "tunnel-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create, connect, list, and inspect secure MCP tunnels from Codex using tunnel-client.",
   "author": {
     "name": "OpenAI",
@@ -35,6 +35,7 @@
       "Show me how to install the Tunnel MCP plugin from this repo.",
       "Create or reuse a tunnel-client runtime and check its status."
     ],
-    "brandColor": "#10A37F"
+    "brandColor": "#10A37F",
+    "logo": "./assets/tunnel-mcp-logo.png"
   }
 }
