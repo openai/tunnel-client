@@ -1,22 +1,26 @@
 # Tunnel MCP Plugin
 
 Tunnel MCP is a local Codex plugin for creating and running MCP tunnels with
-`tunnel-client`. The plugin is intentionally thin: it routes Codex plugin calls
-onto the public native `tunnel-client runtimes ...` and
-`tunnel-client admin-profiles ...` command trees. The Go `tunnel-client` binary
-owns alias state, admin-profile state, remote tunnel CRUD, runtime config
-generation, and the long-running poll loop.
+`tunnel-client`. The plugin is intentionally thin: Codex loads the plugin and
+skill guidance, then the router delegates tunnel work to the native
+`tunnel-client runtimes ...` and `tunnel-client admin-profiles ...` command
+trees. The Go binary owns tunnel protocol logic, alias state, admin profiles,
+runtime config generation, process management, and control-plane polling.
 
-The bundled skill also ships curated reference docs under
-`skills/tunnel-mcp/references/` for binary acquisition, setup/install,
-profiles and state dirs, admin/runtime key split, runtime lifecycle flows, and
-troubleshooting. Those references are intended to be consulted selectively
-based on the user prompt, not dumped wholesale into every response.
+Use this README for install and operating quick start. For detailed agent
+guidance, open only the relevant curated file under
+`skills/tunnel-mcp/references/`:
+
+- `binary.md`: find or build a public-safe `tunnel-client` binary.
+- `setup-and-install.md`: install, export, reset, and binary-vs-bundle setup.
+- `profiles-state-and-keys.md`: profile dirs, state dirs, and key references.
+- `runtime-flows.md`: create, connect, list, status, stop, rm, cleanup, attach.
+- `troubleshooting.md`: `/healthz`, `/readyz`, `/ui`, logs, stale aliases.
 
 ## Install
 
-If you already have a `tunnel-client` binary, prefer the binary-owned install
-surface so the plugin bundle always matches the binary version:
+If a `tunnel-client` binary is already available, prefer the binary-owned
+surface so the installed plugin bundle matches the binary version:
 
 ```bash
 tunnel-client codex plugin install
@@ -25,40 +29,33 @@ tunnel-client codex diagnose --json
 tunnel-client codex plugin uninstall
 ```
 
-If you only need a terminal assistant over the same Codex app-server bridge,
-start with:
+For a terminal assistant over the Codex app-server bridge:
 
 ```bash
 tunnel-client codex assistant "Summarize the current tunnel setup."
 ```
 
-If you want to inspect the embedded bundle before installing it:
+To inspect or install an exported bundle:
 
 ```bash
 tunnel-client codex plugin export --dir /tmp/tunnel-mcp
-```
-
-Install that exported bundle from the export directory itself:
-
-```bash
 cd /tmp/tunnel-mcp
 sh scripts/install_plugin.sh --tunnel-client-bin /path/to/tunnel-client
 ```
 
-Windows PowerShell:
+Windows PowerShell from an exported bundle root:
 
 ```powershell
 Set-Location C:\tmp\tunnel-mcp
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-Plugin.ps1 --tunnel-client-bin C:\path\to\tunnel-client.exe
 ```
 
-If you do not already have a `tunnel-client` binary, use one of these
-public-safe setup paths first:
+If the binary is missing, use the public repo or latest release first:
 
-- public repo: `https://github.com/openai/tunnel-client`
-- latest releases: `https://github.com/openai/tunnel-client/releases/latest`
+- `https://github.com/openai/tunnel-client`
+- `https://github.com/openai/tunnel-client/releases/latest`
 
-Build from source from the public repo:
+Source build:
 
 ```bash
 git clone https://github.com/openai/tunnel-client.git
@@ -74,51 +71,28 @@ cd tunnel-client
 go build -o bin/tunnel-client.exe ./cmd/client
 ```
 
-After you have a binary, either set `TUNNEL_CLIENT_BIN` to the full path or
-reinstall the plugin with `--tunnel-client-bin /path/to/tunnel-client`.
-The routed plugin commands do not auto-download, auto-clone, or auto-run remote
-`tunnel-client` binaries by themselves.
+After a binary exists, either set `TUNNEL_CLIENT_BIN` to its full path or pass
+`--tunnel-client-bin /path/to/tunnel-client`. The routed plugin commands do not
+auto-download, auto-clone, or auto-run remote `tunnel-client` binaries by
+themselves.
 
-If you are installing from a source checkout instead, use the local installer in
-this plugin directory.
-
-Install this directory as a local Codex plugin from either this repository root
-or a standalone `tunnel-client` checkout.
-
-Prerequisites:
-
-- macOS/Linux shell or Windows PowerShell
-- a `tunnel-client` binary available via `--tunnel-client-bin`, `TUNNEL_CLIENT_BIN`, adjacent build outputs, or `PATH`
-- a Codex config directory, normally `~/.codex`
-
-From a `tunnel-client` module root:
+Source-checkout fallback installers:
 
 ```bash
 ./plugins/tunnel-mcp/scripts/install_plugin.sh --tunnel-client-bin /path/to/tunnel-client
 ```
 
-From Windows PowerShell in a `tunnel-client` module root:
-
 ```powershell
 .\plugins\tunnel-mcp\scripts\Install-Plugin.ps1 --tunnel-client-bin C:\path\to\tunnel-client.exe
 ```
 
-To install into a non-default Codex config directory, add `--codex-home /path/to/codex-home`.
-The wrapper scripts locate the requested `tunnel-client` binary and delegate to
-`tunnel-client codex plugin install`, so the installed bundle matches the
-selected binary. When possible the binary install path also persists a matching
-`.tunnel-client-bin` hint into the installed plugin bundle so Codex can use the
-plugin from an empty working directory without separately setting
-`TUNNEL_CLIENT_BIN`.
+To install into a non-default Codex config directory, add
+`--codex-home /path/to/codex-home`. The wrappers delegate to
+`tunnel-client codex plugin install` and, when possible, persist a matching
+`.tunnel-client-bin` hint into the installed bundle so Codex can use the plugin
+from an empty working directory.
 
-The installer should print output like:
-
-```text
-Installed tunnel-mcp into /Users/you/.codex/plugins/cache/debug/tunnel-mcp/local
-Updated Codex config /Users/you/.codex/config.toml
-```
-
-Verify the install:
+Verify install or upgrade:
 
 ```bash
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
@@ -129,128 +103,35 @@ tunnel-client codex status --json
 tunnel-client codex diagnose --json
 ```
 
-If the plugin is installed on disk but does not appear in the current Codex
-session, start a new Codex session so the plugin and skill inventory is loaded.
-If plugins are disabled globally, add this to `config.toml`:
+If the plugin is installed on disk but missing from the current Codex session,
+start a new Codex session so plugin and skill inventory reloads. If plugins are
+disabled globally, add:
 
 ```toml
 [features]
 plugins = true
 ```
 
-The manifest lives at `.codex-plugin/plugin.json`, and the routing skill lives
-under `skills/`. The installed plugin runtime is a thin shell router on
-macOS/Linux plus Windows-native launcher scripts. It invokes the native
-`tunnel-client` executable directly and does not implement tunnel protocol
-logic itself.
+## Upgrade And Uninstall
 
-Runtime prerequisites:
+Upgrade by rerunning the same install command against the newer plugin source.
+The installer replaces only
+`$CODEX_HOME/plugins/cache/debug/tunnel-mcp/local` and keeps runtime state under
+`TUNNEL_CLIENT_STATE_DIR`, the platform state directory, or reused legacy
+`CODEX_HOME` / `~/.codex/tunnel-mcp` roots.
 
-- a `tunnel-client` binary discoverable in this order:
-  `--tunnel-client-bin`, `TUNNEL_CLIENT_BIN`, an installed bundle hint,
-  then adjacent source/build outputs. `PATH` candidates are reported in
-  diagnostics but are not executed unless explicitly selected with
-  `TUNNEL_CLIENT_BIN` or `--tunnel-client-bin`.
-- once the plugin is installed, prefer the installed router and persisted
-  `.tunnel-client-bin` hint over an ambient `tunnel-client` on `PATH`
-- executable naming:
-  - macOS/Linux: `tunnel-client`
-  - Windows: `tunnel-client.exe`
-- the public install path does not require Python
-- cross-platform router entrypoints:
-  - macOS/Linux: `scripts/tunnel_mcp`
-  - Windows: `scripts\\tunnel_mcp.cmd` or `powershell -File scripts\\tunnel_mcp.ps1`
-
-## Upgrade
-
-Upgrade the plugin by rerunning the same install command with the newer plugin
-source:
-
-```bash
-./plugins/tunnel-mcp/scripts/install_plugin.sh --tunnel-client-bin /path/to/tunnel-client
-```
-
-Windows PowerShell:
-
-```powershell
-.\plugins\tunnel-mcp\scripts\Install-Plugin.ps1 --tunnel-client-bin C:\path\to\tunnel-client.exe
-```
-
-The installer replaces the cached plugin copy at
-`$CODEX_HOME/plugins/cache/debug/tunnel-mcp/local` and keeps
-`[plugins."tunnel-mcp@debug"] enabled = true` in `config.toml`. Local runtime
-state is stored separately under `TUNNEL_CLIENT_STATE_DIR` when set, otherwise
-the platform state directory such as `$XDG_STATE_HOME/tunnel-client` or
-`~/.local/state/tunnel-client`. Existing legacy `CODEX_HOME/tunnel-mcp` /
-`~/.codex/tunnel-mcp` state is reused when it already exists, so aliases,
-admin profiles, process history, logs, and generated native `tunnel-client`
-profiles are not rewritten by the plugin cache upgrade.
-
-After upgrading, start a new Codex session and rerun the install verification
-commands above so Codex reloads the updated plugin and skill inventory.
-
-## Uninstall
-
-If the plugin was installed from the `tunnel-client` binary, prefer the
-matching binary-owned uninstall path:
+Prefer binary-owned uninstall:
 
 ```bash
 tunnel-client codex plugin uninstall
 ```
 
-That removes the cached plugin bundle plus the `tunnel-mcp@debug` enablement
-section from `config.toml` without touching unrelated Codex plugins. If you
-want a clean reinstall, rerun:
+That removes the cached plugin bundle plus `tunnel-mcp@debug` enablement from
+`config.toml` without touching unrelated Codex plugins.
 
-```bash
-tunnel-client codex plugin uninstall
-tunnel-client codex plugin install
-```
+## Runtime Quick Start
 
-Optional:
-
-- `tmux` for tmux-managed background runtimes. When `tmux` is unavailable, the
-  plugin starts `tunnel-client run --profile-dir <dir> --profile <name>`
-  directly as a detached background process and records its PID and log path in
-  local state.
-
-## Environment
-
-- Required Platform permissions:
-  - Runtime-only users need Tunnels **Read** + **Use** on the target tunnel.
-  - Remote tunnel CRUD users need Tunnels **Read** + **Manage** plus an admin
-    API key.
-  - Users who create admin keys need Platform admin-key permission separately.
-  - ChatGPT connector admins need Tunnels **Read** + **Use** and the tunnel
-    must include the target workspace ID to appear in the connector tunnel
-    picker.
-- `TUNNEL_CLIENT_BIN` overrides the `tunnel-client` binary path.
-- `CONTROL_PLANE_BASE_URL` overrides the tunnel control-plane host root. The
-  default is `https://api.openai.com`.
-- `TUNNEL_MCP_ADMIN_PROFILE` selects the admin profile name used for
-  `tunnel-client admin tunnels` commands. The default profile is `default`.
-- `OPENAI_ADMIN_KEY` is referenced by the default admin profile as
-  `env:OPENAI_ADMIN_KEY`.
-- `TUNNEL_MCP_ADMIN_KEY` or `--admin-key env:VARNAME` / `--admin-key
-  file:/path/to/key` stores a different admin key reference in the selected
-  admin profile. Literal admin keys are rejected.
-- `CONTROL_PLANE_API_KEY` supplies the runtime key consumed by generated native
-  config files. Generated configs store `env:CONTROL_PLANE_API_KEY`, not the
-  literal key.
-- `TUNNEL_MCP_RUNTIME_API_KEY` or `--runtime-api-key env:VARNAME` /
-  `--runtime-api-key file:/path/to/key` changes the runtime key reference stored
-  in generated native configs. Literal runtime keys are rejected.
-- `TUNNEL_CLIENT_PROFILE_DIR` overrides where generated native tunnel-client
-  profiles are written. When unset, the plugin follows tunnel-client defaults:
-  `$XDG_CONFIG_HOME/tunnel-client`, then `~/.config/tunnel-client`.
-- `TUNNEL_CLIENT_STATE_DIR` overrides the native local runtime/admin-profile
-  state root. When unset, `tunnel-client` uses the platform state directory and
-  falls back to legacy `CODEX_HOME` / `~/.codex/tunnel-mcp` state when it
-  already exists.
-
-## Native Commands
-
-The public native command tree is:
+Native command surface:
 
 ```bash
 tunnel-client runtimes create ...
@@ -265,23 +146,7 @@ tunnel-client admin-profiles list
 tunnel-client admin-profiles set <name> --admin-key env:OPENAI_ADMIN_KEY
 ```
 
-The plugin entrypoint `scripts/tunnel_mcp ...` remains available inside Codex,
-prints its own thin-router help, and forwards to the native commands above
-while preserving JSON output for the plugin contract.
-
-## Runtime Examples
-
-Create or reuse a remote tunnel:
-
-```bash
-tunnel-client runtimes create \
-  --alias awesome-mcp \
-  --name "Awesome MCP" \
-  --admin-profile default \
-  --organization-id org_123
-```
-
-Create or reuse a tunnel with a separate admin profile and admin key reference:
+Common flows:
 
 ```bash
 tunnel-client admin-profiles set sandbox \
@@ -290,108 +155,68 @@ tunnel-client admin-profiles set sandbox \
 
 tunnel-client runtimes create \
   --alias awesome-mcp \
+  --name "Awesome MCP" \
   --admin-profile sandbox \
   --organization-id org_123
-```
 
-Connect a local HTTP MCP server:
-
-```bash
 tunnel-client runtimes connect \
   --alias awesome-mcp \
-  --profile sample_mcp_with_dcr \
   --admin-profile sandbox \
   --organization-id org_123 \
   --mcp-server-url http://127.0.0.1:3001/mcp
-```
 
-Connect a local stdio MCP server:
-
-```bash
-tunnel-client runtimes connect \
-  --alias awesome-mcp \
-  --organization-id org_123 \
-  --mcp-command "python /path/to/server.py"
-```
-
-Attach to an existing tunnel id without admin CRUD and run it with a specific
-runtime key reference:
-
-```bash
 tunnel-client runtimes connect \
   --alias existing-mcp \
   --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
   --runtime-api-key env:TUNNEL_RUNTIME_KEY \
   --mcp-command "python /path/to/server.py"
-```
 
-Inspect local and remote state:
-
-```bash
 tunnel-client runtimes status awesome-mcp
 tunnel-client runtimes stop awesome-mcp
-# or:
-tunnel-client runtimes disconnect awesome-mcp
-tunnel-client runtimes list --organization-id org_123
+tunnel-client runtimes rm awesome-mcp
 ```
 
-`status` always reports local runtime state first. When admin auth is missing or
-the remote tunnel no longer exists, the output still includes local profile,
-health, explicit `ui_url`, tmux/process, Codex bridge, repair actions, and log
-diagnostics. `connect` also reuses a locally known
-tunnel id when remote admin lookup fails. `connect` success now means a usable
-local runtime exists: the managed process or tmux session is still alive, the
-health URL file is populated, and `/healthz` is reachable. The payload exposes
-`launched`, `started`, `healthy`, and `ready` so agents can distinguish "launch
-command issued" from "healthy tunnel runtime exists". If the runtime dies
-immediately or never becomes healthy, `connect` returns a non-zero JSON payload
-instead of claiming `started=true`.
-
-`status` reconciles stale alias state with live local admin UIs. If the saved
-health URL points at a dead port but another local admin UI reports the same
-control-plane tunnel id, status reports both the stale recorded URL and the live
-admin URL. It also surfaces `control_plane_poll_health` separately from local
-`/healthz` and `/readyz`, because local readiness can be green while
-control-plane polling fails through a dead proxy.
-
-Use `tunnel-client runtimes cleanup` to inventory local aliases as
-`live_runtime`, `valid_profile`, `missing_profile`, or `stale_alias`.
-`tunnel-client runtimes cleanup --apply` only removes entries classified as
-`stale_alias`; missing profiles are left for reconnect or manual review.
+`status` reports local runtime state first and also surfaces `ui_url`, logs,
+tmux/process state, stale recorded URLs, live admin URLs, `/healthz`,
+`/readyz`, and `control_plane_poll_health`. `connect` success means a usable
+local runtime exists: the managed process or tmux session is alive, the health
+URL file is populated, and `/healthz` is reachable.
 
 `stop` and `disconnect` are local runtime controls only. They stop the managed
-tmux runtime or detached process, clear the local health URL file, and leave the
-remote tunnel itself intact.
+tmux runtime or detached process, clear the local health URL file, and leave
+the remote tunnel intact. `runtimes cleanup --apply` removes only
+`stale_alias` entries; `missing_profile` entries are left for reconnect or
+manual review.
 
-Auth split to keep straight:
+## Auth, State, And Environment
 
-- runtime key: `CONTROL_PLANE_API_KEY` / `OPENAI_API_KEY`
-- runtime-key principal: needs Tunnels **Read** + **Use** on the target tunnel
-- read-only lookup: `tunnel-client admin tunnels get <tunnel_id>` can use the
-  runtime key
-- admin CRUD: `list`, `create`, `update`, and `delete` still require
-  `OPENAI_ADMIN_KEY` or `--admin-key` plus Tunnels **Manage**
+Required Platform permissions:
 
-## State Files
+- Runtime-only users need Tunnels **Read** + **Use** on the target tunnel.
+- Remote tunnel CRUD users need Tunnels **Read** + **Manage** plus an admin key.
+- ChatGPT connector admins need Tunnels **Read** + **Use**, and the tunnel must
+  include the target workspace ID to appear in the connector picker.
 
-The plugin writes JSON syntax to `.yaml` files so the files stay dependency-free
-and human-inspectable:
+Key split:
 
-- `aliases.yaml`
-- `admin_profiles.yaml`
-- `processes.yaml`
-- `history.md`
-- `health/<alias>.url`
-- `logs/<alias>.log` when the fallback detached-process launcher is used
+- Runtime key: `CONTROL_PLANE_API_KEY`, `OPENAI_API_KEY`, or
+  `--runtime-api-key env:NAME|file:/path`.
+- Admin CRUD key: `OPENAI_ADMIN_KEY`, `TUNNEL_MCP_ADMIN_KEY`, or
+  `--admin-key env:NAME|file:/path`.
+- Literal API keys, bearer tokens, cookies, and inline `sk-` style secrets are
+  rejected and must not be written into plugin state or generated configs.
 
-Generated runtime profiles are written to the native tunnel-client profile
-directory as `<profile>.yaml`, use `tunnel-client run --profile <profile>`, and
-include `control_plane`, `mcp`, `health`, `admin_ui`, and `log` sections. They
-do not persist admin keys, bearer tokens, cookies, or literal `sk-` style API
-keys. Alias and process records include `profile_name` and `profile_path`;
-`config_path` is kept as a compatibility alias for older local state consumers.
+Main environment knobs:
 
-`admin_profiles.yaml` stores admin profile names, control-plane base URLs, and
-admin key references such as `env:OPENAI_ADMIN_KEY` or `file:/path/to/key`. Alias
-records include `admin_profile` so each locally known tunnel records which admin
-profile was used to create or attach to it.
+- `TUNNEL_CLIENT_BIN`: selected `tunnel-client` binary path.
+- `CONTROL_PLANE_BASE_URL`: tunnel control-plane host root; default
+  `https://api.openai.com`.
+- `TUNNEL_MCP_ADMIN_PROFILE`: admin profile name; default `default`.
+- `TUNNEL_CLIENT_PROFILE_DIR`: generated native profile directory.
+- `TUNNEL_CLIENT_STATE_DIR`: native local runtime/admin-profile state root.
+
+State files include `aliases.yaml`, `admin_profiles.yaml`, `processes.yaml`,
+`history.md`, `health/<alias>.url`, and `logs/<alias>.log` when the fallback
+detached-process launcher is used. Generated runtime profiles are native
+`tunnel-client` profiles and include control plane, MCP, health, admin UI, and
+log sections without persisting literal secrets.
