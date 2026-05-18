@@ -20,14 +20,17 @@ import (
 )
 
 type recordingBus struct {
-	mu      sync.Mutex
-	bundles []hostbus.URLBundle
+	mu        sync.Mutex
+	notify    chan struct{}
+	notifyOne sync.Once
+	bundles   []hostbus.URLBundle
 }
 
 func (b *recordingBus) Publish(ctx context.Context, bundle hostbus.URLBundle) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.bundles = append(b.bundles, bundle)
+	b.mu.Unlock()
+	b.notifyOne.Do(func() { close(b.notify) })
 	return nil
 }
 
@@ -74,7 +77,7 @@ func TestOAuthDiscoveryPublishesPRMDBundle(t *testing.T) {
 		t.Fatalf("parse url: %v", err)
 	}
 
-	bus := &recordingBus{}
+	bus := &recordingBus{notify: make(chan struct{})}
 	app := fx.New(
 		fx.Provide(
 			func() *config.MCPConfig {
@@ -100,15 +103,10 @@ func TestOAuthDiscoveryPublishesPRMDBundle(t *testing.T) {
 		_ = app.Stop(context.Background())
 	}()
 
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		bus.mu.Lock()
-		count := len(bus.bundles)
-		bus.mu.Unlock()
-		if count > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-bus.notify:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("expected published OAuth discovery bundle")
 	}
 
 	bus.mu.Lock()
