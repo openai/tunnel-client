@@ -9,7 +9,7 @@
 - **"tunnel ID is required"**
   - Set `CONTROL_PLANE_TUNNEL_ID` or `--control-plane.tunnel-id=...`.
 
-- **"invalid tunnel ID ... must match tunnel_<32 lowercase letters or digits>"**
+- **"invalid tunnel ID ... must match tunnel_<32 lowercase hexadecimal characters>"**
   - Use a tunnel ID shaped like `tunnel_0123456789abcdef0123456789abcdef`.
 
 - **"MCP server URL is required"**

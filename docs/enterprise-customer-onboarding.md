@@ -1,4 +1,4 @@
-# Enterprise Customer Onboarding: MCP Tunnels
+# Secure MCP Tunnel: Enterprise Customer Onboarding
 
 This document is designed to be shared with an enterprise customer. It explains
 how to:
@@ -53,7 +53,7 @@ For a deeper explanation and more diagrams, see
     the tunnel ID field
   - tunnel-client control plane: `/v1/tunnel/{tunnel_id}/poll` and
     `/v1/tunnel/{tunnel_id}/response`
-  - Format: `tunnel_` followed by 32 lowercase letters or digits.
+  - Format: `tunnel_` followed by 32 lowercase hexadecimal characters.
 - **OpenAI-hosted MCP tunnel endpoint**: The OpenAI-managed virtual MCP server
   endpoint that ChatGPT targets for the selected `tunnel_id`.
 - **Tunnel Client**: A customer-run process that:
@@ -83,7 +83,7 @@ For a deeper explanation and more diagrams, see
 
 ## What OpenAI provides to you
 
-OpenAI will provide:
+OpenAI will provide, or your rollout will let you create:
 
 - **OpenAI MCP tunnel base URL** (the base host to use in the connector UI)
 - **Tunnel control-plane base URL** for the tunnel client (defaults to
@@ -100,10 +100,25 @@ You will provide:
 
 ## Step 1 - Create (or obtain) a tunnel ID
 
-Depending on your rollout, OpenAI may either:
+Depending on your rollout, either:
 
 1. **Create a tunnel for you** and provide the resulting `tunnel_id`, or
-2. Provide access to the **Tunnel Management API** so you can create it yourself.
+2. Let you create one yourself from Platform tunnel settings or the **Tunnel Management API**.
+
+Use these exact setup pages when you need to create or inspect the handoff values:
+
+- Tunnels management and supported tunnel-client download:
+  `https://platform.openai.com/settings/organization/tunnels`
+- Organization roles:
+  `https://platform.openai.com/settings/organization/people/roles`
+- Organization groups:
+  `https://platform.openai.com/settings/organization/people/groups`
+- Runtime API keys:
+  `https://platform.openai.com/settings/organization/api-keys`
+- Admin API keys:
+  `https://platform.openai.com/settings/organization/admin-keys`
+- ChatGPT connector settings:
+  `https://chatgpt.com/#settings/Connectors`
 
 ### Prerequisite: permission to manage or use tunnels
 
@@ -261,6 +276,31 @@ You can run the tunnel client as a:
 - **Docker container**
 - **Kubernetes sidecar** (same Pod as MCP server) or **dedicated Deployment**
 
+Open Platform tunnel settings, then use the download link there or the latest
+public tunnel-client release from:
+
+`https://github.com/openai/tunnel-client/releases/latest`
+
+If you already have a binary, start with the supported CLI path before hand-editing
+configuration:
+
+```bash
+tunnel-client help quickstart
+export CONTROL_PLANE_API_KEY="sk-..."
+tunnel-client init \
+  --sample sample_mcp_stdio_local \
+  --profile local-stdio \
+  --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
+  --mcp-command "python /path/to/server.py"
+tunnel-client doctor --profile local-stdio --explain
+tunnel-client run --profile local-stdio
+```
+
+For an HTTP MCP server, switch to
+`--sample sample_mcp_remote_no_auth` and use
+`--mcp-server-url https://mcp.internal.example.com/mcp` instead of
+`--mcp-command`.
+
 ### Network requirements
 
 From the tunnel client host/network:
@@ -275,7 +315,8 @@ You must configure:
 
 - `CONTROL_PLANE_API_KEY`: tunnel client auth (provided by OpenAI)
 - `CONTROL_PLANE_TUNNEL_ID`: your `tunnel_id` from Step 1
-- `MCP_SERVER_URL`: your internal MCP endpoint (reachable from the tunnel client)
+- `MCP_SERVER_URL` or `MCP_COMMAND`: your internal MCP endpoint or local stdio
+  command, reachable from the tunnel client
 
 Recommended configuration:
 

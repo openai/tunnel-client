@@ -26,6 +26,7 @@ different docs or a Slack thread first.
     <ul>
       <li>A private or local MCP server that tunnel-client can reach.</li>
       <li>A <code>tunnel_id</code> from OpenAI Platform Tunnels management.</li>
+      <li>A supported <code>tunnel-client</code> binary from Platform Tunnels management or the latest public release.</li>
       <li>A runtime API key for the long-lived daemon.</li>
       <li>An admin key only if you will create, list, update, or delete tunnels from the CLI.</li>
     </ul>
@@ -54,7 +55,8 @@ tunnel-client help quickstart
 
 Use these exact setup pages when you need to create or inspect values:
 
-- Tunnels management: `https://platform.openai.com/settings/organization/tunnels`
+- Tunnels management and supported tunnel-client download: `https://platform.openai.com/settings/organization/tunnels`
+- Latest public tunnel-client release: `https://github.com/openai/tunnel-client/releases/latest`
 - Organization roles: `https://platform.openai.com/settings/organization/people/roles`
 - Organization groups: `https://platform.openai.com/settings/organization/people/groups`
 - Runtime API keys: `https://platform.openai.com/settings/organization/api-keys`
@@ -163,10 +165,10 @@ export CONTROL_PLANE_API_KEY="sk-..."
 tunnel-client run \
   --embedded-mcp-stub \
   --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \
-  --health.listen-addr 127.0.0.1:18080 \
+  --health.listen-addr 127.0.0.1:0 \
   --health.url-file /tmp/tunnel-client-health.url
-curl -fsS http://127.0.0.1:18080/readyz
-open http://127.0.0.1:18080/ui
+curl -fsS "$(cat /tmp/tunnel-client-health.url)/readyz"
+open "$(cat /tmp/tunnel-client-health.url)/ui"
 ```
 
 If you want a named profile instead of the one-command demo path:

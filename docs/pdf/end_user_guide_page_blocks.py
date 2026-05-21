@@ -29,6 +29,7 @@ PAGE_BLOCKS = [
                 "bullets": [
                     "A private or local MCP server that tunnel-client can reach.",
                     "A tunnel_id from OpenAI Platform Tunnels management.",
+                    "A supported tunnel-client binary from Platform Tunnels management or the latest public release.",
                     "A runtime API key for the long-lived daemon.",
                     "An admin key only if you will create, list, update, or delete tunnels from the CLI.",
                 ],
@@ -65,7 +66,14 @@ PAGE_BLOCKS = [
             "Use these exact setup pages when you need to create or inspect values.",
         ],
         "link_list": [
-            ("Tunnels management", "https://platform.openai.com/settings/organization/tunnels"),
+            (
+                "Tunnels management and supported tunnel-client download",
+                "https://platform.openai.com/settings/organization/tunnels",
+            ),
+            (
+                "Latest public tunnel-client release",
+                "https://github.com/openai/tunnel-client/releases/latest",
+            ),
             (
                 "Organization roles",
                 "https://platform.openai.com/settings/organization/people/roles",
@@ -171,7 +179,7 @@ PAGE_BLOCKS = [
         ],
         "code_blocks": [
             "tunnel-client help quickstart\ntunnel-client help doctor\ntunnel-client help plugin",
-            'export CONTROL_PLANE_API_KEY="sk-..."\ntunnel-client run \\\n  --embedded-mcp-stub \\\n  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \\\n  --health.listen-addr 127.0.0.1:18080 \\\n  --health.url-file /tmp/tunnel-client-health.url\ncurl -fsS http://127.0.0.1:18080/readyz\nopen http://127.0.0.1:18080/ui',
+            'export CONTROL_PLANE_API_KEY="sk-..."\ntunnel-client run \\\n  --embedded-mcp-stub \\\n  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \\\n  --health.listen-addr 127.0.0.1:0 \\\n  --health.url-file /tmp/tunnel-client-health.url\ncurl -fsS "$(cat /tmp/tunnel-client-health.url)/readyz"\nopen "$(cat /tmp/tunnel-client-health.url)/ui"',
         ],
     },
     {
