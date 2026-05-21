@@ -198,7 +198,7 @@ you assume the daemon is wrong.
 <img class="section-divider" src="images/generated/divider-ui-v1.svg" alt="Abstract divider showing a local dashboard, charts, and runtime status cards." />
 
 The local UI is where you confirm the runtime is really alive, not just launched. The screenshots
-below were captured from a live local run on April 27, 2026.
+below were captured from live local runs, with the Overview tab refreshed on May 21, 2026.
 
 <div class="figure-grid quad">
   <figure class="shot">

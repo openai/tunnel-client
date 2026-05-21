@@ -206,7 +206,7 @@ PAGE_BLOCKS = [
         "title": "Check the local UI",
         "paragraphs": [
             "The local UI is where you confirm the runtime is really alive, not just launched.",
-            "These screenshots were captured from a live local run on April 27, 2026.",
+            "These screenshots were captured from live local runs, with the Overview tab refreshed on May 21, 2026.",
         ],
         "image_row": [
             {
