@@ -198,7 +198,6 @@ func TestHarpoonChannelInitializeThenToolsList(t *testing.T) {
 				toolsListCommand,
 			),
 		),
-		harnesspkg.WithScenarioTimeout(10*time.Second),
 	)
 
 	h.ExecuteScenarious(t)

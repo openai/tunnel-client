@@ -34,6 +34,30 @@ func TestProbeStateWaitTimeout(t *testing.T) {
 	require.NoError(t, gotErr)
 }
 
+func TestProbeStateWaitUntilDone(t *testing.T) {
+	t.Parallel()
+
+	state := NewProbeState()
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- state.WaitUntilDone(t.Context())
+	}()
+
+	state.Set(nil)
+
+	require.NoError(t, <-waitDone)
+}
+
+func TestProbeStateWaitUntilDoneReturnsContextError(t *testing.T) {
+	t.Parallel()
+
+	state := NewProbeState()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.ErrorIs(t, state.WaitUntilDone(ctx), context.Canceled)
+}
+
 func TestIsAuthRequiredProbeError(t *testing.T) {
 	t.Parallel()
 

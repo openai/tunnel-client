@@ -114,7 +114,6 @@ func TestHarnessHandlesOAuthDiscoveryCommandWithWWWAuthenticateProbe(t *testing.
 		harnesspkg.WithClientConfig(func(cfg *config.Config) {
 			cfg.Logging.Level = slog.LevelDebug
 		}),
-		harnesspkg.WithScenarioTimeout(5*time.Second),
 		harnesspkg.WithControlPlaneOptions(
 			mocktunnelservice.WithCommandResponses(oauthCommand),
 		),
@@ -422,7 +421,6 @@ func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T
 		harnesspkg.WithPreserveClientURLs(),
 		harnesspkg.WithClientConfig(func(cfg *config.Config) {
 			cfg.Logging.Level = slog.LevelDebug
-			cfg.ControlPlane.PollTimeout = time.Second
 			cfg.MCP.TransportKind = config.MCPTransportHTTPStreamable
 			cfg.MCP.ServerURL = mustParseURL(t, customerBase+"/mcp")
 			cfg.MCP.HTTPProxy = mustParseURL(t, proxy.URL())
@@ -473,7 +471,6 @@ func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T
 				close(harpoonOAuthTargetsReady)
 			}()
 		}),
-		harnesspkg.WithScenarioTimeout(10*time.Second),
 	)
 
 	h.ExecuteScenarious(t)

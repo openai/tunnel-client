@@ -132,7 +132,6 @@ func TestMCPStaticHeadersE2E(t *testing.T) {
 
 		h := harnesspkg.NewHarness(
 			t,
-			harnesspkg.WithScenarioTimeout(5*time.Second),
 			harnesspkg.WithClientConfig(func(cfg *config.Config) {
 				cfg.Logging.Level = slog.LevelDebug
 				cfg.MCP.ExtraHeaders = map[string]string{
@@ -149,6 +148,11 @@ func TestMCPStaticHeadersE2E(t *testing.T) {
 				mocktunnelservice.WithInitializationPhaseCommands(),
 				mocktunnelservice.WithCommandResponses(oauthCommand, toolCommand),
 			),
+			harnesspkg.WithBeforeClientStop(func(h *harnesspkg.Harness) {
+				if err := h.WaitForMCPProbe(t.Context()); err != nil {
+					t.Fatalf("wait for MCP startup probe: %v", err)
+				}
+			}),
 			harnesspkg.WithMCPOptions(
 				mockmcpserver.WithWWWAuthenticateProbe(),
 				mockmcpserver.WithProtectedResourceMetadata(oauthex.ProtectedResourceMetadata{

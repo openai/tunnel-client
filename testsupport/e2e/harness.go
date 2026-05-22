@@ -19,6 +19,7 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/app"
 	"go.openai.org/api/tunnel-client/pkg/config"
 	"go.openai.org/api/tunnel-client/pkg/harpoon"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 	"go.openai.org/api/tunnel-client/pkg/types"
 	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
@@ -39,6 +40,7 @@ type harnessConfig struct {
 	preserveClientURLs  bool
 	beforeClientStart   func(*Harness)
 	afterClientStart    func(*Harness)
+	beforeClientStop    func(*Harness)
 }
 
 // HarnessOption customizes the E2E harness configuration.
@@ -100,6 +102,13 @@ func WithAfterClientStart(fn func(*Harness)) HarnessOption {
 	}
 }
 
+// WithBeforeClientStop registers a hook that runs after scripted commands drain and before tunnel-client stops.
+func WithBeforeClientStop(fn func(*Harness)) HarnessOption {
+	return func(cfg *harnessConfig) {
+		cfg.beforeClientStop = fn
+	}
+}
+
 // WithScenarioTimeout overrides the time ExecuteScenarious waits for the
 // scripted tunnel commands to drain before failing the test.
 func WithScenarioTimeout(timeout time.Duration) HarnessOption {
@@ -145,6 +154,7 @@ type Harness struct {
 	ControlPlane    *mocktunnelservice.MockTunnelService
 	MCP             *mockmcpserver.MockMCPServer
 	HarpoonRegistry *harpoon.Registry
+	MCPProbeState   *mcpclient.ProbeState
 	cfg             *config.Config
 	app             *fxtest.App
 	waitTimeout     time.Duration
@@ -155,6 +165,7 @@ type Harness struct {
 	preserveURLs    bool
 	beforeStart     func(*Harness)
 	afterStart      func(*Harness)
+	beforeStop      func(*Harness)
 	logWriter       io.Writer
 	logBuffer       *bytes.Buffer
 }
@@ -166,7 +177,6 @@ func NewHarness(t testing.TB, opts ...HarnessOption) *Harness {
 	cfg := harnessConfig{
 		apiKey:           "test-api-key",
 		tunnelID:         types.TunnelID("tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-		scenarioTimeout:  4 * time.Second,
 		mcpTransportKind: config.MCPTransportHTTPStreamable,
 	}
 	for _, opt := range opts {
@@ -188,7 +198,6 @@ func NewHarness(t testing.TB, opts ...HarnessOption) *Harness {
 			TunnelID:            cfg.tunnelID,
 			APIKey:              cfg.apiKey,
 			MaxInFlightRequests: 10,
-			PollTimeout:         100 * time.Millisecond,
 			PollBackoffMin:      50 * time.Millisecond,
 			PollBackoffMax:      300 * time.Millisecond,
 		},
@@ -230,6 +239,7 @@ func NewHarness(t testing.TB, opts ...HarnessOption) *Harness {
 		preserveURLs: cfg.preserveClientURLs,
 		beforeStart:  cfg.beforeClientStart,
 		afterStart:   cfg.afterClientStart,
+		beforeStop:   cfg.beforeClientStop,
 		logWriter:    logWriter,
 		logBuffer:    &logBuf,
 	}
@@ -252,15 +262,14 @@ func (h *Harness) ExecuteScenarious(t testing.TB) {
 	if h.afterStart != nil {
 		h.afterStart(h)
 	}
-	timeout := h.waitTimeout
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := h.scenarioContext()
 	defer cancel()
 	if err := h.ControlPlane.WaitUntilIdle(ctx); err != nil {
 		h.dumpFailureState(t, err)
-		t.Fatalf("scenario did not complete before timeout: %v", err)
+		t.Fatalf("scenario did not complete: %v", err)
+	}
+	if h.beforeStop != nil {
+		h.beforeStop(h)
 	}
 }
 
@@ -280,16 +289,30 @@ func (h *Harness) ExecuteScenario(t testing.TB) error {
 	if h.afterStart != nil {
 		h.afterStart(h)
 	}
-	timeout := h.waitTimeout
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := h.scenarioContext()
 	defer cancel()
 	if err := h.ControlPlane.WaitUntilIdle(ctx); err != nil {
-		return fmt.Errorf("scenario did not complete before timeout: %w", err)
+		return fmt.Errorf("scenario did not complete: %w", err)
+	}
+	if h.beforeStop != nil {
+		h.beforeStop(h)
 	}
 	return nil
+}
+
+// WaitForMCPProbe blocks until the startup MCP probe records a result or ctx is canceled.
+func (h *Harness) WaitForMCPProbe(ctx context.Context) error {
+	if h == nil || h.MCPProbeState == nil {
+		return errors.New("mcp probe state not initialized")
+	}
+	return h.MCPProbeState.WaitUntilDone(ctx)
+}
+
+func (h *Harness) scenarioContext() (context.Context, context.CancelFunc) {
+	if h.waitTimeout <= 0 {
+		return context.Background(), func() {}
+	}
+	return context.WithTimeout(context.Background(), h.waitTimeout)
 }
 
 func (h *Harness) dumpFailureState(t testing.TB, cause error) {
@@ -415,7 +438,7 @@ func (h *Harness) startClient(t testing.TB) {
 	options := []fx.Option{
 		fx.Provide(func() io.Writer { return logWriter }),
 		fx.WithLogger(func(*slog.Logger) fxevent.Logger { return fxevent.NopLogger }),
-		fx.Populate(&h.HarpoonRegistry),
+		fx.Populate(&h.HarpoonRegistry, &h.MCPProbeState),
 	}
 	if h.useHarpoon {
 		options = append(options, fx.Provide(fx.Annotate(

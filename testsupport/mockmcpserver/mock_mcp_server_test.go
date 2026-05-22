@@ -3,7 +3,9 @@ package mockmcpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -288,6 +290,33 @@ func TestMockMCPServerWWWAuthenticateProbe(t *testing.T) {
 	}
 }
 
+func TestMockMCPServerIgnoresCanceledPostBodyRead(t *testing.T) {
+	t.Parallel()
+
+	server := NewMockMCPServer()
+	server.Start(t)
+
+	server.mu.Lock()
+	var handler http.Handler
+	if server.httpServer != nil {
+		handler = server.httpServer.Config.Handler
+	}
+	server.mu.Unlock()
+	baseURL := server.BaseURL()
+	if handler == nil || baseURL == nil {
+		t.Fatal("mock MCP server did not expose an HTTP handler")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL.String(), unexpectedEOFReader{})
+	if err != nil {
+		t.Fatalf("build canceled POST request: %v", err)
+	}
+
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+}
+
 func TestMockMCPServerOAuthMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -456,6 +485,12 @@ func httpClientForServer(t testing.TB, server *MockMCPServer) *http.Client {
 type roundTripperWithBearer struct {
 	token string
 	base  http.RoundTripper
+}
+
+type unexpectedEOFReader struct{}
+
+func (unexpectedEOFReader) Read([]byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
 }
 
 func (r roundTripperWithBearer) RoundTrip(req *http.Request) (*http.Response, error) {

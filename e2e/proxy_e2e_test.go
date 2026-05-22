@@ -28,7 +28,6 @@ func TestProxyE2ESucceedsThroughProxy(t *testing.T) {
 		t,
 		[]harnesspkg.HarnessOption{
 			harnesspkg.WithPreserveClientURLs(),
-			harnesspkg.WithScenarioTimeout(10 * time.Second),
 			harnesspkg.WithClientConfig(func(cfg *config.Config) {
 				cfg.ControlPlane.BaseURL = mustParseURL(t, "http://"+controlPlaneHost)
 				cfg.ControlPlane.HTTPProxy = mustParseURL(t, proxy.URL())

@@ -1,6 +1,7 @@
 package mcpclient
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -63,6 +64,22 @@ func (p *ProbeState) Wait(timeout time.Duration) (time.Time, error, bool) {
 		return p.checkedAt, p.err, true
 	case <-timer.C:
 		return time.Time{}, nil, false
+	}
+}
+
+// WaitUntilDone blocks until the startup probe records a result or ctx is canceled.
+func (p *ProbeState) WaitUntilDone(ctx context.Context) error {
+	if p == nil {
+		return errors.New("mcp probe state is nil")
+	}
+	if ctx == nil {
+		return errors.New("mcp probe wait context is nil")
+	}
+	select {
+	case <-p.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

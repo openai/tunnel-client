@@ -263,7 +263,7 @@ func (m *MockMCPServer) Start(t testing.TB) {
 		if req.Method == http.MethodPost {
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
-				if m.closing.Load() {
+				if m.closing.Load() || req.Context().Err() != nil {
 					return
 				}
 				m.failf("mock MCP server read body: %v", err)
