@@ -25,6 +25,7 @@ type Target struct {
 	Tags            []string
 	InclusionReason string
 	BaseURL         *url.URL
+	UnixSocketPath  string
 }
 
 // Registry stores allowed targets keyed by label.
@@ -142,6 +143,7 @@ func (r *Registry) RegisterTarget(target Target) error {
 		Tags:            normalizeTags(target.Tags),
 		InclusionReason: strings.TrimSpace(target.InclusionReason),
 		BaseURL:         normalized,
+		UnixSocketPath:  strings.TrimSpace(target.UnixSocketPath),
 	}
 
 	r.mu.Lock()
@@ -281,6 +283,42 @@ func (r *Registry) AllowsURL(candidate *url.URL) bool {
 		}
 	}
 	return false
+}
+
+// TargetForURL returns the configured target whose URL exactly matches candidate.
+func (r *Registry) TargetForURL(candidate *url.URL) (Target, bool) {
+	if r == nil || candidate == nil {
+		return Target{}, false
+	}
+	if candidate.Scheme == "" || candidate.Host == "" {
+		return Target{}, false
+	}
+	if !r.allowPlaintext && !isHTTPS(candidate) {
+		return Target{}, false
+	}
+	if hasTraversal(candidate.Path) {
+		return Target{}, false
+	}
+	candidateKey, err := normalizedURLKey(candidate)
+	if err != nil {
+		return Target{}, false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, target := range r.targets {
+		if target.BaseURL == nil {
+			continue
+		}
+		targetKey, keyErr := normalizedURLKey(target.BaseURL)
+		if keyErr != nil {
+			continue
+		}
+		if candidateKey == targetKey {
+			return target, true
+		}
+	}
+	return Target{}, false
 }
 
 // ExplainBlockedRedirect classifies why a redirect target missed the allow list.

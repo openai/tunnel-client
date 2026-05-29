@@ -369,6 +369,7 @@ harpoon:
   targets:
     - label: auth
       url: file:`+harpoonTargetPath+`
+      unix_socket: env:YAML_HARPOON_SOCKET
       description: Auth server
   additional_transports:
     - http-streamable
@@ -383,6 +384,7 @@ proxy:
 		"YAML_CONTROL_PLANE_API_KEY":  "yaml-control-key",
 		"YAML_MCP_MAIN_URL":           "https://yaml-mcp.example/mcp",
 		"YAML_MCP_STATIC_HEADER":      "yaml-static-from-env",
+		"YAML_HARPOON_SOCKET":         "/tmp/yaml-harpoon.sock",
 	}))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
@@ -456,6 +458,9 @@ proxy:
 	}
 	if cfg.Harpoon.Targets[0].BaseURL == nil || cfg.Harpoon.Targets[0].BaseURL.String() != "https://auth.example" {
 		t.Fatalf("unexpected resolved harpoon target url: %v", cfg.Harpoon.Targets[0].BaseURL)
+	}
+	if cfg.Harpoon.Targets[0].UnixSocketPath != "/tmp/yaml-harpoon.sock" {
+		t.Fatalf("unexpected resolved harpoon target unix socket: %q", cfg.Harpoon.Targets[0].UnixSocketPath)
 	}
 	if !cfg.Harpoon.AdditionalTransportEnabled(HarpoonTransportHTTPStreamable) || !cfg.Harpoon.CapturePayloads {
 		t.Fatalf("unexpected harpoon config: %#v", cfg.Harpoon)
@@ -683,12 +688,13 @@ func TestLoadRejectsInvalidControlPlaneAPIKeyFlag(t *testing.T) {
 }
 
 func TestLoadParsesHarpoonTargetsFromFlags(t *testing.T) {
-	args := []string{"--harpoon.target", "label=auth,url=https://example.com,desc=Auth server"}
+	args := []string{"--harpoon.target", "label=auth,url=https://example.com,unix-socket=env:HARPOON_SOCKET,desc=Auth server"}
 	lookup := map[string]string{
 		"CONTROL_PLANE_TUNNEL_ID": envTunnelID,
 		"CONTROL_PLANE_API_KEY":   "control-key",
 		"LOG_FORMAT":              "struct-text",
 		"MCP_SERVER_URL":          "https://mcp.example",
+		"HARPOON_SOCKET":          "/tmp/harpoon.sock",
 	}
 
 	cfg, err := Load(args, func(key string) (string, bool) {
@@ -709,6 +715,9 @@ func TestLoadParsesHarpoonTargetsFromFlags(t *testing.T) {
 	}
 	if cfg.Harpoon.Targets[0].BaseURL == nil || cfg.Harpoon.Targets[0].BaseURL.String() != "https://example.com" {
 		t.Fatalf("expected harpoon target url https://example.com, got %v", cfg.Harpoon.Targets[0].BaseURL)
+	}
+	if cfg.Harpoon.Targets[0].UnixSocketPath != "/tmp/harpoon.sock" {
+		t.Fatalf("expected harpoon target unix socket /tmp/harpoon.sock, got %q", cfg.Harpoon.Targets[0].UnixSocketPath)
 	}
 }
 

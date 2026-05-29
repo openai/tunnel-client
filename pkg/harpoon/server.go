@@ -10,9 +10,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -65,6 +67,8 @@ type Server struct {
 	httpTransport http.RoundTripper
 	callBuffer    *CallBuffer
 	metrics       *serverMetrics
+	unixMu        sync.Mutex
+	unixBySocket  map[string]http.RoundTripper
 }
 
 type callTargetRequest struct {
@@ -386,7 +390,7 @@ func (s *Server) callTarget(ctx context.Context, params callTargetRequest) (*cal
 		)
 	}
 
-	client := &http.Client{Transport: s.httpTransport}
+	client := &http.Client{Transport: targetRoundTripper{server: s}}
 	client.CheckRedirect = s.redirectPolicy(label, maxRedirects, followRedirects)
 
 	resp, err := client.Do(req)
@@ -703,6 +707,43 @@ func (s *Server) normalizeRedirects(followRedirects *bool, maxRedirects *int) (i
 		return 0, false, fmt.Errorf("max_redirects must be less than or equal to %d", limit)
 	}
 	return *maxRedirects, true, nil
+}
+
+type targetRoundTripper struct {
+	server *Server
+}
+
+func (t targetRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	httpTransport, err := t.server.transportForURL(req.URL)
+	if err != nil {
+		return nil, err
+	}
+	return httpTransport.RoundTrip(req)
+}
+
+func (s *Server) transportForURL(targetURL *url.URL) (http.RoundTripper, error) {
+	target, ok := s.registry.TargetForURL(targetURL)
+	if !ok {
+		return nil, errors.New("harpoon: request url is not registered")
+	}
+	if target.UnixSocketPath == "" {
+		return s.httpTransport, nil
+	}
+
+	s.unixMu.Lock()
+	defer s.unixMu.Unlock()
+	if s.unixBySocket == nil {
+		s.unixBySocket = make(map[string]http.RoundTripper)
+	}
+	if httpTransport, ok := s.unixBySocket[target.UnixSocketPath]; ok {
+		return httpTransport, nil
+	}
+	httpTransport, err := transport.ApplyUnixSocketPath(s.httpTransport, target.UnixSocketPath)
+	if err != nil {
+		return nil, err
+	}
+	s.unixBySocket[target.UnixSocketPath] = httpTransport
+	return httpTransport, nil
 }
 
 func (s *Server) redirectPolicy(label string, maxRedirects int, followRedirects bool) func(*http.Request, []*http.Request) error {

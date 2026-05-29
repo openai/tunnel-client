@@ -127,6 +127,12 @@ func newHarpoonService(p harpoonParams) (harpoonOutputs, error) {
 			logger.Info("harpoon enabled", logFields...)
 			for _, target := range targets {
 				route := proxy.ResolveRoute(proxy.RouteKindHarpoon, target.Label, target.BaseURL, p.Config.HTTPProxy, p.Config.HTTPProxySource, os.LookupEnv)
+				if target.UnixSocketPath != "" {
+					route = proxy.ResolveRoute(proxy.RouteKindHarpoon, target.Label, target.BaseURL, nil, config.ProxySourceIgnored, func(string) (string, bool) {
+						return "", false
+					})
+					route.ProxySource = config.ProxySourceIgnored
+				}
 				routeFields := []any{
 					slog.String("route_kind", string(route.Kind)),
 					slog.String("route_name", route.Name),
@@ -244,12 +250,13 @@ func convertTargets(targets []config.HarpoonTarget) []Target {
 	out := make([]Target, 0, len(targets))
 	for _, target := range targets {
 		out = append(out, Target{
-			Label:       target.Label,
-			Description: target.Description,
-			Category:    "config",
-			Source:      "config",
-			Tags:        nil,
-			BaseURL:     target.BaseURL,
+			Label:          target.Label,
+			Description:    target.Description,
+			Category:       "config",
+			Source:         "config",
+			Tags:           nil,
+			BaseURL:        target.BaseURL,
+			UnixSocketPath: target.UnixSocketPath,
 		})
 	}
 	return out

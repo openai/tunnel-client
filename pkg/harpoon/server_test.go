@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -218,6 +219,105 @@ func TestCallTargetSupportsMethods(t *testing.T) {
 		body := decodeBody(t, resp.BodyBase64)
 		require.Equal(t, method, body)
 	}
+}
+
+func TestCallTargetSupportsHTTPAndUnixSocket(t *testing.T) {
+	t.Parallel()
+
+	t.Run("HTTP", func(t *testing.T) {
+		t.Parallel()
+		assertCallTargetTransport(t, newHarpoonHTTPServer(t), "")
+	})
+
+	t.Run("UnixSocket", func(t *testing.T) {
+		t.Parallel()
+
+		socketPath := shortSocketPath(t, "harpoon-callout-*.sock")
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			t.Skipf("unix socket unavailable: %v", err)
+		}
+		server := httptest.NewUnstartedServer(harpoonCalloutHandler(t))
+		server.Listener = listener
+		server.Start()
+		t.Cleanup(server.Close)
+
+		assertCallTargetTransport(t, "http://harpoon-http-callout-fixture", socketPath)
+	})
+}
+
+func TestCallTargetSelectsTransportPerRedirectedTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("HTTPToUnixSocket", func(t *testing.T) {
+		t.Parallel()
+
+		socketPath := shortSocketPath(t, "harpoon-redirect-*.sock")
+		unixURL := "http://harpoon-unix-target/callout"
+		newHarpoonUnixServer(t, socketPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, "/callout", r.URL.Path)
+			_, _ = w.Write([]byte("unix"))
+		}))
+		httpRedirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, unixURL, http.StatusFound)
+		}))
+		t.Cleanup(httpRedirect.Close)
+
+		client := newTestServer(t, &config.HarpoonConfig{
+			AllowPlaintextHTTP: true,
+			MaxResponseBytes:   1024,
+			MaxRedirects:       5,
+			Targets: []config.HarpoonTarget{
+				{Label: "http", BaseURL: mustParseURL(t, httpRedirect.URL)},
+				{Label: "unix", BaseURL: mustParseURL(t, unixURL), UnixSocketPath: socketPath},
+			},
+		})
+		for range 2 {
+			resp, err := client.callTarget(context.Background(), callTargetRequest{
+				Label:           "http",
+				Method:          http.MethodGet,
+				FollowRedirects: boolPtr(true),
+			})
+			require.NoError(t, err)
+			require.Equal(t, "unix", decodeBody(t, resp.BodyBase64))
+		}
+		require.Len(t, client.unixBySocket, 1)
+	})
+
+	t.Run("UnixSocketToHTTP", func(t *testing.T) {
+		t.Parallel()
+
+		httpFinal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, "/callout", r.URL.Path)
+			_, _ = w.Write([]byte("http"))
+		}))
+		t.Cleanup(httpFinal.Close)
+		socketPath := shortSocketPath(t, "harpoon-redirect-*.sock")
+		unixURL := "http://harpoon-unix-target/callout"
+		newHarpoonUnixServer(t, socketPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, httpFinal.URL+"/callout", http.StatusFound)
+		}))
+
+		client := newTestServer(t, &config.HarpoonConfig{
+			AllowPlaintextHTTP: true,
+			MaxResponseBytes:   1024,
+			MaxRedirects:       5,
+			Targets: []config.HarpoonTarget{
+				{Label: "unix", BaseURL: mustParseURL(t, unixURL), UnixSocketPath: socketPath},
+				{Label: "http", BaseURL: mustParseURL(t, httpFinal.URL+"/callout")},
+			},
+		})
+		for range 2 {
+			resp, err := client.callTarget(context.Background(), callTargetRequest{
+				Label:           "unix",
+				Method:          http.MethodGet,
+				FollowRedirects: boolPtr(true),
+			})
+			require.NoError(t, err)
+			require.Equal(t, "http", decodeBody(t, resp.BodyBase64))
+		}
+		require.Len(t, client.unixBySocket, 1)
+	})
 }
 
 func TestCallTargetKeepsURLsWithoutRegisteredTargets(t *testing.T) {
@@ -804,6 +904,58 @@ func newTestServer(t *testing.T, cfg *config.HarpoonConfig) *Server {
 	server, err := NewServer(cfg, registry, buffer, logger)
 	require.NoError(t, err)
 	return server
+}
+
+func newHarpoonHTTPServer(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(harpoonCalloutHandler(t))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+func newHarpoonUnixServer(t *testing.T, socketPath string, handler http.Handler) {
+	t.Helper()
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("unix socket unavailable: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
+}
+
+func assertCallTargetTransport(t *testing.T, baseURL, unixSocketPath string) {
+	t.Helper()
+	cfg := &config.HarpoonConfig{
+		AllowPlaintextHTTP: true,
+		MaxResponseBytes:   1024,
+		MaxRedirects:       5,
+		Targets: []config.HarpoonTarget{{
+			Label:          "svc",
+			BaseURL:        mustParseURL(t, baseURL+"/callout"),
+			UnixSocketPath: unixSocketPath,
+		}},
+	}
+	client := newTestServer(t, cfg)
+	resp, err := client.callTarget(context.Background(), callTargetRequest{
+		Label:  "svc",
+		Method: http.MethodGet,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "GET /callout", decodeBody(t, resp.BodyBase64))
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func harpoonCalloutHandler(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/callout", r.URL.Path)
+		_, _ = w.Write([]byte(r.Method + " " + r.URL.Path))
+	})
 }
 
 func mustParseURL(t *testing.T, raw string) *url.URL {

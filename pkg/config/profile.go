@@ -337,6 +337,9 @@ func validateFileConfigSyntax(c fileConfig) error {
 		if err := validateConfigValueReferenceSyntax("harpoon.targets.url", stringPtr(target.URL)); err != nil {
 			return err
 		}
+		if err := validateConfigValueReferenceSyntax("harpoon.targets.unix_socket", target.UnixSocket); err != nil {
+			return err
+		}
 	}
 	return nil
 }

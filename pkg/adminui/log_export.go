@@ -731,9 +731,10 @@ func harpoonTargetSnapshots(targets []config.HarpoonTarget) []map[string]string 
 	out := make([]map[string]string, 0, len(targets))
 	for _, target := range targets {
 		out = append(out, map[string]string{
-			"label":       target.Label,
-			"description": redactString(target.Description),
-			"base_url":    urlForSnapshot(target.BaseURL),
+			"label":            target.Label,
+			"description":      redactString(target.Description),
+			"base_url":         urlForSnapshot(target.BaseURL),
+			"unix_socket_path": redactString(target.UnixSocketPath),
 		})
 	}
 	return out

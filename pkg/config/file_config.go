@@ -116,6 +116,7 @@ type fileHarpoonConfig struct {
 type fileHarpoonTarget struct {
 	Label       string  `yaml:"label"`
 	URL         string  `yaml:"url"`
+	UnixSocket  *string `yaml:"unix_socket"`
 	Description *string `yaml:"description"`
 }
 
@@ -487,6 +488,13 @@ func formatResolvedHarpoonTargets(targets []fileHarpoonTarget, lookupEnv func(st
 			return nil, err
 		}
 		parts := []string{"label=" + target.Label, "url=" + targetURL}
+		if target.UnixSocket != nil {
+			socketPath, err := resolvePathReference("harpoon.targets.unix_socket", *target.UnixSocket, lookupEnv)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, "unix-socket="+socketPath)
+		}
 		if target.Description != nil && *target.Description != "" {
 			parts = append(parts, "desc="+*target.Description)
 		}

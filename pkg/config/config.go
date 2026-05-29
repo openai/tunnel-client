@@ -299,9 +299,10 @@ type HarpoonHostClassifierConfig struct {
 
 // HarpoonTarget describes a configured harpoon target.
 type HarpoonTarget struct {
-	Label       string
-	Description string
-	BaseURL     *url.URL
+	Label          string
+	Description    string
+	BaseURL        *url.URL
+	UnixSocketPath string
 }
 
 // AdditionalTransportEnabled reports whether a transport is enabled.
@@ -426,7 +427,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringArray("mcp.discovery-extra-headers", nil, "Static HTTP headers to send to MCP discovery/probe requests for the configured MCP server origin (format 'Key: Value', repeatable; values accept env:VAR or file:/path) (env.MCP_DISCOVERY_EXTRA_HEADERS)")
 	fs.Duration("mcp.connection-max-ttl", defaultMCPConnectionMaxTTL, "Maximum lifetime of MCP transport connections (env.MCP_CONNECTION_MAX_TTL)")
 	fs.Int("mcp.max-concurrent-requests", defaultMCPMaxConcurrentRequests, "Maximum number of concurrent requests to the MCP server (env.MCP_MAX_CONCURRENT_REQUESTS)")
-	fs.StringArray("harpoon.target", nil, "Harpoon target mapping (format 'label=...,url=...,desc=...') (env.HARPOON_TARGETS)")
+	fs.StringArray("harpoon.target", nil, "Harpoon target mapping (format 'label=...,url=...,unix-socket=...,desc=...') (env.HARPOON_TARGETS)")
 	fs.Bool("harpoon.allow-plaintext-http", false, "Allow http:// harpoon targets and redirects (env.HARPOON_ALLOW_PLAINTEXT_HTTP)")
 	fs.Int("harpoon.max-response-bytes", DefaultHarpoonMaxResponseBytes, "Maximum harpoon response size in bytes (env.HARPOON_MAX_RESPONSE_BYTES)")
 	fs.Int("harpoon.max-redirects", DefaultHarpoonMaxRedirects, "Maximum number of harpoon redirects (env.HARPOON_MAX_REDIRECTS)")
@@ -1948,7 +1949,7 @@ func buildHarpoonTargets(fs *pflag.FlagSet, lookupEnv func(string) (string, bool
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		target, err := parseHarpoonTarget(raw, allowPlaintext)
+		target, err := parseHarpoonTarget(raw, allowPlaintext, lookupEnv)
 		if err != nil {
 			return nil, err
 		}
@@ -1970,7 +1971,7 @@ func splitTargetList(raw string) []string {
 	return out
 }
 
-func parseHarpoonTarget(raw string, allowPlaintext bool) (HarpoonTarget, error) {
+func parseHarpoonTarget(raw string, allowPlaintext bool, lookupEnv func(string) (string, bool)) (HarpoonTarget, error) {
 	parts := strings.Split(raw, ",")
 	values := make(map[string]string, len(parts))
 	for _, part := range parts {
@@ -2005,10 +2006,15 @@ func parseHarpoonTarget(raw string, allowPlaintext bool) (HarpoonTarget, error) 
 	if !allowPlaintext && !strings.EqualFold(parsed.Scheme, "https") {
 		return HarpoonTarget{}, fmt.Errorf("invalid harpoon target url %q: https is required", urlRaw)
 	}
+	unixSocketPath, err := resolvePathReference("harpoon.target unix-socket", values["unix-socket"], lookupEnv)
+	if err != nil {
+		return HarpoonTarget{}, err
+	}
 	return HarpoonTarget{
-		Label:       label,
-		Description: values["desc"],
-		BaseURL:     parsed,
+		Label:          label,
+		Description:    values["desc"],
+		BaseURL:        parsed,
+		UnixSocketPath: unixSocketPath,
 	}, nil
 }
 
