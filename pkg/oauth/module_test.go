@@ -76,12 +76,17 @@ func TestOAuthDiscoveryPublishesPRMDBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse url: %v", err)
 	}
+	const mcpUnixSocketPath = "/tmp/appgarden-dcr.sock"
 
 	bus := &recordingBus{notify: make(chan struct{})}
 	app := fx.New(
 		fx.Provide(
 			func() *config.MCPConfig {
-				return &config.MCPConfig{ServerURL: serverURL, TransportKind: config.MCPTransportHTTPStreamable}
+				return &config.MCPConfig{
+					ServerURL:      serverURL,
+					TransportKind:  config.MCPTransportHTTPStreamable,
+					UnixSocketPath: mcpUnixSocketPath,
+				}
 			},
 			fx.Annotate(
 				func() *http.Client { return server.Client() },
@@ -119,6 +124,9 @@ func TestOAuthDiscoveryPublishesPRMDBundle(t *testing.T) {
 	}
 	roles := make(map[string]bool, len(bus.bundles[0].URLs))
 	for _, record := range bus.bundles[0].URLs {
+		if record.UnixSocketPath != mcpUnixSocketPath {
+			t.Fatalf("unexpected unix socket path for role %q: got %q want %q", tagValue(record.Tags, hostbus.TagKeyRole), record.UnixSocketPath, mcpUnixSocketPath)
+		}
 		for _, tag := range record.Tags {
 			if tag.Key == hostbus.TagKeyRole {
 				roles[tag.Value] = true

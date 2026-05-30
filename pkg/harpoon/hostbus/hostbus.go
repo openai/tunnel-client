@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// URLBundle captures a set of URLs discovered by any component. It is
-// transport-agnostic and intentionally avoids OAuth-specific fields.
+// URLBundle captures a set of URLs discovered by any component. It keeps
+// transport hints generic and intentionally avoids OAuth-specific fields.
 type URLBundle struct {
 	FetchedAt time.Time
 	URLs      []URLRecord
@@ -17,9 +17,10 @@ type URLBundle struct {
 
 // URLRecord describes a single URL plus optional metadata tags.
 type URLRecord struct {
-	URL         *url.URL
-	Description string
-	Tags        []Tag
+	URL            *url.URL
+	Description    string
+	Tags           []Tag
+	UnixSocketPath string
 }
 
 // TagKey identifies a URL tag category.

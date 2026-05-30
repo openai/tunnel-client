@@ -112,6 +112,10 @@ func startOAuthDiscovery(p discoveryParams) error {
 					resp.Payload(),
 					start,
 					sourceURL,
+					URLBundleOptions{
+						UnixSocketPath: p.MCPConfig.UnixSocketPath,
+						UnixSocketURL:  p.MCPConfig.ServerURL,
+					},
 					logger,
 				)
 				if result != nil && authServerMetaFetch != nil {

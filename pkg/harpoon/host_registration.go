@@ -170,6 +170,7 @@ func registerHostBundle(bundle hostbus.URLBundle, classifier *hostclassifier.Hos
 			Tags:            tags,
 			InclusionReason: reason,
 			BaseURL:         record.URL,
+			UnixSocketPath:  record.UnixSocketPath,
 		}
 		if err := registry.RegisterTarget(target); err != nil {
 			logger.Warn("harpoon host auto-registration failed",

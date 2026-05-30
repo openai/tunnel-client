@@ -17,12 +17,38 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
 )
 
+// URLBundleOptions carries optional generic transport hints for discovered URLs.
+type URLBundleOptions struct {
+	UnixSocketPath string
+	UnixSocketURL  *url.URL
+}
+
+func (o URLBundleOptions) apply(record hostbus.URLRecord) hostbus.URLRecord {
+	unixSocketPath := strings.TrimSpace(o.UnixSocketPath)
+	if unixSocketPath == "" || record.URL == nil || o.UnixSocketURL == nil {
+		return record
+	}
+	if !sameURLOrigin(record.URL, o.UnixSocketURL) {
+		return record
+	}
+	record.UnixSocketPath = unixSocketPath
+	return record
+}
+
+func sameURLOrigin(left *url.URL, right *url.URL) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
+}
+
 func buildURLBundleFromPRMDWithAuthServerMetadata(
 	ctx context.Context,
 	client *http.Client,
 	payload []byte,
 	fetchedAt time.Time,
 	sourceURL *url.URL,
+	options URLBundleOptions,
 	logger *slog.Logger,
 ) (hostbus.URLBundle, *AuthServerMetadataFetchResult, error) {
 	var metadata oauthex.ProtectedResourceMetadata
@@ -32,10 +58,10 @@ func buildURLBundleFromPRMDWithAuthServerMetadata(
 
 	records := make([]hostbus.URLRecord, 0, 10)
 	bundleGroupID := oauthBundleGroupID(metadata.Resource, metadata.AuthorizationServers, sourceURL)
-	records = append(records, urlRecordFromPRMDResource(metadata.Resource, 0))
+	records = append(records, options.apply(urlRecordFromPRMDResource(metadata.Resource, 0)))
 
 	if len(metadata.AuthorizationServers) > 0 {
-		records = append(records, urlRecordFromPRMDAuthServer(metadata.AuthorizationServers[0], 0, bundleGroupID))
+		records = append(records, options.apply(urlRecordFromPRMDAuthServer(metadata.AuthorizationServers[0], 0, bundleGroupID)))
 		if len(metadata.AuthorizationServers) > 1 && logger != nil {
 			logger.InfoContext(ctx, "oauth PRMD contains multiple authorization servers; only authorization_servers[0] is used",
 				slog.Int("authorization_server_count", len(metadata.AuthorizationServers)),
@@ -43,7 +69,7 @@ func buildURLBundleFromPRMDWithAuthServerMetadata(
 		}
 	}
 	if sourceURL != nil {
-		records = append(records, urlRecordFromPRMDSource(sourceURL, 0))
+		records = append(records, options.apply(urlRecordFromPRMDSource(sourceURL, 0)))
 	}
 
 	var authServerMetadataFetch *AuthServerMetadataFetchResult
@@ -54,6 +80,7 @@ func buildURLBundleFromPRMDWithAuthServerMetadata(
 			metadata.AuthorizationServers[0],
 			0,
 			bundleGroupID,
+			options,
 			logger,
 		)
 		authServerMetadataFetch = fetchResult
@@ -84,6 +111,7 @@ func BuildURLBundleFromPRMDWithAuthServerMetadata(
 	payload []byte,
 	fetchedAt time.Time,
 	sourceURL *url.URL,
+	options URLBundleOptions,
 	logger *slog.Logger,
 ) (hostbus.URLBundle, *AuthServerMetadataFetchResult, error) {
 	return buildURLBundleFromPRMDWithAuthServerMetadata(
@@ -92,6 +120,7 @@ func BuildURLBundleFromPRMDWithAuthServerMetadata(
 		payload,
 		fetchedAt,
 		sourceURL,
+		options,
 		logger,
 	)
 }
@@ -143,6 +172,7 @@ func buildAuthServerMetadataURLRecords(
 	authServerRaw string,
 	authServerIndex int,
 	bundleGroupID string,
+	options URLBundleOptions,
 	logger *slog.Logger,
 ) ([]hostbus.URLRecord, *AuthServerMetadataFetchResult) {
 	issuerURL := parseURL(authServerRaw)
@@ -186,13 +216,14 @@ func buildAuthServerMetadataURLRecords(
 		"auth-server-metadata",
 		authServerIndex,
 		bundleGroupID,
+		options,
 	)
-	records = appendAuthServerMetadataRecord(records, meta.Issuer, "Auth server issuer", "issuer", authServerIndex, bundleGroupID)
-	records = appendAuthServerMetadataRecord(records, meta.TokenEndpoint, "Auth server token endpoint", "token-endpoint", authServerIndex, bundleGroupID)
-	records = appendAuthServerMetadataRecord(records, meta.JWKSURI, "Auth server JWKS URI", "jwks-uri", authServerIndex, bundleGroupID)
-	records = appendAuthServerMetadataRecord(records, meta.IntrospectionEndpoint, "Auth server introspection endpoint", "introspection-endpoint", authServerIndex, bundleGroupID)
-	records = appendAuthServerMetadataRecord(records, meta.RegistrationEndpoint, "Auth server registration endpoint", "registration-endpoint", authServerIndex, bundleGroupID)
-	records = appendAuthServerMetadataRecord(records, meta.RevocationEndpoint, "Auth server revocation endpoint", "revocation-endpoint", authServerIndex, bundleGroupID)
+	records = appendAuthServerMetadataRecord(records, meta.Issuer, "Auth server issuer", "issuer", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.TokenEndpoint, "Auth server token endpoint", "token-endpoint", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.JWKSURI, "Auth server JWKS URI", "jwks-uri", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.IntrospectionEndpoint, "Auth server introspection endpoint", "introspection-endpoint", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.RegistrationEndpoint, "Auth server registration endpoint", "registration-endpoint", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.RevocationEndpoint, "Auth server revocation endpoint", "revocation-endpoint", authServerIndex, bundleGroupID, options)
 	return records, fetchResult
 }
 
@@ -216,16 +247,17 @@ func appendAuthServerMetadataRecord(
 	role string,
 	authServerIndex int,
 	bundleGroupID string,
+	options URLBundleOptions,
 ) []hostbus.URLRecord {
 	parsed := parseURL(raw)
 	if parsed == nil {
 		return records
 	}
-	return append(records, hostbus.URLRecord{
+	return append(records, options.apply(hostbus.URLRecord{
 		URL:         parsed,
 		Description: description,
 		Tags:        defaultAuthServerMetadataTags(role, authServerIndex, bundleGroupID),
-	})
+	}))
 }
 
 func defaultAuthServerMetadataTags(role string, authServerIndex int, bundleGroupID string) []hostbus.Tag {

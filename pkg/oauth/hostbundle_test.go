@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
+	"go.openai.org/api/tunnel-client/pkg/transport"
 )
 
 func TestBuildURLBundleFromPRMD(t *testing.T) {
@@ -34,6 +37,7 @@ func TestBuildURLBundleFromPRMD(t *testing.T) {
 		payload,
 		time.Unix(42, 0).UTC(),
 		mustParseURL(t, "https://prmd.internal/.well-known/oauth-protected-resource"),
+		URLBundleOptions{},
 		nil,
 	)
 	if err != nil {
@@ -64,7 +68,7 @@ func TestBuildURLBundleFromPRMDEmpty(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	if _, _, err := buildURLBundleFromPRMDWithAuthServerMetadata(context.Background(), nil, payload, time.Now(), nil, nil); err == nil {
+	if _, _, err := buildURLBundleFromPRMDWithAuthServerMetadata(context.Background(), nil, payload, time.Now(), nil, URLBundleOptions{}, nil); err == nil {
 		t.Fatalf("expected error for empty metadata")
 	}
 }
@@ -109,6 +113,7 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadata(t *testing.T) {
 		payload,
 		time.Unix(42, 0).UTC(),
 		sourceURL,
+		URLBundleOptions{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	if err != nil {
@@ -141,6 +146,189 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadata(t *testing.T) {
 	assertURLRecord(t, bundle.URLs[7], issuer+"/introspect", "introspection-endpoint", "0")
 	assertURLRecord(t, bundle.URLs[8], issuer+"/register", "registration-endpoint", "0")
 	assertURLRecord(t, bundle.URLs[9], issuer+"/revoke", "revocation-endpoint", "0")
+	for _, record := range bundle.URLs {
+		if record.UnixSocketPath != "" {
+			t.Fatalf("expected HTTP-discovered record %q to keep empty unix socket path, got %q", tagValueForTest(record.Tags, hostbus.TagKeyRole), record.UnixSocketPath)
+		}
+	}
+}
+
+func TestBuildURLBundleFromPRMDWithAuthServerMetadataOverUnixSocket(t *testing.T) {
+	t.Parallel()
+
+	socketPath := filepath.Join(t.TempDir(), "oauth.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("unix socket unavailable: %v", err)
+	}
+
+	const (
+		logicalBaseURL = "http://localhost"
+		variant        = "dcr10"
+	)
+	const (
+		resourceURL     = logicalBaseURL + "/mcp/" + variant
+		prmdURL         = logicalBaseURL + "/.well-known/oauth-protected-resource/mcp/" + variant
+		authServerURL   = logicalBaseURL + "/" + variant
+		authMetadataURL = logicalBaseURL + "/.well-known/oauth-authorization-server/" + variant
+	)
+	const externalIssuer = "https://external-idp.example.com/oauth2/aus2jrb9zi4O8hseE0h8"
+
+	requestPaths := make(chan string, 8)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp/"+variant, func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "localhost" {
+			t.Fatalf("unexpected logical host: got %q", r.Host)
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+prmdURL+`", scope="mcp:tools"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp/"+variant, func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "localhost" {
+			t.Fatalf("unexpected logical host: got %q", r.Host)
+		}
+		requestPaths <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		requireJSONWrite(t, w, oauthex.ProtectedResourceMetadata{
+			Resource:             resourceURL,
+			AuthorizationServers: []string{authServerURL},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server/"+variant, func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "localhost" {
+			t.Fatalf("unexpected logical host: got %q", r.Host)
+		}
+		requestPaths <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		requireJSONWrite(t, w, map[string]any{
+			"issuer":                 externalIssuer,
+			"authorization_endpoint": authServerURL + "/authorize",
+			"token_endpoint":         authServerURL + "/token",
+			"registration_endpoint":  authServerURL + "/register",
+			"revocation_endpoint":    authServerURL + "/revoke",
+		})
+	})
+
+	server := httptest.NewUnstartedServer(mux)
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
+
+	baseTransport, err := transport.ApplyUnixSocketPath(http.DefaultTransport, socketPath)
+	if err != nil {
+		t.Fatalf("build unix transport: %v", err)
+	}
+	client := &http.Client{Transport: baseTransport}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	serverURL := mustParseURL(t, resourceURL)
+
+	candidates, _, err := BuildOAuthDiscoveryCandidates(context.Background(), client, serverURL, logger)
+	if err != nil {
+		t.Fatalf("build discovery candidates: %v", err)
+	}
+	resp, sourceURL, _, err := FetchOAuthMetadata(context.Background(), client, candidates, logger)
+	if err != nil {
+		t.Fatalf("fetch PRMD over unix socket: %v", err)
+	}
+	if sourceURL == nil || sourceURL.String() != prmdURL {
+		t.Fatalf("unexpected PRMD source URL: got %v want %q", sourceURL, prmdURL)
+	}
+
+	bundle, fetchResult, err := buildURLBundleFromPRMDWithAuthServerMetadata(
+		context.Background(),
+		client,
+		resp.Payload(),
+		time.Unix(42, 0).UTC(),
+		sourceURL,
+		URLBundleOptions{
+			UnixSocketPath: socketPath,
+			UnixSocketURL:  serverURL,
+		},
+		logger,
+	)
+	if err != nil {
+		t.Fatalf("build unix socket bundle: %v", err)
+	}
+	if fetchResult == nil || fetchResult.SelectedURL != authMetadataURL {
+		t.Fatalf("unexpected auth metadata fetch result: %+v", fetchResult)
+	}
+
+	seenPaths := map[string]bool{}
+	for len(requestPaths) > 0 {
+		seenPaths[<-requestPaths] = true
+	}
+	for _, expectedPath := range []string{
+		"/.well-known/oauth-protected-resource/mcp/" + variant,
+		"/.well-known/oauth-authorization-server/" + variant,
+	} {
+		if !seenPaths[expectedPath] {
+			t.Fatalf("expected unix socket request for %q, saw %v", expectedPath, seenPaths)
+		}
+	}
+	for _, role := range []string{"auth-server-metadata", "registration-endpoint", "token-endpoint"} {
+		assertURLRecordUnixSocket(t, bundle.URLs, role, socketPath)
+	}
+	assertURLRecordNoUnixSocket(t, bundle.URLs, "issuer")
+}
+
+func TestBuildURLBundleFromPRMDWithAuthServerMetadataDoesNotPropagateUnixSocketAcrossOrigins(t *testing.T) {
+	t.Parallel()
+
+	socketPath := filepath.Join(t.TempDir(), "oauth.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("unix socket unavailable: %v", err)
+	}
+
+	const (
+		logicalBaseURL = "http://localhost"
+		variant        = "dcr10"
+		resourceURL    = logicalBaseURL + "/mcp/" + variant
+		prmdURL        = logicalBaseURL + "/.well-known/oauth-protected-resource/mcp/" + variant
+		authServerURL  = logicalBaseURL + "/" + variant
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server/"+variant, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		requireJSONWrite(t, w, map[string]any{
+			"issuer":                "http://private-idp.example.com/issuer",
+			"token_endpoint":        "http://private-idp.example.com/token",
+			"jwks_uri":              "http://private-idp.example.com/jwks",
+			"registration_endpoint": "http://private-idp.example.com/register",
+		})
+	})
+
+	server := httptest.NewUnstartedServer(mux)
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
+
+	baseTransport, err := transport.ApplyUnixSocketPath(http.DefaultTransport, socketPath)
+	if err != nil {
+		t.Fatalf("build unix transport: %v", err)
+	}
+	serverURL := mustParseURL(t, resourceURL)
+	bundle, _, err := buildURLBundleFromPRMDWithAuthServerMetadata(
+		context.Background(),
+		&http.Client{Transport: baseTransport},
+		[]byte(`{"resource":"`+resourceURL+`","authorization_servers":["`+authServerURL+`"]}`),
+		time.Unix(42, 0).UTC(),
+		mustParseURL(t, prmdURL),
+		URLBundleOptions{
+			UnixSocketPath: socketPath,
+			UnixSocketURL:  serverURL,
+		},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("build unix socket bundle: %v", err)
+	}
+
+	assertURLRecordUnixSocket(t, bundle.URLs, "auth-server-metadata", socketPath)
+	for _, role := range []string{"issuer", "token-endpoint", "jwks-uri", "registration-endpoint"} {
+		assertURLRecordNoUnixSocket(t, bundle.URLs, role)
+	}
 }
 
 func TestBuildURLBundleFromPRMDWithAuthServerMetadataAcceptsIssuerMismatch(t *testing.T) {
@@ -182,6 +370,7 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadataAcceptsIssuerMismatch(t *te
 		payload,
 		time.Unix(42, 0).UTC(),
 		mustParseURL(t, server.URL+"/.well-known/oauth-protected-resource"),
+		URLBundleOptions{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	if err != nil {
@@ -292,6 +481,7 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadataPartialFailure(t *testing.T
 		payload,
 		time.Unix(42, 0).UTC(),
 		sourceURL,
+		URLBundleOptions{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	if err != nil {
@@ -356,6 +546,7 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadataUsesFirstAuthServerOnly(t *
 		payload,
 		time.Unix(42, 0).UTC(),
 		sourceURL,
+		URLBundleOptions{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	if err != nil {
@@ -389,6 +580,7 @@ func TestBuildURLBundleFromPRMDIgnoresAuthorizationServersBeyondIndexZero(t *tes
 		payload,
 		time.Unix(42, 0).UTC(),
 		mustParseURL(t, "https://prmd.internal/.well-known/oauth-protected-resource"),
+		URLBundleOptions{},
 		nil,
 	)
 	if err != nil {
@@ -426,6 +618,41 @@ func assertURLRecord(t *testing.T, record hostbus.URLRecord, expectedURL string,
 	}
 	if got := tagValueForTest(record.Tags, hostbus.TagKeyIndex); got != expectedIndex {
 		t.Fatalf("unexpected index: got %q want %q", got, expectedIndex)
+	}
+}
+
+func assertURLRecordUnixSocket(t *testing.T, records []hostbus.URLRecord, role string, socketPath string) {
+	t.Helper()
+	for _, record := range records {
+		if tagValueForTest(record.Tags, hostbus.TagKeyRole) != role {
+			continue
+		}
+		if record.UnixSocketPath != socketPath {
+			t.Fatalf("unexpected unix socket path for role %q: got %q want %q", role, record.UnixSocketPath, socketPath)
+		}
+		return
+	}
+	t.Fatalf("expected URL record for role %q", role)
+}
+
+func assertURLRecordNoUnixSocket(t *testing.T, records []hostbus.URLRecord, role string) {
+	t.Helper()
+	for _, record := range records {
+		if tagValueForTest(record.Tags, hostbus.TagKeyRole) != role {
+			continue
+		}
+		if record.UnixSocketPath != "" {
+			t.Fatalf("unexpected unix socket path for role %q: got %q", role, record.UnixSocketPath)
+		}
+		return
+	}
+	t.Fatalf("expected URL record for role %q", role)
+}
+
+func requireJSONWrite(t *testing.T, w http.ResponseWriter, payload any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		t.Fatalf("encode JSON response: %v", err)
 	}
 }
 

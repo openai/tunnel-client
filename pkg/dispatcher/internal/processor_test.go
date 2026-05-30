@@ -2655,6 +2655,7 @@ func TestProcessorOAuthDiscoveryPublishesHostBundle(t *testing.T) {
 	meterProvider := newTestMeterProvider(t)
 	cfg := &config.MCPConfig{
 		ServerURL:             serverURL,
+		UnixSocketPath:        "/tmp/appgarden-dcr.sock",
 		ConnectionMaxTTL:      2 * time.Second,
 		MaxConcurrentRequests: 1,
 	}
@@ -2686,6 +2687,7 @@ func TestProcessorOAuthDiscoveryPublishesHostBundle(t *testing.T) {
 	require.NotEmpty(t, bundle.URLs)
 	roles := make(map[string]bool, len(bundle.URLs))
 	for _, record := range bundle.URLs {
+		require.Equal(t, cfg.UnixSocketPath, record.UnixSocketPath)
 		for _, tag := range record.Tags {
 			if tag.Key == hostbus.TagKeyRole {
 				roles[tag.Value] = true

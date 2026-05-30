@@ -70,15 +70,16 @@ type processorParams struct {
 }
 
 type mcpProcessor struct {
-	logger           *slog.Logger
-	channels         map[types.Channel]channelConfig
-	tunnelResponder  controlplane.Responder
-	connectionMaxTTL time.Duration
-	metrics          *processorMetrics
-	tunnelID         types.TunnelID
-	oauthHTTPClient  *http.Client
-	hostBus          hostbus.HostRegistrationBus
-	mcpServerURL     *url.URL
+	logger            *slog.Logger
+	channels          map[types.Channel]channelConfig
+	tunnelResponder   controlplane.Responder
+	connectionMaxTTL  time.Duration
+	metrics           *processorMetrics
+	tunnelID          types.TunnelID
+	oauthHTTPClient   *http.Client
+	hostBus           hostbus.HostRegistrationBus
+	mcpServerURL      *url.URL
+	mcpUnixSocketPath string
 }
 
 type channelFeatures struct {
@@ -234,15 +235,16 @@ func NewProcessor(p processorParams) (Processor, error) {
 	baseLogger.Info("dispatcher channels registered", slog.Any("channels", registered))
 
 	return &mcpProcessor{
-		logger:           baseLogger,
-		channels:         channels,
-		tunnelResponder:  p.TunnelResponder,
-		connectionMaxTTL: p.MCPConfig.ConnectionMaxTTL,
-		metrics:          processorMetrics,
-		tunnelID:         p.ControlPlaneCfg.TunnelID,
-		oauthHTTPClient:  p.OAuthHTTPClient,
-		hostBus:          p.HostBus,
-		mcpServerURL:     p.MCPConfig.ServerURL,
+		logger:            baseLogger,
+		channels:          channels,
+		tunnelResponder:   p.TunnelResponder,
+		connectionMaxTTL:  p.MCPConfig.ConnectionMaxTTL,
+		metrics:           processorMetrics,
+		tunnelID:          p.ControlPlaneCfg.TunnelID,
+		oauthHTTPClient:   p.OAuthHTTPClient,
+		hostBus:           p.HostBus,
+		mcpServerURL:      p.MCPConfig.ServerURL,
+		mcpUnixSocketPath: p.MCPConfig.UnixSocketPath,
 	}, nil
 }
 
@@ -611,6 +613,10 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 			resp.Payload(),
 			time.Now(),
 			sourceURL,
+			oauth.URLBundleOptions{
+				UnixSocketPath: p.mcpUnixSocketPath,
+				UnixSocketURL:  p.mcpServerURL,
+			},
 			logger,
 		)
 		if bundleErr != nil {

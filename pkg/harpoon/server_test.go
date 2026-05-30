@@ -13,10 +13,13 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/internal/hostclassifier"
+	"go.openai.org/api/tunnel-client/pkg/oauth"
 	"go.openai.org/api/tunnel-client/pkg/transport"
 	"go.openai.org/api/tunnel-client/pkg/version"
 )
@@ -244,6 +247,87 @@ func TestCallTargetSupportsHTTPAndUnixSocket(t *testing.T) {
 
 		assertCallTargetTransport(t, "http://harpoon-http-callout-fixture", socketPath)
 	})
+}
+
+func TestCallTargetUsesDiscoveredOAuthUnixSocket(t *testing.T) {
+	t.Parallel()
+
+	socketPath := shortSocketPath(t, "harpoon-oauth-*.sock")
+	const (
+		logicalBaseURL = "http://localhost"
+		variant        = "dcr10"
+		resourceURL    = logicalBaseURL + "/mcp/" + variant
+		prmdURL        = logicalBaseURL + "/.well-known/oauth-protected-resource/mcp/" + variant
+		authServerURL  = logicalBaseURL + "/" + variant
+	)
+	tokenCalls := 0
+	newHarpoonUnixServer(t, socketPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "localhost", r.Host)
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server/" + variant:
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 "https://external-idp.example.com/oauth2/aus2jrb9zi4O8hseE0h8",
+				"authorization_endpoint": authServerURL + "/authorize",
+				"token_endpoint":         authServerURL + "/token",
+				"registration_endpoint":  authServerURL + "/register",
+				"revocation_endpoint":    authServerURL + "/revoke",
+			}))
+		case "/dcr10/token":
+			tokenCalls++
+			_, _ = w.Write([]byte(r.Method + " " + r.URL.Path))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	baseTransport, err := transport.ApplyUnixSocketPath(http.DefaultTransport, socketPath)
+	require.NoError(t, err)
+	bundle, _, err := oauth.BuildURLBundleFromPRMDWithAuthServerMetadata(
+		context.Background(),
+		&http.Client{Transport: baseTransport},
+		[]byte(`{"resource":"`+resourceURL+`","authorization_servers":["`+authServerURL+`"]}`),
+		time.Unix(42, 0).UTC(),
+		mustParseURL(t, prmdURL),
+		oauth.URLBundleOptions{
+			UnixSocketPath: socketPath,
+			UnixSocketURL:  mustParseURL(t, resourceURL),
+		},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.NoError(t, err)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, true, nil)
+	require.NoError(t, err)
+	classifier := hostclassifier.NewHostClassifier(config.HarpoonHostClassifierConfig{
+		IncludeSuffix:  []string{"localhost"},
+		IncludePrivate: false,
+	})
+	require.NoError(t, registerHostBundle(bundle, classifier, registry, logger))
+	for _, label := range []string{
+		"oauth-auth-server-metadata-0",
+		"oauth-registration-endpoint-0",
+		"oauth-token-endpoint-0",
+	} {
+		target, ok := registry.Lookup(label)
+		require.Truef(t, ok, "expected OAuth target %q", label)
+		require.Equal(t, socketPath, target.UnixSocketPath)
+	}
+
+	server, err := NewServer(&config.HarpoonConfig{
+		AllowPlaintextHTTP: true,
+		MaxResponseBytes:   1024,
+		MaxRedirects:       5,
+	}, registry, NewCallBuffer(), logger)
+	require.NoError(t, err)
+	resp, err := server.callTarget(context.Background(), callTargetRequest{
+		Label:  "oauth-token-endpoint-0",
+		Method: http.MethodPost,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "POST /dcr10/token", decodeBody(t, resp.BodyBase64))
+	require.Equal(t, 1, tokenCalls)
 }
 
 func TestCallTargetSelectsTransportPerRedirectedTarget(t *testing.T) {
