@@ -195,11 +195,20 @@ tunnel-client runtimes stop awesome-mcp
 tunnel-client runtimes rm awesome-mcp
 ```
 
+Use `tunnel-client run ...` when you intentionally want a foreground daemon
+attached to the current terminal. For a long-lived local runtime managed by
+Codex, prefer `tunnel-client runtimes connect ...`; do not use `nohup` or
+`disown` as the tunnel-client supervision path.
+
 `status` reports local runtime state first and also surfaces `ui_url`, logs,
 tmux/process state, stale recorded URLs, live admin URLs, `/healthz`,
 `/readyz`, and `control_plane_poll_health`. `connect` success means a usable
 local runtime exists: the managed process or tmux session is alive, the health
-URL file is populated, and `/healthz` is reachable.
+URL file is populated, and `/healthz` is reachable. After `runtimes connect`,
+run `tunnel-client runtimes status <alias>` before reporting success. Only
+report success when status shows the managed runtime running with health
+reported; use `--json` when Codex needs explicit `process_running`, `healthy`,
+and `ready` fields.
 
 `stop` and `disconnect` are local runtime controls only. They stop the managed
 tmux runtime or detached process, clear the local health URL file, and leave

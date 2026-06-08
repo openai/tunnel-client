@@ -95,6 +95,9 @@ func newRuntimesCommandWithRuntime(lookupEnv func(string) (string, bool), stdout
 	connectCmd := &cobra.Command{
 		Use:   "connect",
 		Short: "Create or reuse a tunnel alias and run a native profile locally",
+		Long: "Create or reuse a tunnel alias and run a native profile through tunnel-client's managed local runtime supervision.\n\n" +
+			"For a long-lived local runtime managed by Codex, use this command instead of nohup or disown. " +
+			"After connect, run `tunnel-client runtimes status <alias>` before reporting success.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias, err := cmd.Flags().GetString("alias")
 			if err != nil {

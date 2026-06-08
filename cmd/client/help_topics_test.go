@@ -23,6 +23,8 @@ func TestHelpTopicsUseRuntimesCommandSurface(t *testing.T) {
 		"tunnel-client runtimes connect ...",
 		"tunnel-client runtimes list",
 		"tunnel-client runtimes status <alias>",
+		"do not use `nohup` or `disown` as the tunnel-client supervision path",
+		"after connect, run `tunnel-client runtimes status <alias>` before reporting success",
 		"tunnel-client admin-profiles list",
 	} {
 		require.Contains(t, plugin, snippet)
@@ -31,6 +33,11 @@ func TestHelpTopicsUseRuntimesCommandSurface(t *testing.T) {
 	quickstart, ok := loadHelpTopic("quickstart")
 	require.True(t, ok)
 	require.Contains(t, quickstart, "tunnel-client runtimes list")
+	require.Contains(t, quickstart, "Use `tunnel-client run ...` when you intentionally want a foreground daemon")
+	require.Contains(t, quickstart, "For a long-lived local runtime managed by Codex")
+	require.Contains(t, quickstart, "Do not use `nohup` or `disown` as the tunnel-client supervision path.")
+	require.Contains(t, quickstart, "After `runtimes connect`, check `tunnel-client runtimes status <alias>`")
+	require.Contains(t, quickstart, "Only report success when status shows the managed")
 	require.Contains(t, quickstart, "tunnel-client help troubleshooting")
 }
 

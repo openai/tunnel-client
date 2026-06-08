@@ -128,11 +128,19 @@ func TestBundledPluginSurfacesUseRuntimesCommandSurface(t *testing.T) {
 		"`tunnel-client runtimes ...`",
 		"`references/runtime-flows.md`: create, connect, list, status, stop, rm, attach by tunnel id",
 		"`scripts/tunnel_mcp self-check`",
+		"`tunnel-client runtimes connect ...`",
+		"`nohup` or `disown`",
+		"`tunnel-client runtimes status <alias>`",
 	)
 	requirePluginContainsAll(t, read("tunnel-mcp/skills/tunnel-mcp/references/runtime-flows.md"),
 		"Use `tunnel-client runtimes ...` for native runtime lifecycle management.",
+		"Use `tunnel-client run ...` when you intentionally want a foreground daemon",
+		"`nohup`",
+		"`disown`",
+		"tunnel-client supervision path",
 		"`tunnel-client runtimes list`",
 		"`tunnel-client runtimes connect --alias existing-mcp --tunnel-id",
+		"After `runtimes connect`, run `tunnel-client runtimes status <alias>`",
 	)
 }
 

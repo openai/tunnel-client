@@ -35,9 +35,13 @@ If Codex is installed locally but the plugin is missing, doctor and startup guid
 Plugin runtime semantics:
   - the installed plugin is a thin router onto `tunnel-client runtimes ...` and `tunnel-client admin-profiles ...`
   - once installed, prefer the plugin router and its persisted `.tunnel-client-bin` hint over an ambient `tunnel-client` on PATH
+  - use `tunnel-client run ...` only when you intentionally want a foreground daemon attached to the current terminal
+  - for a long-lived local runtime managed by Codex, prefer `tunnel-client runtimes connect ...`
+  - do not use `nohup` or `disown` as the tunnel-client supervision path
   - connect success means a usable local runtime exists, not merely that a launch command was issued
   - healthy = the managed runtime is alive and /healthz is reachable
   - ready is reported separately so agents can distinguish startup success from the full OAuth/MCP ready contract
+  - after connect, run `tunnel-client runtimes status <alias>` before reporting success; only report success when status shows the managed runtime running with health reported; use `--json` when Codex needs explicit `process_running`, `healthy`, and `ready` fields
   - status reports local runtime state first and includes the explicit ui_url when available
   - stop or disconnect tears down the managed local runtime without deleting the tunnel itself
   - `tunnel-client codex status` reports plugin files on disk separately from Codex bridge/assistant readiness; after uninstall, already-running Codex sessions may still have previously loaded tunnel-mcp state until restart

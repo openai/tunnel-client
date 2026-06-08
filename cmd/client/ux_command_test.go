@@ -55,6 +55,11 @@ func TestHelpTopicQuickstart(t *testing.T) {
 	require.Contains(t, stdout, "CONTROL_PLANE_TUNNEL_ID")
 	require.Contains(t, stdout, "CONTROL_PLANE_API_KEY")
 	require.Contains(t, stdout, "Do not give the admin key to the long-lived daemon.")
+	require.Contains(t, stdout, "Use `tunnel-client run ...` when you intentionally want a foreground daemon")
+	require.Contains(t, stdout, "For a long-lived local runtime managed by Codex")
+	require.Contains(t, stdout, "Do not use `nohup` or `disown` as the tunnel-client supervision path.")
+	require.Contains(t, stdout, "After `runtimes connect`, check `tunnel-client runtimes status <alias>`")
+	require.Contains(t, stdout, "Only report success when status shows the managed")
 	require.Contains(t, stdout, "Create or verify the connector in ChatGPT settings only while tunnel-client is running.")
 	require.Contains(t, stdout, "Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.")
 }

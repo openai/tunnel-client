@@ -218,6 +218,21 @@ func TestRuntimesConnectRejectsMixedRemoteScopeFamilies(t *testing.T) {
 	require.EqualError(t, err, "runtimes connect accepts exactly one remote scope family: --organization-id or --workspace-id")
 }
 
+func TestRuntimesConnectHelpExplainsManagedSupervision(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := newRuntimesCommandWithRuntime(lookupEnvMap(map[string]string{}), &stdout, &stderr, session.DefaultRuntime())
+	cmd.SetArgs([]string{"connect", "--help"})
+
+	require.NoError(t, cmd.Execute())
+	output := stdout.String()
+	require.Contains(t, output, "managed local runtime supervision")
+	require.Contains(t, output, "instead of nohup or disown")
+	require.Contains(t, output, "tunnel-client runtimes status <alias>")
+}
+
 func TestRuntimesListRejectsMultipleOrganizationIDs(t *testing.T) {
 	t.Parallel()
 

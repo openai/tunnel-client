@@ -245,6 +245,9 @@ Once the local runtime is healthy, open `https://chatgpt.com/#settings/Connector
 Leave `tunnel-client run ...` running while you do this. The daemon must stay up for connector
 discovery and every later MCP tool call.
 
+`tunnel-client run ...` is the foreground/manual operator path. If Codex is asked to start a
+long-lived local runtime, use `tunnel-client runtimes connect ...` instead of `nohup` or `disown`.
+
 If the tunnel does not appear in ChatGPT:
 
 - Confirm the tunnel was created with the correct workspace scope.
@@ -283,16 +286,20 @@ tunnel-client runtimes connect \
   --mcp-server-url https://mcp.example.com/mcp
 ```
 
+After `runtimes connect`, run `tunnel-client runtimes status <alias>` before reporting success.
+Only report success after status reports the managed runtime running with health surfaced; use
+`--json` when Codex needs explicit `process_running`, `healthy`, and `ready` fields.
+
 ### Starter phrases for Codex
 
 Copy these exactly when you want Codex to take the first operator steps for you:
 
 - `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`
 - `I only have the source checkout. Figure out how to build tunnel-client, then get me to /ui with the shortest local path.`
-- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
+- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the foreground daemon attached to this terminal.`
 - `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
-- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
+- `For a long-lived local runtime, use tunnel-client runtimes connect to attach the provided tunnel id, then run tunnel-client runtimes status <alias> before reporting whether the runtime is launched, healthy, or ready.`
 
 ## FAQ
 

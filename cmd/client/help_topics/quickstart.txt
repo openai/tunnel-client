@@ -68,6 +68,17 @@ Then validate and start:
   tunnel-client doctor --profile <name> --explain
   tunnel-client run --profile <name>
 
+Supervision choice:
+  - Use `tunnel-client run ...` when you intentionally want a foreground daemon
+    attached to the current terminal.
+  - For a long-lived local runtime managed by Codex, prefer
+    `tunnel-client runtimes connect ...`.
+  - Do not use `nohup` or `disown` as the tunnel-client supervision path.
+  - After `runtimes connect`, check `tunnel-client runtimes status <alias>`
+    before reporting success. Only report success when status shows the managed
+    runtime running with health reported. Use `--json` when Codex needs explicit
+    `process_running`, `healthy`, and `ready` fields.
+
 ChatGPT connector note:
   Create or verify the connector in ChatGPT settings only while tunnel-client is running.
   Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.
@@ -79,9 +90,10 @@ If you used the embedded demo MCP server and connected the tunnel in ChatGPT, tr
 
 Starter prompts for Codex:
   - "Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path."
-  - "Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon."
+  - "Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the foreground daemon attached to this terminal."
   - "Run tunnel-client codex assistant and summarize what this checkout is for in one sentence."
   - "Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready."
+  - "For a long-lived local runtime, use tunnel-client runtimes connect to attach the provided tunnel id, then run tunnel-client runtimes status <alias> before reporting whether the runtime is launched, healthy, or ready."
 
 If you already know a tunnel id and only need metadata:
   tunnel-client admin tunnels get tunnel_...     # runtime key or admin key

@@ -65,6 +65,18 @@ lifecycle work, use the native `tunnel-client runtimes ...` and
 `tunnel-client admin-profiles ...` command trees surfaced by
 `tunnel-client help plugin`.
 
+Supervision choice:
+
+- Use `tunnel-client run ...` when you intentionally want a foreground daemon
+  attached to the current terminal.
+- For a long-lived local runtime managed by Codex, prefer
+  `tunnel-client runtimes connect ...`. Do not use `nohup` or `disown` as the
+  tunnel-client supervision path.
+- After `runtimes connect`, check `tunnel-client runtimes status <alias>`
+  before reporting success. Only report success when status shows the managed
+  runtime running with health reported. Use `--json` when Codex needs the
+  explicit `process_running`, `healthy`, and `ready` fields.
+
 Use these exact setup pages during first use:
 
 - Tunnels management and supported tunnel-client download:
@@ -156,10 +168,10 @@ Starter prompts for Codex:
 
 - `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`
 - `I only have the source checkout. Figure out how to build tunnel-client, then get me to /ui with the shortest local path.`
-- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
+- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the foreground daemon attached to this terminal.`
 - `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
-- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
+- `For a long-lived local runtime, use tunnel-client runtimes connect to attach the provided tunnel id, then run tunnel-client runtimes status <alias> before reporting whether the runtime is launched, healthy, or ready.`
 ## What it does
 
 - The client **long-polls** the OpenAI tunnel control plane over HTTPS:
@@ -238,7 +250,8 @@ make admin-ui
   profiles for native runtime workflows.
 - `tunnel-client runtimes create|connect|list|status|stop|rm` manages native
   alias state and local runtime supervision.
-- `tunnel-client run` starts the client poller.
+- `tunnel-client run` starts the foreground/manual client poller attached to
+  the current terminal.
 - `tunnel-client admin tunnels get <id>` is the read-only metadata lookup used
   on the runtime-user path; broader `admin tunnels` CRUD still requires an
   admin key. When you need admin CRUD scope, inspect the returned

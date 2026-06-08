@@ -80,6 +80,15 @@ tunnel-client runtimes list
 tunnel-client codex plugin uninstall
 ```
 
+Use `tunnel-client run ...` when you intentionally want a foreground daemon
+attached to the current terminal. For a long-lived local runtime managed by
+Codex, prefer `tunnel-client runtimes connect ...`; do not use `nohup` or
+`disown` as the tunnel-client supervision path. After `runtimes connect`, run
+`tunnel-client runtimes status <alias>` before reporting success. Only report
+success when status shows the managed runtime running with health reported; use
+`--json` when Codex needs explicit `process_running`, `healthy`, and `ready`
+fields.
+
 If you want a named profile instead of the one-command demo path:
 
 ```bash
@@ -135,10 +144,10 @@ tunnel-client codex plugin uninstall
 Starter prompts for Codex:
 
 - `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`
-- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the daemon.`
+- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the foreground daemon attached to this terminal.`
 - `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
 - `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
-- `Use tunnel-client runtimes to attach a local MCP server to an existing tunnel id and report the ui_url.`
+- `For a long-lived local runtime, use tunnel-client runtimes connect to attach the provided tunnel id, then run tunnel-client runtimes status <alias> before reporting whether the runtime is launched, healthy, or ready.`
 
 ## 3) Build from source
 
@@ -224,6 +233,11 @@ For the full surface (flags, defaults, advanced knobs), see [`configuration.md`]
 ```bash
 ./bin/tunnel-client run --log.level=info --log.format=struct-text
 ```
+
+This is the foreground/manual operator path. Keep this terminal attached while
+you want the daemon running. When Codex needs a long-lived local runtime that
+survives the current shell, use `tunnel-client runtimes connect ...` instead of
+improvising `nohup` or `disown`.
 
 The process will:
 

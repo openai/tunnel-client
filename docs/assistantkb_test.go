@@ -213,6 +213,15 @@ func TestPackagedDocsUseRuntimesCommandSurface(t *testing.T) {
 		"tunnel-client runtimes connect --tunnel-id",
 		"tunnel-client runtimes connect \\",
 	)
+
+	onboarding := joinedByPath["docs/onboarding.md"]
+	requireContainsAll(t, onboarding,
+		"For a long-lived local runtime managed by",
+		"`tunnel-client runtimes connect ...`",
+		"`nohup`",
+		"`disown`",
+		"`tunnel-client runtimes status <alias>`",
+	)
 }
 
 func requireContainsAll(t *testing.T, text string, snippets ...string) {

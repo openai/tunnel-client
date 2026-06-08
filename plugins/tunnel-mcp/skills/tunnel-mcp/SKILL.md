@@ -40,8 +40,16 @@ Before acting, consult only the smallest relevant reference under `references/`:
   `tunnel-client admin-profiles ...`.
 - Use `scripts/tunnel_mcp self-check` for plugin/binary/router compatibility;
   it must report secret reference presence without printing secret values.
-- Use native `tunnel-client run --profile <name>`; do not translate profile
-  files into flags in the plugin layer.
+- Use native `tunnel-client run --profile <name>` only when the user
+  intentionally wants a foreground daemon attached to the current terminal;
+  do not translate profile files into flags in the plugin layer.
+- For a long-lived local runtime managed by Codex, use
+  `tunnel-client runtimes connect ...`; do not use `nohup` or `disown` as the
+  tunnel-client supervision path.
+- After `runtimes connect`, run `tunnel-client runtimes status <alias>` before
+  reporting success. Only report success when status shows the managed runtime
+  running with health reported; use `--json` when Codex needs explicit
+  `process_running`, `healthy`, and `ready` fields.
 - Do not assume a source checkout, build system, helper, or tmux. The installed
   plugin must work with the selected `tunnel-client` binary alone.
 - Treat ambient `PATH` binary candidates as diagnostics unless selected through
