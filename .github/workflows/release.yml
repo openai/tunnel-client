@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - codex/tunnel-client-adminui-integration-tests
     tags:
       - "v*"  # release tags must be v<semver>--<operator-word>
 
