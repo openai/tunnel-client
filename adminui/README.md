@@ -8,7 +8,7 @@ From repo root:
 
 ```bash
 cd adminui
-pnpm install --frozen-lockfile --ignore-workspace --config.shared-workspace-lockfile=false
+pnpm install --frozen-lockfile --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false
 pnpm dev
 ```
 
@@ -53,6 +53,12 @@ From `adminui`:
 
 ```bash
 pnpm test
+```
+
+From the repository root:
+
+```bash
+make admin-ui-test
 ```
 
 Bazel target:

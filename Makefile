@@ -9,6 +9,9 @@ BIN         = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET)
 ADMIN_UI_DIR := adminui
 ADMIN_UI_ASSETS_DIR := pkg/adminui/assets
 ADMIN_UI_BUILD_SCRIPT := scripts/build_admin_ui.sh
+PNPM       ?= pnpm
+ADMIN_UI_PNPM_FLAGS := --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false
+ADMIN_UI_PNPM_STORE_DIR ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/tunnel-client-adminui-pnpm-store
 ifeq ($(OS),windows)
   BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET).exe
 endif
@@ -21,7 +24,7 @@ ABS_BIN := $(abspath $(BIN))
 GIT_SHA    := $(if $(GIT_SHA),$(GIT_SHA),$(shell git rev-parse --short HEAD 2>/dev/null))
 LDFLAGS    := -X go.openai.org/api/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
 
-.PHONY: all help fmt test clean build-image mod-tidy admin-ui release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides
+.PHONY: all help fmt test clean build-image mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides
 
 all: clean mod-tidy fmt test $(TARGET)
 
@@ -31,8 +34,9 @@ help:
 	@echo "  mod-tidy      - Run go mod tidy and fail if go.mod/go.sum change"
 	@echo "  fmt           - Run go fmt and fail if files are modified"
 	@echo "  $(TARGET)     - Build the tunnel-client binary"
-	@echo "  test          - Run tests"
+	@echo "  test          - Run Go and admin UI tests"
 	@echo "  admin-ui      - Build the admin UI assets (manual; not part of make all)"
+	@echo "  admin-ui-test - Run admin UI tests"
 	@echo "  end-user-guide-screenshots - Capture the local /ui screenshots used by the shareable guide"
 	@echo "  end-user-guide-html - Render docs/end-user-guide.md to a standalone HTML archive"
 	@echo "  end-user-guide-slides - Render docs/end-user-guide.md to a local .pptx deck for on-demand slide import/distribution"
@@ -55,7 +59,7 @@ help:
 	@echo "Artifacts:"
 	@echo "  $(STABLE_BIN) -> $(BIN)"
 
-test:
+test: admin-ui-test
 	go test -race ./...
 
 mod-tidy:
@@ -83,6 +87,10 @@ fmt:
 admin-ui:
 	./$(ADMIN_UI_BUILD_SCRIPT) $(ADMIN_UI_DIR) $(ADMIN_UI_ASSETS_DIR)
 	@echo "Admin UI assets copied to $(abspath $(ADMIN_UI_ASSETS_DIR))"
+
+admin-ui-test:
+	$(PNPM) --dir $(ADMIN_UI_DIR) install --frozen-lockfile $(ADMIN_UI_PNPM_FLAGS) --store-dir $(ADMIN_UI_PNPM_STORE_DIR)
+	$(PNPM) --dir $(ADMIN_UI_DIR) test
 
 end-user-guide-screenshots:
 	./scripts/capture_end_user_guide_screenshots.sh

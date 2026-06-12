@@ -9,7 +9,7 @@ fi
 UI_DIR="$1"
 ASSETS_DIR="$2"
 PNPM_BIN="${PNPM:-pnpm}"
-PNPM_INSTALL_FLAGS=(--ignore-workspace --config.shared-workspace-lockfile=false)
+PNPM_INSTALL_FLAGS=(--config.shared-workspace-lockfile=false --config.confirmModulesPurge=false)
 
 WORK_DIR="$(mktemp -d)"
 cleanup() {
