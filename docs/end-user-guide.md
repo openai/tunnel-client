@@ -101,6 +101,8 @@ The permission split is equally important:
 - Tunnel managers need Tunnels **Read** + **Manage**.
 - People who create admin keys need the Platform admin-key permission in addition to any tunnel permissions they need.
 
+When creating `CONTROL_PLANE_API_KEY` in Platform Runtime API keys, choose **Restricted** and select Tunnels **Read** + **Use**. Do not use **All** or swap in an admin key for the long-lived daemon.
+
 <div class="figure-grid two-up">
   <figure class="shot">
     <img src="images/tunnel-permissions-role.png" alt="Platform roles screen with Tunnels permissions." />

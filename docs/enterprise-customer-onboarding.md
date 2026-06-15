@@ -131,6 +131,10 @@ Before anyone creates keys or tunnels, assign the Platform roles described in
 - Operators who create `OPENAI_ADMIN_KEY` need Platform admin-key permission in
   addition to the tunnel permissions needed for their workflow.
 
+When creating `CONTROL_PLANE_API_KEY` in Platform Runtime API keys, choose
+**Restricted** and select Tunnels **Read** + **Use**. Do not use **All** or an
+admin key for the long-lived daemon.
+
 The Platform UI maps those labels to these permission atoms:
 
 - `api.organization.tunnel.read`

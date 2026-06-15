@@ -137,8 +137,10 @@ active and ready.
 Use two different keys:
 
 - `CONTROL_PLANE_API_KEY`: runtime key used by `tunnel-client doctor` and
-  `tunnel-client run`. The key's principal needs Tunnels **Read** + **Use** for
-  the target tunnel. It can also read one known tunnel through
+  `tunnel-client run`. In Platform Runtime API keys, create a **Restricted**
+  key and select Tunnels **Read** + **Use**. Do not use **All** or an admin key
+  for the long-lived daemon. The key's principal still needs Tunnels **Read** +
+  **Use** for the target tunnel. It can also read one known tunnel through
   `tunnel-client admin tunnels get <tunnel_id>`.
 - `OPENAI_ADMIN_KEY`: admin key used only for
   `tunnel-client admin tunnels list|create|update|delete`. Do not put this key

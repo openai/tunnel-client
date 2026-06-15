@@ -113,6 +113,7 @@ PAGE_BLOCKS = [
         ],
         "paragraphs": [
             "The permission split is equally important.",
+            "When creating CONTROL_PLANE_API_KEY in Platform Runtime API keys, choose Restricted and select Tunnels Read + Use. Do not use All or swap in an admin key for the long-lived daemon.",
         ],
         "bullets": [
             "Runtime users need Tunnels Read + Use.",
