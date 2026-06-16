@@ -130,9 +130,16 @@ channel routing model, and environment-variable checklist.
 
 ## Performance / backlog
 
+- Increase `--mcp.max-concurrent-requests` / `MCP_MAX_CONCURRENT_REQUESTS` to
+  raise active MCP execution concurrency, but only if the MCP server can safely
+  handle the additional parallelism. When every worker is busy, the dispatcher
+  removes one command from the local queue and waits for a worker slot. It does
+  not drain another command until a slot is free.
 - Increase `--control-plane.max-inflight` /
-  `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS` to buffer more commands.
-- Poll requests are sent to tunnel-service in batches of at most `25`
-  commands even when the local buffer is larger.
-- Increase `--mcp.max-concurrent-requests` / `MCP_MAX_CONCURRENT_REQUESTS` if
-  your MCP server can handle parallelism.
+  `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS` only to increase the local prefetch
+  backlog. It does not increase MCP execution concurrency. A full buffer pauses
+  polling until a queue slot is free; each poll requests at most `25` commands.
+- Account for both independent limits when sizing the process. With the
+  defaults, tunnel-client can hold up to `10` active MCP requests, `20` commands
+  in the local queue, and one dispatcher-held command waiting for a worker
+  slot.

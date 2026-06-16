@@ -167,9 +167,9 @@ Choose the pattern that matches the MCP server's deployment model:
   validation, and defaults.
 - **Control plane**: `pkg/controlplane` builds the HTTP client and runs the
   poll/response loop.
-- **Dispatcher**: `pkg/dispatcher` uses a bounded in-memory queue sized by
-  `control-plane.max-inflight`. Workers are sized by
-  `mcp.max-concurrent-requests`.
+- **Dispatcher**: `pkg/dispatcher` uses a bounded in-memory prefetch queue sized
+  by `control-plane.max-inflight`. Requests actively executing against the MCP
+  server are limited separately by `mcp.max-concurrent-requests`.
 - **MCP client**: `pkg/mcpclient` handles Streamable HTTP MCP, stdio MCP, header
   forwarding, and startup probing.
 - **Channel state and admin UI**: `pkg/adminui` exposes channel status, OAuth
@@ -184,8 +184,11 @@ Choose the pattern that matches the MCP server's deployment model:
   inbound listener in the client process is the optional local admin/health
   server.
 - **Queueing and backpressure**: the poller requests only the number of commands
-  that can fit in the bounded queue, which avoids unbounded buffering in the
-  client.
+  that can fit in the bounded queue, up to `25` per poll. A full queue pauses
+  polling. When all MCP workers are busy, the dispatcher removes one command
+  from the queue and waits for a worker slot. It does not drain another command
+  until a slot is free. Local resident work is therefore bounded by the active
+  worker limit plus the queue capacity and one dispatcher-held command.
 - **Channel routing**: `main` routes to the configured MCP transport. `harpoon`
   routes to the embedded Harpoon server and is enabled only when at least one
   Harpoon target is registered. Additional channels can be configured with

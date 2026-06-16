@@ -2564,6 +2564,32 @@ func TestCABundleHelpMentionsAdditive(t *testing.T) {
 	}
 }
 
+func TestBackpressureFlagHelpDistinguishesBufferFromExecutionConcurrency(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	RegisterFlags(fs)
+
+	bufferFlag := fs.Lookup("control-plane.max-inflight")
+	if bufferFlag == nil {
+		t.Fatal("expected control-plane.max-inflight flag")
+		return
+	}
+	if !strings.Contains(bufferFlag.Usage, "local polled-command buffer") {
+		t.Fatalf("expected control-plane.max-inflight help to describe the local buffer, got %q", bufferFlag.Usage)
+	}
+	if strings.Contains(bufferFlag.Usage, "in-flight MCP requests") {
+		t.Fatalf("control-plane.max-inflight help must not describe total in-flight MCP requests, got %q", bufferFlag.Usage)
+	}
+
+	concurrencyFlag := fs.Lookup("mcp.max-concurrent-requests")
+	if concurrencyFlag == nil {
+		t.Fatal("expected mcp.max-concurrent-requests flag")
+		return
+	}
+	if !strings.Contains(concurrencyFlag.Usage, "actively dispatched to the MCP server") {
+		t.Fatalf("expected mcp.max-concurrent-requests help to describe active MCP execution, got %q", concurrencyFlag.Usage)
+	}
+}
+
 func writeTempCABundle(t *testing.T) string {
 	t.Helper()
 	certPEM := generateTestCertPEM(t)

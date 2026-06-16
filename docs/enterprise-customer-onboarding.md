@@ -325,8 +325,10 @@ You must configure:
 Recommended configuration:
 
 - `CONTROL_PLANE_BASE_URL`: the control-plane host root (provided by OpenAI; defaults to `https://api.openai.com`)
-- `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS`: buffer size / backpressure (default `20`)
-- `MCP_MAX_CONCURRENT_REQUESTS`: MCP parallelism (default `10`)
+- `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS`: local polled-command buffer capacity
+  (default `20`); a full buffer pauses polling
+- `MCP_MAX_CONCURRENT_REQUESTS`: requests actively dispatched to the MCP server
+  (default `10`); this is separate from the local buffer capacity
 - `LOG_FORMAT=json` and `LOG_LEVEL=info` for production logs
 
 Optional control-plane mTLS configuration:

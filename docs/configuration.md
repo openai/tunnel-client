@@ -299,12 +299,15 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
     setting the HTTP/context deadline so a normal `204 No Content` empty poll
     can complete without being classified as a client timeout. Test profiles
     can override it with a smaller millisecond duration such as `500ms`.
-- **Max in-flight buffer**
+- **Polled-command buffer capacity**
   - Flag: `--control-plane.max-inflight`
   - Env: `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS`
   - Default: `20` (max `10000`)
-  - The local buffer may exceed `25`, but each control-plane poll requests at
-    most `25` commands to match the tunnel-service API contract.
+  - This is the number of prefetched commands that can wait in the local queue;
+    it does not include requests already dispatched to the MCP server.
+  - Each control-plane poll requests the smaller of the local buffer's free
+    capacity and `25`, matching the tunnel-service API contract. When the
+    buffer is full, tunnel-client skips polling until a queue slot is free.
 - **Extra headers (optional)**
   - Flag (repeatable): `--control-plane.extra-headers "Key: Value"`
   - Env: `CONTROL_PLANE_EXTRA_HEADERS="Key: Value, Key2: Value2"`
@@ -410,6 +413,14 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   - Flag: `--mcp.max-concurrent-requests`
   - Env: `MCP_MAX_CONCURRENT_REQUESTS`
   - Default: `10`
+  - This caps requests actively dispatched to the MCP server. When all worker
+    slots are occupied, the dispatcher removes one command from the local queue
+    and waits for a worker slot. It does not drain another command until a slot
+    is free.
+  - This limit is independent of `--control-plane.max-inflight`. With the
+    defaults, tunnel-client can hold up to `10` active MCP requests, `20`
+    commands in the local queue, and one dispatcher-held command waiting for a
+    worker slot.
 - **HTTP proxy default (optional)**
   - Flag: `--mcp.http-proxy=<url|env:VAR>`
   - Env: `MCP_HTTP_PROXY`
