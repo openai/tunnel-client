@@ -3,6 +3,7 @@ package wiretypes
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 )
@@ -187,4 +188,40 @@ func TestPolledCommandEnvelopeUnmarshalCommands(t *testing.T) {
 	if second["command_type"] != string(CommandTypeOAuthDiscovery) {
 		t.Fatalf("expected second command_type to be %q, got %v", CommandTypeOAuthDiscovery, second["command_type"])
 	}
+}
+
+func TestSharedPollCommandFixtureMatchesGoWireTypes(t *testing.T) {
+	fixture := readWireFixture(t, "poll_command_envelope.json")
+
+	var envelope PolledCommandEnvelope
+	if err := json.Unmarshal(fixture, &envelope); err != nil {
+		t.Fatalf("unmarshal envelope fixture: %v", err)
+	}
+	if len(envelope.Commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(envelope.Commands))
+	}
+
+	var second map[string]any
+	if err := json.Unmarshal(envelope.Commands[1], &second); err != nil {
+		t.Fatalf("unmarshal session termination command: %v", err)
+	}
+	if second["command_type"] != string(CommandTypeSessionTermination) {
+		t.Fatalf("expected session command_type %q, got %v", CommandTypeSessionTermination, second["command_type"])
+	}
+}
+
+func readWireFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	paths := []string{
+		"api/tunnel-client/pkg/controlplane/wiretypes/testdata/wire/" + name,
+		"testdata/wire/" + name,
+	}
+	for _, path := range paths {
+		fixture, err := os.ReadFile(path)
+		if err == nil {
+			return fixture
+		}
+	}
+	t.Fatalf("wire fixture %s not found in %v", name, paths)
+	return nil
 }

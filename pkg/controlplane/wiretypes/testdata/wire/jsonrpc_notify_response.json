@@ -1,0 +1,14 @@
+{
+  "request_id": "cmd_fixture_jsonrpc",
+  "channel": "harpoon",
+  "resp_json": {
+    "jsonrpc": "2.0",
+    "method": "notifications/progress",
+    "params": {
+      "progress": 0.5
+    }
+  },
+  "resp_headers": {},
+  "resp_code": 200,
+  "resp_type": "jsonrpc_notify"
+}

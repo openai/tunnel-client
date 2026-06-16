@@ -1,0 +1,32 @@
+{
+  "commands": [
+    {
+      "request_id": "cmd_fixture_jsonrpc",
+      "shard_token": "fixture:jsonrpc",
+      "command_type": "jsonrpc",
+      "channel": "harpoon",
+      "created_at": "2026-06-12T12:13:14.000Z",
+      "headers": {
+        "x-test": [
+          "alpha"
+        ]
+      },
+      "jsonrpc": {
+        "jsonrpc": "2.0",
+        "id": "rpc-1",
+        "method": "tools/list",
+        "params": {
+          "needle": "hay"
+        }
+      }
+    },
+    {
+      "request_id": "cmd_fixture_session_end",
+      "shard_token": "fixture:session",
+      "command_type": "session_termination",
+      "channel": "main",
+      "created_at": "2026-06-12T12:15:16.000Z",
+      "headers": {}
+    }
+  ]
+}
