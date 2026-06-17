@@ -7,16 +7,23 @@ import (
 	"testing"
 
 	"go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
 	harnesspkg "go.openai.org/api/tunnel-client/testsupport/e2e"
 	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
 	"go.openai.org/api/tunnel-client/testsupport/mocktunnelservice"
 )
 
 func TestHarnessHandlesSessionTerminationCommand(t *testing.T) {
-	const requestID = "cmd-session-termination"
+	const (
+		requestID     = "cmd-session-termination"
+		connectorAuth = "Bearer connector-session-close"
+	)
 
 	sessionTermination := mocktunnelservice.CommandResponse{
-		Command: mocktunnelservice.NewSessionTerminationCommand(requestID, nil),
+		Command: mocktunnelservice.NewSessionTerminationCommand(requestID, http.Header{
+			"Authorization":                 {connectorAuth},
+			mcpclient.HeaderProtocolVersion: {"2025-06-18"},
+		}),
 		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
 			RequestID: requestID,
 			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
@@ -47,8 +54,32 @@ func TestHarnessHandlesSessionTerminationCommand(t *testing.T) {
 			mocktunnelservice.WithInitializationPhaseCommands(),
 			mocktunnelservice.WithCommandResponses(sessionTermination),
 		),
+		harnesspkg.WithBeforeClientStop(func(h *harnesspkg.Harness) {
+			assertSessionTerminationForwardedConnectorHeaders(t, h.MCP, connectorAuth)
+		}),
 	)
 	h.ExecuteScenarious(t)
+}
+
+func assertSessionTerminationForwardedConnectorHeaders(t *testing.T, mcp *mockmcpserver.MockMCPServer, wantAuthorization string) {
+	t.Helper()
+
+	var matchingDeletes []mockmcpserver.IncomingHTTPRequest
+	for _, req := range mcp.ReceivedHTTPRequests() {
+		if req.Method == http.MethodDelete && req.Headers.Get("Authorization") == wantAuthorization {
+			matchingDeletes = append(matchingDeletes, req)
+		}
+	}
+	if len(matchingDeletes) != 1 {
+		t.Fatalf("expected one MCP session DELETE request with connector Authorization, got %d", len(matchingDeletes))
+	}
+	deleteReq := matchingDeletes[0]
+	if got := deleteReq.Headers.Get(mcpclient.HeaderSessionID); got == "" {
+		t.Fatalf("session DELETE missing %s header: %v", mcpclient.HeaderSessionID, deleteReq.Headers)
+	}
+	if got := deleteReq.Headers.Get(mcpclient.HeaderProtocolVersion); got != "2025-06-18" {
+		t.Fatalf("session DELETE %s = %q, want %q", mcpclient.HeaderProtocolVersion, got, "2025-06-18")
+	}
 }
 
 func TestHarnessRejectsSessionTerminationForStdioAndKeepsServing(t *testing.T) {
