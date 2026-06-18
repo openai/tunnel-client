@@ -44,6 +44,11 @@ running with health reported. Use `--json` when Codex needs explicit
 The MCP app server exposes `list_runtime_aliases` as the first-class tool for
 `tunnel-client runtimes list`.
 
+The MCP app server tools do not accept control-plane URL overrides or runtime
+key references. Use native `tunnel-client admin-profiles ...` or
+`tunnel-client runtimes ...` commands when an operator intentionally needs a
+trusted non-default control plane or key reference.
+
 `status` reports structured `repair_actions`, live-admin reconciliation when a
 stored health URL is stale, selected/live binary fields, launch diagnostics, and
 `control_plane_poll_health` separately from local `/healthz` and `/readyz`.

@@ -175,14 +175,6 @@ function runtimeLifecycleSchema({ includeMcpCommand, includeTunnelId, requireRem
       type: "string",
       description: "Native tunnel-client admin profile name.",
     },
-    control_plane_base_url: {
-      type: "string",
-      description: "Optional control-plane base URL override stored in the admin profile.",
-    },
-    control_plane_url_path: {
-      type: "string",
-      description: "Optional URL path appended to the control-plane base URL and stored in the admin profile.",
-    },
     name: {
       type: "string",
       description: "Optional remote tunnel display name.",
@@ -201,10 +193,6 @@ function runtimeLifecycleSchema({ includeMcpCommand, includeTunnelId, requireRem
     properties.mcp_command = {
       type: "string",
       description: "Stdio MCP command line for tunnel-client to run locally.",
-    };
-    properties.runtime_api_key = {
-      type: "string",
-      description: "Runtime key reference such as env:CONTROL_PLANE_API_KEY or file:/path.",
     };
   }
   if (includeTunnelId) {
@@ -366,14 +354,6 @@ function listRuntimeAliasesSchema() {
         type: "string",
         description: "Native tunnel-client admin profile name.",
       },
-      control_plane_base_url: {
-        type: "string",
-        description: "Optional control-plane base URL override stored in the admin profile.",
-      },
-      control_plane_url_path: {
-        type: "string",
-        description: "Optional URL path appended to the control-plane base URL and stored in the admin profile.",
-      },
       tunnel_client_bin: {
         type: "string",
         description: "Optional full path to an executable tunnel-client binary.",
@@ -388,8 +368,6 @@ function buildCreateArgs(args) {
   const out = ["runtimes", "create", "--alias", args.alias];
   appendRemoteScope(out, args);
   appendOptional(out, "--admin-profile", args.admin_profile);
-  appendOptional(out, "--control-plane-base-url", args.control_plane_base_url);
-  appendOptional(out, "--control-plane-url-path", args.control_plane_url_path);
   appendOptional(out, "--name", args.name);
   appendOptional(out, "--description", args.description);
   out.push("--json");
@@ -399,14 +377,10 @@ function buildCreateArgs(args) {
 function buildConnectArgs(args) {
   validateStdioCommand(args.mcp_command);
   validateRemoteScope(args, { allowTunnelId: true, required: true, command: "connect_stdio_mcp" });
-  validateRuntimeAPIKey(args.runtime_api_key);
   const out = ["runtimes", "connect", "--alias", args.alias, "--mcp-command", args.mcp_command];
   appendRemoteScope(out, args);
   appendOptional(out, "--tunnel-id", args.tunnel_id);
-  appendOptional(out, "--runtime-api-key", args.runtime_api_key);
   appendOptional(out, "--admin-profile", args.admin_profile);
-  appendOptional(out, "--control-plane-base-url", args.control_plane_base_url);
-  appendOptional(out, "--control-plane-url-path", args.control_plane_url_path);
   appendOptional(out, "--name", args.name);
   appendOptional(out, "--description", args.description);
   out.push("--json");
@@ -419,8 +393,6 @@ function buildListArgs(args) {
   appendRemoteScope(out, args);
   appendOptional(out, "--tenant-id", args.tenant_id);
   appendOptional(out, "--admin-profile", args.admin_profile);
-  appendOptional(out, "--control-plane-base-url", args.control_plane_base_url);
-  appendOptional(out, "--control-plane-url-path", args.control_plane_url_path);
   out.push("--json");
   return out;
 }
@@ -753,16 +725,6 @@ function validateStdioCommand(value) {
   }
   if (command.length > MAX_STDIO_COMMAND_LENGTH) {
     throw new Error(`mcp_command must be at most ${MAX_STDIO_COMMAND_LENGTH} characters`);
-  }
-}
-
-function validateRuntimeAPIKey(value) {
-  const ref = trimString(value);
-  if (!ref) {
-    return;
-  }
-  if (!ref.startsWith("env:") && !ref.startsWith("file:")) {
-    throw new Error("runtime_api_key must be a secret reference such as env:NAME or file:/path");
   }
 }
 

@@ -241,11 +241,14 @@ Main environment knobs:
   `https://api.openai.com`.
 - `CONTROL_PLANE_URL_PATH`: optional path appended to the control-plane host
   root before tunnel-client adds its `/v1/...` routes.
-- `control_plane_url_path`: optional tunnel-mcp tool argument that stores the
-  same path on the native admin profile for create/list/connect flows.
 - `TUNNEL_MCP_ADMIN_PROFILE`: admin profile name; default `default`.
 - `TUNNEL_CLIENT_PROFILE_DIR`: generated native profile directory.
 - `TUNNEL_CLIENT_STATE_DIR`: native local runtime/admin-profile state root.
+
+Tunnel MCP tools intentionally do not accept control-plane URL or runtime key
+arguments. Configure trusted non-default control planes and secret references
+with `tunnel-client admin-profiles ...` or native `tunnel-client runtimes ...`
+commands before using the plugin tools.
 
 State files include `aliases.yaml`, `admin_profiles.yaml`, `processes.yaml`,
 `history.md`, `health/<alias>.url`, and `logs/<alias>.log` when the fallback
