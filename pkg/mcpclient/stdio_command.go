@@ -33,6 +33,7 @@ type stdioCommandTransport struct {
 	waitDone  chan error
 	signals   chan os.Signal
 	started   bool
+	stopping  bool
 
 	commandLabel string
 	shutdownOnce sync.Once
@@ -104,9 +105,15 @@ func (t *stdioCommandTransport) Transport(cfg *config.MCPConfig) (*mcp.IOTranspo
 
 	reader := &stdioEOFReader{
 		reader: stdout,
+		onEOF: func() {
+			t.requestShutdown("stdio MCP command stdout closed", io.EOF)
+		},
 	}
 	writer := &stdioErrWriter{
 		writer: stdin,
+		onError: func(err error) {
+			t.requestShutdown("stdio MCP command stdin write failed", err)
+		},
 	}
 	t.transport = &mcp.IOTransport{
 		Reader: reader,
@@ -150,6 +157,9 @@ func (t *stdioCommandTransport) stop(ctx context.Context) error {
 	waitDone := t.waitDone
 	stdin := t.stdin
 	started := t.started
+	if started {
+		t.stopping = true
+	}
 	t.mu.Unlock()
 
 	if cmd == nil || !started {
@@ -184,16 +194,46 @@ func (t *stdioCommandTransport) waitForExit() {
 	}
 
 	err := cmd.Wait()
+	stopping := t.isStopping()
 	if err != nil {
-		t.logWarn(context.Background(), "stdio MCP command exited; tunnel-client remains running in degraded mode", slog.String("command", t.commandLabel), slog.String("error", err.Error()))
+		t.logWarn(context.Background(), "stdio MCP command exited", slog.String("command", t.commandLabel), slog.String("error", err.Error()))
 	} else {
-		t.logInfo(context.Background(), "stdio MCP command exited; tunnel-client remains running in degraded mode", slog.String("command", t.commandLabel))
+		t.logInfo(context.Background(), "stdio MCP command exited", slog.String("command", t.commandLabel))
+	}
+	if !stopping {
+		t.requestShutdown("stdio MCP command exited", err)
 	}
 
 	select {
 	case waitDone <- err:
 	default:
 	}
+}
+
+func (t *stdioCommandTransport) isStopping() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.stopping
+}
+
+func (t *stdioCommandTransport) requestShutdown(reason string, cause error) {
+	if t == nil || t.isStopping() {
+		return
+	}
+	t.shutdownOnce.Do(func() {
+		attrs := []any{slog.String("reason", reason), slog.String("command", t.commandLabel)}
+		if cause != nil {
+			attrs = append(attrs, slog.String("error", cause.Error()))
+		}
+		if t.shutdowner == nil {
+			t.logWarn(context.Background(), "stdio MCP command failed; shutdowner unavailable", attrs...)
+			return
+		}
+		t.logWarn(context.Background(), "stdio MCP command failed; requesting tunnel-client shutdown", attrs...)
+		if err := t.shutdowner.Shutdown(); err != nil {
+			t.logWarn(context.Background(), "stdio MCP shutdown request failed", slog.String("error", err.Error()))
+		}
+	})
 }
 
 func (t *stdioCommandTransport) startSignalForwarding() {
@@ -288,7 +328,7 @@ func (r *stdioEOFReader) Close() error {
 
 type stdioErrWriter struct {
 	writer  io.Writer
-	onError func()
+	onError func(error)
 }
 
 func (w *stdioErrWriter) Write(p []byte) (int, error) {
@@ -297,7 +337,7 @@ func (w *stdioErrWriter) Write(p []byte) (int, error) {
 	}
 	n, err := w.writer.Write(p)
 	if err != nil && w.onError != nil {
-		w.onError()
+		w.onError(err)
 	}
 	return n, err
 }

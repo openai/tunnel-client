@@ -2,6 +2,7 @@ package mcpclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -85,7 +86,7 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	require.NoError(t, hook.OnStop(stopCtx))
 }
 
-func TestStdioCommandTransportStaysAliveAfterExit(t *testing.T) {
+func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	t.Setenv("TEST_HELPER_MODE", "exit")
 
@@ -114,13 +115,48 @@ func TestStdioCommandTransportStaysAliveAfterExit(t *testing.T) {
 
 	select {
 	case <-shutdowner.ch:
-		t.Fatal("did not expect shutdown request after command exit")
-	default:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected shutdown request after command exit")
 	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, hook.OnStop(stopCtx))
+}
+
+func TestStdioEOFReaderCallsOnEOF(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	reader := &stdioEOFReader{
+		reader: strings.NewReader(""),
+		onEOF: func() {
+			called = true
+		},
+	}
+
+	_, err := reader.Read(make([]byte, 1))
+
+	require.ErrorIs(t, err, io.EOF)
+	require.True(t, called)
+}
+
+func TestStdioErrWriterCallsOnWriteError(t *testing.T) {
+	t.Parallel()
+
+	writeErr := errors.New("write failed")
+	var gotErr error
+	writer := &stdioErrWriter{
+		writer: errWriter{err: writeErr},
+		onError: func(err error) {
+			gotErr = err
+		},
+	}
+
+	_, err := writer.Write([]byte("request"))
+
+	require.ErrorIs(t, err, writeErr)
+	require.ErrorIs(t, gotErr, writeErr)
 }
 
 func TestStdioCommandTransportRuntimeInfo(t *testing.T) {
@@ -167,4 +203,12 @@ func TestHelperProcess(t *testing.T) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
 	}
+}
+
+type errWriter struct {
+	err error
+}
+
+func (w errWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }
