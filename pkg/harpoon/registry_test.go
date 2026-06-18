@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,22 @@ func TestRegistryRejectsDuplicateLabel(t *testing.T) {
 
 	err = registry.RegisterTarget(Target{Label: "auth", BaseURL: parsed})
 	require.Error(t, err)
+}
+
+func TestRegistryRejectsDuplicateTargetURL(t *testing.T) {
+	registry, err := NewRegistry(discardLogger(), true, []Target{{
+		Label:   "auth",
+		BaseURL: mustURL(t, "https://example.com/auth"),
+	}})
+	require.NoError(t, err)
+
+	err = registry.RegisterTarget(Target{
+		Label:          "auth-unix",
+		BaseURL:        mustURL(t, "https://example.com/auth"),
+		UnixSocketPath: "/tmp/auth.sock",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate target url")
 }
 
 func TestRegistryRejectsPlaintextWhenDisallowed(t *testing.T) {
@@ -241,6 +258,25 @@ func TestRegistryExplainBlockedRedirectCacheEvictsOldEntries(t *testing.T) {
 	require.Equal(t, []string{keyB, keyC}, registry.explainCacheOrder)
 }
 
+func TestRegistryExplainBlockedRedirectCachesHashForOversizedURL(t *testing.T) {
+	registry, err := NewRegistry(discardLogger(), true, []Target{
+		{
+			Label:   "oauth-auth-server-metadata-0",
+			BaseURL: mustURL(t, "https://example.com/.well-known/oauth-authorization-server/"),
+		},
+	})
+	require.NoError(t, err)
+
+	candidate := mustURL(t, "https://example.com/.well-known/oauth-authorization-server?state="+strings.Repeat("a", maxRedirectExplainCacheKeyBytes*2))
+	require.NotNil(t, registry.ExplainBlockedRedirect(candidate))
+
+	require.Len(t, registry.explainCache, 1)
+	for key := range registry.explainCache {
+		require.LessOrEqual(t, len(key), len("sha256:")+64)
+		require.True(t, strings.HasPrefix(key, "sha256:"))
+	}
+}
+
 func TestSummarizeTargets(t *testing.T) {
 	urlA, err := url.Parse("https://example.com/base/")
 	require.NoError(t, err)
@@ -268,10 +304,10 @@ func TestRegistryRespectsLimit(t *testing.T) {
 	registry, err := NewRegistryWithLimit(discardLogger(), true, []Target{{Label: "auth", BaseURL: parsed}}, 2)
 	require.NoError(t, err)
 
-	err = registry.RegisterTarget(Target{Label: "metrics", BaseURL: parsed})
+	err = registry.RegisterTarget(Target{Label: "metrics", BaseURL: mustURL(t, "https://metrics.example.com")})
 	require.NoError(t, err)
 
-	err = registry.RegisterTarget(Target{Label: "logs", BaseURL: parsed})
+	err = registry.RegisterTarget(Target{Label: "logs", BaseURL: mustURL(t, "https://logs.example.com")})
 	require.Error(t, err)
 }
 

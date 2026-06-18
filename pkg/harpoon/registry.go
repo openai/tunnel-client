@@ -2,6 +2,8 @@ package harpoon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +17,7 @@ var labelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 const defaultRegistryLimit = 10000
 const defaultRedirectExplainCacheLimit = 256
+const maxRedirectExplainCacheKeyBytes = 2048
 
 // Target describes a registered outbound HTTP target.
 type Target struct {
@@ -151,6 +154,9 @@ func (r *Registry) RegisterTarget(target Target) error {
 	if _, exists := r.targets[label]; exists {
 		return fmt.Errorf("harpoon: duplicate target label %q", label)
 	}
+	if _, exists := r.targetURLKeys[normalized.String()]; exists && r.hasDifferentTransportForURLLocked(normalized, cleanTarget.UnixSocketPath) {
+		return fmt.Errorf("harpoon: duplicate target url %q uses a different transport", normalized.String())
+	}
 	if len(r.targets) >= r.limit {
 		return fmt.Errorf("harpoon: registry limit %d exceeded", r.limit)
 	}
@@ -160,6 +166,29 @@ func (r *Registry) RegisterTarget(target Target) error {
 	r.clearExplainCacheLocked()
 	r.signalStateChangeLocked()
 	return nil
+}
+
+func (r *Registry) hasDifferentTransportForURLLocked(candidate *url.URL, unixSocketPath string) bool {
+	if r == nil || candidate == nil {
+		return false
+	}
+	candidateKey, err := normalizedURLKey(candidate)
+	if err != nil {
+		return false
+	}
+	for _, target := range r.targets {
+		if target.BaseURL == nil {
+			continue
+		}
+		targetKey, keyErr := normalizedURLKey(target.BaseURL)
+		if keyErr != nil || targetKey != candidateKey {
+			continue
+		}
+		if target.UnixSocketPath != unixSocketPath {
+			return true
+		}
+	}
+	return false
 }
 
 // Targets returns a copy of the registered targets in registration order.
@@ -338,14 +367,15 @@ func (r *Registry) ExplainBlockedRedirect(candidate *url.URL) *redirectMismatchD
 		return &redirectMismatchDetails{Kind: redirectMismatchOther, Reason: "redirect target not in allow list"}
 	}
 	candidateMatch := analyzeRedirectURL(candidate)
+	cacheKey := redirectExplainCacheKey(candidateKey)
 
 	r.mu.RLock()
 	if _, ok := r.targetURLKeys[candidateKey]; ok {
 		r.mu.RUnlock()
-		r.storeRedirectExplanation(candidateKey, nil)
+		r.storeRedirectExplanation(cacheKey, nil)
 		return nil
 	}
-	if cached, ok := r.explainCache[candidateKey]; ok {
+	if cached, ok := r.explainCache[cacheKey]; ok {
 		r.mu.RUnlock()
 		return cloneRedirectMismatchDetails(cached)
 	}
@@ -431,7 +461,7 @@ func (r *Registry) ExplainBlockedRedirect(candidate *url.URL) *redirectMismatchD
 			Reason: "redirect target not in allow list",
 		}
 	}
-	r.storeRedirectExplanation(candidateKey, result)
+	r.storeRedirectExplanation(cacheKey, result)
 	return result
 }
 
@@ -483,8 +513,16 @@ func schemeMismatchKind(expectedScheme, actualScheme string) redirectMismatchKin
 	}
 }
 
-func (r *Registry) storeRedirectExplanation(candidateKey string, details *redirectMismatchDetails) {
-	if r == nil || candidateKey == "" {
+func redirectExplainCacheKey(candidateKey string) string {
+	if len(candidateKey) <= maxRedirectExplainCacheKeyBytes {
+		return candidateKey
+	}
+	sum := sha256.Sum256([]byte(candidateKey))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func (r *Registry) storeRedirectExplanation(cacheKey string, details *redirectMismatchDetails) {
+	if r == nil || cacheKey == "" {
 		return
 	}
 	entry := redirectExplainCacheEntry{}
@@ -494,15 +532,15 @@ func (r *Registry) storeRedirectExplanation(candidateKey string, details *redire
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.explainCache[candidateKey]; !exists {
-		r.explainCacheOrder = append(r.explainCacheOrder, candidateKey)
+	if _, exists := r.explainCache[cacheKey]; !exists {
+		r.explainCacheOrder = append(r.explainCacheOrder, cacheKey)
 		for len(r.explainCacheOrder) > r.effectiveExplainCacheLimit() {
 			evictedKey := r.explainCacheOrder[0]
 			r.explainCacheOrder = r.explainCacheOrder[1:]
 			delete(r.explainCache, evictedKey)
 		}
 	}
-	r.explainCache[candidateKey] = entry
+	r.explainCache[cacheKey] = entry
 }
 
 func cloneRedirectMismatchDetails(entry redirectExplainCacheEntry) *redirectMismatchDetails {

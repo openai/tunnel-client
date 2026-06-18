@@ -28,11 +28,12 @@ import (
 )
 
 const (
-	defaultTimeout      = 30 * time.Second
-	minTimeout          = 100 * time.Millisecond
-	maxTimeout          = 120 * time.Second
-	maxBodyLogFieldName = "response_bytes"
-	headerNamePattern   = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+	defaultTimeout         = 30 * time.Second
+	minTimeout             = 100 * time.Millisecond
+	maxTimeout             = 120 * time.Second
+	maxBodyLogFieldName    = "response_bytes"
+	maxContentTypeLogBytes = 256
+	headerNamePattern      = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
 )
 
 var (
@@ -41,19 +42,10 @@ var (
 		http.MethodPost: {},
 		http.MethodPut:  {},
 	}
-	// Tunnel-service is the policy layer for Harpoon-supplied headers; keep
-	// the client-side blocklist to generic HTTP relay safety headers only.
-	blockedOutboundHeaders = map[string]struct{}{
-		"connection":          {},
-		"content-length":      {},
-		"host":                {},
-		"keep-alive":          {},
-		"proxy-authenticate":  {},
-		"proxy-authorization": {},
-		"te":                  {},
-		"trailer":             {},
-		"transfer-encoding":   {},
-		"upgrade":             {},
+	allowedOutboundHeaders = map[string]struct{}{
+		"accept":        {},
+		"authorization": {},
+		"content-type":  {},
 	}
 	listTargetsSchema       = buildListTargetsInputSchema()
 	listTargetsOutputSchema = buildListTargetsOutputSchema()
@@ -74,7 +66,7 @@ type Server struct {
 type callTargetRequest struct {
 	Label            string            `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Allowlisted target label"`
 	Method           string            `json:"method" jsonschema:"enum=GET,enum=POST,enum=PUT,description=HTTP method for the outbound request"`
-	Headers          map[string]string `json:"headers,omitempty" jsonschema:"description=HTTP headers to include in the request; transport proxy forwarding and client-managed headers are blocked"`
+	Headers          map[string]string `json:"headers,omitempty" jsonschema:"description=HTTP headers to include in the request; only Accept Authorization and Content-Type are forwarded"`
 	Body             string            `json:"body,omitempty" jsonschema:"description=Request body as a raw string"`
 	TimeoutMS        *int              `json:"timeout_ms,omitempty" jsonschema:"description=Request timeout in milliseconds"`
 	MaxResponseBytes *int              `json:"max_response_bytes,omitempty" jsonschema:"description=Maximum response bytes to read"`
@@ -574,7 +566,7 @@ func filterOutboundHeaders(headers map[string]string) (http.Header, int, []strin
 			continue
 		}
 		canonical := http.CanonicalHeaderKey(trimmedKey)
-		if isBlockedOutboundHeader(canonical) {
+		if !isAllowedOutboundHeader(canonical) {
 			dropped++
 			classifications[classifyDroppedHeaderName(canonical)] = struct{}{}
 			continue
@@ -584,15 +576,13 @@ func filterOutboundHeaders(headers map[string]string) (http.Header, int, []strin
 	return out, dropped, sortedKeys(classifications)
 }
 
-func isBlockedOutboundHeader(headerName string) bool {
+func isAllowedOutboundHeader(headerName string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(headerName))
 	if normalized == "" {
-		return true
+		return false
 	}
-	if _, ok := blockedOutboundHeaders[normalized]; ok {
-		return true
-	}
-	return false
+	_, ok := allowedOutboundHeaders[normalized]
+	return ok
 }
 
 func classifyDroppedHeaderName(headerName string) string {
@@ -644,7 +634,22 @@ func responseContentTypeForLog(contentType string) string {
 	if found {
 		contentType = mediaType
 	}
-	return strings.ToLower(strings.TrimSpace(contentType))
+	return truncateUTF8String(strings.ToLower(strings.TrimSpace(contentType)), maxContentTypeLogBytes)
+}
+
+func truncateUTF8String(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	truncated := value[:maxBytes]
+	for !utf8.ValidString(truncated) {
+		_, size := utf8.DecodeLastRuneInString(truncated)
+		if size <= 0 || size > len(truncated) {
+			return ""
+		}
+		truncated = truncated[:len(truncated)-size]
+	}
+	return truncated
 }
 
 func allowedMethodsList() []string {

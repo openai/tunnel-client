@@ -271,6 +271,71 @@ func TestBuildURLBundleFromPRMDWithAuthServerMetadataOverUnixSocket(t *testing.T
 	assertURLRecordNoUnixSocket(t, bundle.URLs, "issuer")
 }
 
+func TestBuildURLBundleFromPRMDWithAuthServerMetadataLimitsUnixSocketToAuthServerPath(t *testing.T) {
+	t.Parallel()
+
+	socketPath := filepath.Join(t.TempDir(), "oauth.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("unix socket unavailable: %v", err)
+	}
+
+	const (
+		logicalBaseURL = "http://localhost"
+		variant        = "dcr10"
+		resourceURL    = logicalBaseURL + "/mcp/" + variant
+		prmdURL        = logicalBaseURL + "/.well-known/oauth-protected-resource/mcp/" + variant
+		authServerURL  = logicalBaseURL + "/" + variant
+	)
+
+	mux := http.NewServeMux()
+	for _, metadataPath := range []string{
+		"/" + variant + "/.well-known/oauth-authorization-server",
+		"/.well-known/oauth-authorization-server/" + variant,
+	} {
+		mux.HandleFunc(metadataPath, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			requireJSONWrite(t, w, map[string]any{
+				"issuer":                authServerURL,
+				"token_endpoint":        logicalBaseURL + "/admin/token",
+				"registration_endpoint": authServerURL + "/register",
+				"revocation_endpoint":   logicalBaseURL + "/admin/revoke",
+			})
+		})
+	}
+
+	server := httptest.NewUnstartedServer(mux)
+	server.Listener = listener
+	server.Start()
+	t.Cleanup(server.Close)
+
+	baseTransport, err := transport.ApplyUnixSocketPath(http.DefaultTransport, socketPath)
+	if err != nil {
+		t.Fatalf("build unix transport: %v", err)
+	}
+	serverURL := mustParseURL(t, resourceURL)
+	bundle, _, err := buildURLBundleFromPRMDWithAuthServerMetadata(
+		context.Background(),
+		&http.Client{Transport: baseTransport},
+		[]byte(`{"resource":"`+resourceURL+`","authorization_servers":["`+authServerURL+`"]}`),
+		time.Unix(42, 0).UTC(),
+		mustParseURL(t, prmdURL),
+		URLBundleOptions{
+			UnixSocketPath: socketPath,
+			UnixSocketURL:  serverURL,
+		},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("build unix socket bundle: %v", err)
+	}
+
+	assertURLRecordUnixSocket(t, bundle.URLs, "auth-server-metadata", socketPath)
+	assertURLRecordUnixSocket(t, bundle.URLs, "registration-endpoint", socketPath)
+	assertURLRecordNoUnixSocket(t, bundle.URLs, "token-endpoint")
+	assertURLRecordNoUnixSocket(t, bundle.URLs, "revocation-endpoint")
+}
+
 func TestBuildURLBundleFromPRMDWithAuthServerMetadataDoesNotPropagateUnixSocketAcrossOrigins(t *testing.T) {
 	t.Parallel()
 

@@ -35,11 +35,76 @@ func (o URLBundleOptions) apply(record hostbus.URLRecord) hostbus.URLRecord {
 	return record
 }
 
+func (o URLBundleOptions) applyAuthServerMetadata(record hostbus.URLRecord, issuerURL *url.URL) hostbus.URLRecord {
+	unixSocketPath := strings.TrimSpace(o.UnixSocketPath)
+	if unixSocketPath == "" || record.URL == nil || o.UnixSocketURL == nil || issuerURL == nil {
+		return record
+	}
+	if !sameURLOrigin(record.URL, o.UnixSocketURL) || !sameURLOrigin(record.URL, issuerURL) {
+		return record
+	}
+	if !sameOrChildURLPath(record.URL, issuerURL) && !isAuthServerMetadataURLFor(record.URL, issuerURL) {
+		return record
+	}
+	record.UnixSocketPath = unixSocketPath
+	return record
+}
+
 func sameURLOrigin(left *url.URL, right *url.URL) bool {
 	if left == nil || right == nil {
 		return false
 	}
 	return strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
+}
+
+func sameOrChildURLPath(candidate *url.URL, base *url.URL) bool {
+	if candidate == nil || base == nil {
+		return false
+	}
+	candidatePath := normalizedURLPath(candidate)
+	basePath := strings.TrimRight(normalizedURLPath(base), "/")
+	if basePath == "" {
+		basePath = "/"
+	}
+	if basePath == "/" {
+		return true
+	}
+	return candidatePath == basePath || strings.HasPrefix(candidatePath, basePath+"/")
+}
+
+func isAuthServerMetadataURLFor(candidate *url.URL, issuerURL *url.URL) bool {
+	if candidate == nil || issuerURL == nil {
+		return false
+	}
+	candidatePath := strings.TrimRight(normalizedURLPath(candidate), "/")
+	issuerPath := strings.Trim(normalizedURLPath(issuerURL), "/")
+	for _, spec := range authServerWellKnownPathSpecs {
+		wellKnownPath := strings.TrimRight(spec.Path, "/")
+		if candidatePath == wellKnownPath && issuerPath == "" {
+			return true
+		}
+		if issuerPath != "" && candidatePath == wellKnownPath+"/"+issuerPath {
+			return true
+		}
+		if issuerPath != "" && candidatePath == "/"+issuerPath+wellKnownPath {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedURLPath(raw *url.URL) string {
+	if raw == nil {
+		return "/"
+	}
+	path := raw.EscapedPath()
+	if path == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
 }
 
 func buildURLBundleFromPRMDWithAuthServerMetadata(
@@ -216,14 +281,15 @@ func buildAuthServerMetadataURLRecords(
 		"auth-server-metadata",
 		authServerIndex,
 		bundleGroupID,
+		issuerURL,
 		options,
 	)
-	records = appendAuthServerMetadataRecord(records, meta.Issuer, "Auth server issuer", "issuer", authServerIndex, bundleGroupID, options)
-	records = appendAuthServerMetadataRecord(records, meta.TokenEndpoint, "Auth server token endpoint", "token-endpoint", authServerIndex, bundleGroupID, options)
-	records = appendAuthServerMetadataRecord(records, meta.JWKSURI, "Auth server JWKS URI", "jwks-uri", authServerIndex, bundleGroupID, options)
-	records = appendAuthServerMetadataRecord(records, meta.IntrospectionEndpoint, "Auth server introspection endpoint", "introspection-endpoint", authServerIndex, bundleGroupID, options)
-	records = appendAuthServerMetadataRecord(records, meta.RegistrationEndpoint, "Auth server registration endpoint", "registration-endpoint", authServerIndex, bundleGroupID, options)
-	records = appendAuthServerMetadataRecord(records, meta.RevocationEndpoint, "Auth server revocation endpoint", "revocation-endpoint", authServerIndex, bundleGroupID, options)
+	records = appendAuthServerMetadataRecord(records, meta.Issuer, "Auth server issuer", "issuer", authServerIndex, bundleGroupID, issuerURL, options)
+	records = appendAuthServerMetadataRecord(records, meta.TokenEndpoint, "Auth server token endpoint", "token-endpoint", authServerIndex, bundleGroupID, issuerURL, options)
+	records = appendAuthServerMetadataRecord(records, meta.JWKSURI, "Auth server JWKS URI", "jwks-uri", authServerIndex, bundleGroupID, issuerURL, options)
+	records = appendAuthServerMetadataRecord(records, meta.IntrospectionEndpoint, "Auth server introspection endpoint", "introspection-endpoint", authServerIndex, bundleGroupID, issuerURL, options)
+	records = appendAuthServerMetadataRecord(records, meta.RegistrationEndpoint, "Auth server registration endpoint", "registration-endpoint", authServerIndex, bundleGroupID, issuerURL, options)
+	records = appendAuthServerMetadataRecord(records, meta.RevocationEndpoint, "Auth server revocation endpoint", "revocation-endpoint", authServerIndex, bundleGroupID, issuerURL, options)
 	return records, fetchResult
 }
 
@@ -247,17 +313,18 @@ func appendAuthServerMetadataRecord(
 	role string,
 	authServerIndex int,
 	bundleGroupID string,
+	issuerURL *url.URL,
 	options URLBundleOptions,
 ) []hostbus.URLRecord {
 	parsed := parseURL(raw)
 	if parsed == nil {
 		return records
 	}
-	return append(records, options.apply(hostbus.URLRecord{
+	return append(records, options.applyAuthServerMetadata(hostbus.URLRecord{
 		URL:         parsed,
 		Description: description,
 		Tags:        defaultAuthServerMetadataTags(role, authServerIndex, bundleGroupID),
-	}))
+	}, issuerURL))
 }
 
 func defaultAuthServerMetadataTags(role string, authServerIndex int, bundleGroupID string) []hostbus.Tag {
