@@ -31,9 +31,10 @@
 If you are debugging why `/readyz` is failing or why the client never becomes
 "healthy/ready", start here:
 
-- `tunnel-client health --url-file /tmp/tunnel-client-health.url` is the
+- `tunnel-client health --url-file "$health_url_file"` is the
   fastest structured probe when you already have a health URL file from
-  `tunnel-client run`.
+  `tunnel-client run`; create that path with `mktemp` instead of a fixed
+  shared `/tmp` filename.
 - `/healthz` is liveness only. A `200 live` response means the process is up.
 - `/readyz` includes startup gating:
   - `503 oauth discovery pending` while OAuth discovery is still in flight.

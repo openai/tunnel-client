@@ -405,7 +405,7 @@ func TmuxHasSessionName(rt Runtime, sessionName string) (bool, error) {
 }
 
 func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileName string, profileDir string, env map[string]string, logPath string) (CompletedProcess, error) {
-	if err := ensureLogDir(logPath); err != nil {
+	if err := ensurePrivateLogFile(logPath); err != nil {
 		return CompletedProcess{}, err
 	}
 	if len(env) > 0 && rt.RunInput != nil {
@@ -498,11 +498,35 @@ func LogTail(pathValue string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-func ensureLogDir(pathValue string) error {
+func ensurePrivateLogFile(pathValue string) error {
 	if strings.TrimSpace(pathValue) == "" {
 		return nil
 	}
-	return os.MkdirAll(filepath.Dir(pathValue), 0o755)
+	if err := os.MkdirAll(filepath.Dir(pathValue), 0o755); err != nil {
+		return fmt.Errorf("create log directory %s: %w", filepath.Dir(pathValue), err)
+	}
+	if info, err := os.Lstat(pathValue); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("log file %s must not be a symlink", pathValue)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("log file %s must be a regular file", pathValue)
+		}
+		if err := os.Chmod(pathValue, 0o600); err != nil {
+			return fmt.Errorf("secure log file %s: %w", pathValue, err)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat log file %s: %w", pathValue, err)
+	}
+	logFile, err := os.OpenFile(pathValue, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create log file %s: %w", pathValue, err)
+	}
+	if err := logFile.Close(); err != nil {
+		return fmt.Errorf("close log file %s: %w", pathValue, err)
+	}
+	return nil
 }
 
 func logShellCommand(command string, logPath string) string {

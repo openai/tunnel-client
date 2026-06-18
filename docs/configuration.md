@@ -19,7 +19,7 @@ Use the CLI itself as the first discovery surface:
 
 Use the first-run helpers before editing YAML by hand:
 
-- `tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id <tunnel_id> --health.listen-addr 127.0.0.1:0 --health.url-file /tmp/tunnel-client-health.url`
+- `health_url_file="$(mktemp "${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url")" && tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id <tunnel_id> --health.listen-addr 127.0.0.1:0 --health.url-file "$health_url_file"`
 - `tunnel-client init --sample <sample> --profile <name> --tunnel-id <tunnel_id> --mcp-server-url <url>`
 - `tunnel-client doctor --profile <name>`
 - `tunnel-client doctor --profile <name> --explain`
@@ -596,6 +596,7 @@ registered. If there are no targets, `harpoon` commands return
   - Flag: `--health.url-file`
   - Env: `HEALTH_URL_FILE`
   - Recommended with `HEALTH_LISTEN_ADDR=:0` when another process needs the resolved `/healthz`, `/readyz`, or `/ui` base URL.
+  - Use a private per-run path such as `health_url_file="$(mktemp "${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url")"` instead of a fixed shared `/tmp` filename.
 
 ## Embedded web UI
 

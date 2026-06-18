@@ -180,7 +180,7 @@ PAGE_BLOCKS = [
         ],
         "code_blocks": [
             "tunnel-client help quickstart\ntunnel-client help doctor\ntunnel-client help plugin",
-            'export CONTROL_PLANE_API_KEY="sk-..."\ntunnel-client run \\\n  --embedded-mcp-stub \\\n  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \\\n  --health.listen-addr 127.0.0.1:0 \\\n  --health.url-file /tmp/tunnel-client-health.url\ncurl -fsS "$(cat /tmp/tunnel-client-health.url)/readyz"\nopen "$(cat /tmp/tunnel-client-health.url)/ui"',
+            'export CONTROL_PLANE_API_KEY="sk-..."\nhealth_url_file="$(mktemp "${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url")"\ntunnel-client run \\\n  --embedded-mcp-stub \\\n  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \\\n  --health.listen-addr 127.0.0.1:0 \\\n  --health.url-file "$health_url_file"\ncurl -fsS "$(cat "$health_url_file")/readyz"\nopen "$(cat "$health_url_file")/ui"',
         ],
     },
     {

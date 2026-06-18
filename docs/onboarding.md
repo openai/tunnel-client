@@ -62,9 +62,10 @@ tunnel-client help samples
 The recommended binary-first path is:
 
 ```bash
-tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef --health.listen-addr 127.0.0.1:0 --health.url-file /tmp/tunnel-client-health.url
-curl -fsS "$(cat /tmp/tunnel-client-health.url)/readyz"
-open "$(cat /tmp/tunnel-client-health.url)/ui"
+health_url_file="$(mktemp "${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url")"
+tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef --health.listen-addr 127.0.0.1:0 --health.url-file "$health_url_file"
+curl -fsS "$(cat "$health_url_file")/readyz"
+open "$(cat "$health_url_file")/ui"
 ```
 
 If Codex is installed locally and you want the plugin surface instead of the raw

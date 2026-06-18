@@ -164,13 +164,14 @@ If you already have a tunnel ID and want the smallest end-to-end demo:
 
 ```bash
 export CONTROL_PLANE_API_KEY="sk-..."
+health_url_file="$(mktemp "${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url")"
 tunnel-client run \
   --embedded-mcp-stub \
   --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \
   --health.listen-addr 127.0.0.1:0 \
-  --health.url-file /tmp/tunnel-client-health.url
-curl -fsS "$(cat /tmp/tunnel-client-health.url)/readyz"
-open "$(cat /tmp/tunnel-client-health.url)/ui"
+  --health.url-file "$health_url_file"
+curl -fsS "$(cat "$health_url_file")/readyz"
+open "$(cat "$health_url_file")/ui"
 ```
 
 If you want a named profile instead of the one-command demo path:

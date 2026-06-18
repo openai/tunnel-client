@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -147,6 +148,59 @@ func TestStartTmuxUsesSourceFileForSecretEnv(t *testing.T) {
 	require.NotContains(t, strings.Join(gotRunArgs[0], " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
 	require.NotContains(t, strings.Join(gotRunArgs[1], " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
 	require.NotContains(t, strings.Join(gotArgs, " "), "OPENAI_TUNNEL_KEY_PROD=sk-proj-runtime-secret")
+}
+
+func TestStartTmuxPrecreatesPrivateLogFile(t *testing.T) {
+	t.Parallel()
+
+	var gotArgs []string
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotArgs = append([]string{}, args...)
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+	}
+	logPath := filepath.Join(t.TempDir(), "runtime.log")
+
+	_, err := StartTmux(
+		rt,
+		"tunnel-mcp__docs-mcp__deadbeef",
+		"/tmp/tunnel-client",
+		"docs-mcp",
+		"/tmp/profiles",
+		nil,
+		logPath,
+	)
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(gotArgs, " "), " >> "+shellQuote(logPath)+" 2>&1")
+	info, err := os.Stat(logPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestStartTmuxRejectsSymlinkLogFile(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "target.log")
+	logPath := filepath.Join(dir, "runtime.log")
+	require.NoError(t, os.WriteFile(targetPath, []byte("existing"), 0o600))
+	require.NoError(t, os.Symlink(targetPath, logPath))
+
+	_, err := StartTmux(
+		Runtime{},
+		"tunnel-mcp__docs-mcp__deadbeef",
+		"/tmp/tunnel-client",
+		"docs-mcp",
+		"/tmp/profiles",
+		nil,
+		logPath,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must not be a symlink")
 }
 
 func TestStartTmuxCleansUpSessionWhenSourceFileFails(t *testing.T) {

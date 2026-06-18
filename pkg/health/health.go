@@ -188,7 +188,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 					_ = service.removeSocket()
 					return fmt.Errorf("create health URL file dir %s: %w", filepath.Dir(p.HealthConfig.URLFile), err)
 				}
-				if err := os.WriteFile(p.HealthConfig.URLFile, []byte(healthURL), 0o644); err != nil {
+				if err := writePrivateURLFile(p.HealthConfig.URLFile, []byte(healthURL)); err != nil {
 					_ = ln.Close()
 					_ = service.removeSocket()
 					return fmt.Errorf("write health URL file %s: %w", p.HealthConfig.URLFile, err)
@@ -214,6 +214,36 @@ func newHealthService(p healthParams) (*healthService, error) {
 		},
 	})
 	return service, nil
+}
+
+func writePrivateURLFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func (s *healthService) removeURLFile() error {

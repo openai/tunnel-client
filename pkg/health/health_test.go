@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -179,6 +180,33 @@ func TestRemoveURLFileMissingDoesNotError(t *testing.T) {
 
 	service := &healthService{urlFile: filepath.Join(t.TempDir(), "health-url-does-not-exist")}
 	require.NoError(t, service.removeURLFile())
+}
+
+func TestWritePrivateURLFileReplacesSymlink(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "target")
+	urlFile := filepath.Join(dir, "health.url")
+	require.NoError(t, os.WriteFile(targetPath, []byte("target contents"), 0o600))
+	require.NoError(t, os.Symlink(targetPath, urlFile))
+
+	require.NoError(t, writePrivateURLFile(urlFile, []byte("http://127.0.0.1:1234")))
+
+	targetContents, err := os.ReadFile(targetPath)
+	require.NoError(t, err)
+	require.Equal(t, "target contents", string(targetContents))
+
+	info, err := os.Lstat(urlFile)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0), info.Mode()&os.ModeSymlink)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	urlContents, err := os.ReadFile(urlFile)
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:1234", string(urlContents))
 }
 
 func TestIsUnspecifiedHost(t *testing.T) {

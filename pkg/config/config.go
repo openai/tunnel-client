@@ -359,7 +359,7 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	fs.PrintDefaults()
 	_, _ = fmt.Fprintln(fs.Output(), "\nAgent-first next steps:")
 	_, _ = fmt.Fprintln(fs.Output(), "  tunnel-client help quickstart")
-	_, _ = fmt.Fprintln(fs.Output(), "  tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_... --health.listen-addr 127.0.0.1:0 --health.url-file /tmp/tunnel-client-health.url")
+	_, _ = fmt.Fprintln(fs.Output(), "  health_url_file=\"$(mktemp \"${TMPDIR:-/tmp}/tunnel-client-health.XXXXXX.url\")\"; tunnel-client run --embedded-mcp-stub --control-plane.tunnel-id tunnel_... --health.listen-addr 127.0.0.1:0 --health.url-file \"$health_url_file\"")
 	_, _ = fmt.Fprintln(fs.Output(), "  tunnel-client init --profile sample_mcp_with_dcr --tunnel-id tunnel_... --mcp-server-url http://127.0.0.1:3001/mcp")
 	_, _ = fmt.Fprintln(fs.Output(), "  tunnel-client doctor --profile sample_mcp_with_dcr")
 	_, _ = fmt.Fprintln(fs.Output(), "  tunnel-client profiles samples list")
