@@ -4,9 +4,12 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 const defaultLoopbackMessage = "access is restricted to loopback; set --allow-remote-ui to override"
+const defaultSameOriginMessage = "unsafe browser request must be same-origin"
 
 type connectionNetworkKey struct{}
 
@@ -61,6 +64,67 @@ func LocalOnly(next http.Handler, message string) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// SameOriginUnsafe rejects unsafe browser requests that do not originate from
+// the admin UI origin. Requests without browser CSRF headers are allowed so
+// local non-browser clients keep working.
+func SameOriginUnsafe(next http.Handler, message string) http.Handler {
+	if message == "" {
+		message = defaultSameOriginMessage
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isUnsafeMethod(r.Method) && !IsSameOriginBrowserRequest(r) {
+			http.Error(w, message, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isUnsafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return false
+	default:
+		return true
+	}
+}
+
+// IsSameOriginBrowserRequest reports whether a browser-originated unsafe
+// request came from the same origin as the admin endpoint.
+func IsSameOriginBrowserRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		return false
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return requestURLMatchesOrigin(r, origin)
+	}
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+		return requestURLMatchesOrigin(r, referer)
+	}
+	return true
+}
+
+func requestURLMatchesOrigin(r *http.Request, raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, requestScheme(r)) && strings.EqualFold(parsed.Host, r.Host)
+}
+
+func requestScheme(r *http.Request) string {
+	if r != nil && r.TLS != nil {
+		return "https"
+	}
+	if r != nil && r.URL != nil && r.URL.Scheme != "" {
+		return r.URL.Scheme
+	}
+	return "http"
 }
 
 // IsLoopbackRequest reports whether a request originates from loopback.

@@ -123,6 +123,126 @@ func TestLocalOnly(t *testing.T) {
 	})
 }
 
+func TestSameOriginUnsafe(t *testing.T) {
+	t.Parallel()
+
+	t.Run("allows same-origin unsafe browser request", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		handler := SameOriginUnsafe(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}), "")
+
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9090/api/codex/thread/start", nil)
+		req.Header.Set("Origin", "http://127.0.0.1:9090")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		if !called {
+			t.Fatalf("next handler should be called for same-origin request")
+		}
+		if resp.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusNoContent)
+		}
+	})
+
+	t.Run("rejects cross-origin unsafe browser request", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		handler := SameOriginUnsafe(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}), "")
+
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9090/api/codex/thread/start", nil)
+		req.Header.Set("Origin", "https://attacker.example")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		if called {
+			t.Fatalf("next handler should not be called for cross-origin request")
+		}
+		if resp.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusForbidden)
+		}
+	})
+
+	t.Run("rejects cross-site fetch metadata without origin", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		handler := SameOriginUnsafe(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}), "")
+
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9090/api/codex/thread/start", nil)
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		if called {
+			t.Fatalf("next handler should not be called for cross-site request")
+		}
+		if resp.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusForbidden)
+		}
+	})
+
+	t.Run("allows safe browser reads", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		handler := SameOriginUnsafe(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}), "")
+
+		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9090/api/codex/status", nil)
+		req.Header.Set("Origin", "https://attacker.example")
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		if !called {
+			t.Fatalf("next handler should be called for safe method")
+		}
+		if resp.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusNoContent)
+		}
+	})
+
+	t.Run("allows local non-browser unsafe request", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		handler := SameOriginUnsafe(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}), "")
+
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9090/api/codex/thread/start", nil)
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		if !called {
+			t.Fatalf("next handler should be called for local non-browser request")
+		}
+		if resp.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusNoContent)
+		}
+	})
+}
+
 func TestGuardedMuxHandleFunc(t *testing.T) {
 	t.Parallel()
 
