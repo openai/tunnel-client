@@ -386,7 +386,48 @@ describe("App", () => {
       thread_id: "thread_adminui",
       prompt: "Check tunnel health",
       approval_policy: "never",
-      sandbox_type: "danger-full-access",
+      sandbox_type: "workspace-write",
+      inject_context: true,
+    });
+  });
+
+  it("starts an Assistant chat with a managed-compatible sandbox", async () => {
+    let lastThreadBody = "";
+
+    installAppFetchMock({
+      onRequest: ({ url, init }) => {
+        if (url.includes("/api/codex/thread/start")) {
+          lastThreadBody = String(init?.body || "");
+          return jsonResponse({
+            thread_id: "thread_new",
+            cwd: "/workspace/tunnel-client",
+            approval_policy: "never",
+            sandbox: "workspace-write",
+          });
+        }
+        return undefined;
+      },
+    });
+
+    const { getByRole } = render(App);
+
+    await fireEvent.click(getByRole("tab", { name: "Assistant" }));
+    const startButton = await waitFor(() => {
+      const button = getByRole("button", { name: "New chat" }) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      return button;
+    });
+    await fireEvent.click(startButton);
+
+    await waitFor(() => {
+      expect(lastThreadBody).not.toBe("");
+    });
+    expect(JSON.parse(lastThreadBody)).toEqual({
+      cwd: "/workspace/tunnel-client",
+      model: "",
+      approval_policy: "never",
+      sandbox_type: "workspace-write",
+      developer_instructions: "",
       inject_context: true,
     });
   });

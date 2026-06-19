@@ -29,6 +29,9 @@
     status: string;
   };
 
+  const assistantApprovalPolicy = "never";
+  const assistantSandboxType = "workspace-write";
+
   let status: CodexStatusResponse | null = null;
   let events: CodexEvent[] = [];
   let transcriptTurns: TranscriptTurn[] = [];
@@ -298,8 +301,8 @@
       await postJSON<CodexThreadStartResponse>("/api/codex/thread/start", {
         cwd: threadCwd,
         model: threadModel,
-        approval_policy: "never",
-        sandbox_type: "danger-full-access",
+        approval_policy: assistantApprovalPolicy,
+        sandbox_type: assistantSandboxType,
         developer_instructions: threadDeveloperInstructions,
         inject_context: threadInjectContext,
       });
@@ -322,8 +325,8 @@
       const response = await postJSON<CodexTurnStartResponse>("/api/codex/turn/start", {
         thread_id: status?.thread?.id || "",
         prompt: turnPrompt,
-        approval_policy: "never",
-        sandbox_type: "danger-full-access",
+        approval_policy: assistantApprovalPolicy,
+        sandbox_type: assistantSandboxType,
         inject_context: turnInjectContext,
       });
       if (response.turn_id) {

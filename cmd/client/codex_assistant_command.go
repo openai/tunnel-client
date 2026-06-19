@@ -20,7 +20,7 @@ import (
 
 const (
 	defaultCodexAssistantApprovalPolicy = "never"
-	defaultCodexAssistantSandboxType    = "danger-full-access"
+	defaultCodexAssistantSandboxType    = "workspace-write"
 	defaultCodexAssistantEffort         = "medium"
 	defaultCodexAssistantLoginTimeout   = 5 * time.Minute
 )

@@ -12,7 +12,7 @@ func TestCodexSandboxTypeNormalizesLegacyAliases(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"":                   "danger-full-access",
+		"":                   "workspace-write",
 		"dangerFullAccess":   "danger-full-access",
 		"workspaceWrite":     "workspace-write",
 		"readOnly":           "read-only",

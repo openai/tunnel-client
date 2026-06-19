@@ -351,7 +351,7 @@ func TestCodexAssistantReportsTurnStallDiagnostics(t *testing.T) {
 	require.ErrorContains(t, err, "recent stderr: turn started but no completion arrived")
 }
 
-func TestCodexAssistantDefaultsToMediumReasoning(t *testing.T) {
+func TestCodexAssistantUsesManagedCompatibleTurnDefaults(t *testing.T) {
 	capturePath := filepath.Join(t.TempDir(), "turn_start.json")
 	t.Setenv("GO_WANT_CODEX_TURN_START_CAPTURE", capturePath)
 
@@ -365,6 +365,8 @@ func TestCodexAssistantDefaultsToMediumReasoning(t *testing.T) {
 	require.NoError(t, err, stderr)
 	params := readCapturedTurnStartParams(t, capturePath)
 	require.Equal(t, defaultCodexAssistantEffort, params.Effort)
+	require.Equal(t, defaultCodexAssistantApprovalPolicy, params.ApprovalPolicy)
+	require.Equal(t, "workspaceWrite", params.SandboxPolicy.Type)
 }
 
 func TestCodexAssistantInjectsPackagedKnowledgeWhenRepoDocsMayBeAbsent(t *testing.T) {
@@ -566,6 +568,8 @@ func TestCodexAssistantUsesStandaloneWorkspaceAsThreadCWD(t *testing.T) {
 
 	params := readCapturedThreadStartParams(t, capturePath)
 	require.Equal(t, workspace, params.CWD)
+	require.Equal(t, defaultCodexAssistantApprovalPolicy, params.ApprovalPolicy)
+	require.Equal(t, defaultCodexAssistantSandboxType, params.Sandbox)
 	require.Contains(t, params.DeveloperInstructions, "Stay focused on this workspace root: "+workspace)
 }
 
@@ -671,6 +675,8 @@ func maybeCaptureThreadStartParams(t *testing.T, params any) {
 
 type capturedThreadStartParams struct {
 	CWD                   string `json:"cwd"`
+	ApprovalPolicy        string `json:"approvalPolicy"`
+	Sandbox               string `json:"sandbox"`
 	DeveloperInstructions string `json:"developerInstructions"`
 }
 
@@ -695,8 +701,12 @@ func maybeCaptureTurnStartParams(t *testing.T, params any) {
 }
 
 type capturedTurnStartParams struct {
-	Model  string `json:"model"`
-	Effort string `json:"effort"`
+	Model          string `json:"model"`
+	Effort         string `json:"effort"`
+	ApprovalPolicy string `json:"approvalPolicy"`
+	SandboxPolicy  struct {
+		Type string `json:"type"`
+	} `json:"sandboxPolicy"`
 }
 
 func readCapturedTurnStartParams(t *testing.T, path string) capturedTurnStartParams {

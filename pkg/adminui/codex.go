@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultCodexApprovalPolicy = "never"
-	defaultCodexSandboxType    = "danger-full-access"
+	defaultCodexSandboxType    = "workspace-write"
 )
 
 type codexEventsResponse struct {
