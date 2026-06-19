@@ -8,8 +8,7 @@ on:
       - "v*"  # release tags must be v<semver>--<operator-word>
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -130,6 +129,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: macos-latest
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Derive release metadata
