@@ -146,10 +146,10 @@ func registerRoutes(p routeParams) error {
 	gmux.HandleFunc("/api/codex/status", handleCodexStatus(p))
 	gmux.HandleFunc("/api/codex/events", handleCodexEvents(p))
 	gmux.HandleFunc("/api/codex/events/stream", handleCodexEventsStream(p, streamCtx))
-	gmux.HandleFunc("/api/codex/login/device", handleCodexLoginDevice(p))
-	gmux.HandleFunc("/api/codex/login/cancel", handleCodexLoginCancel(p))
-	gmux.HandleFunc("/api/codex/thread/start", handleCodexThreadStart(p))
-	gmux.HandleFunc("/api/codex/turn/start", handleCodexTurnStart(p))
+	gmux.Handle("/api/codex/login/device", adminSameOriginUnsafe(handleCodexLoginDevice(p)))
+	gmux.Handle("/api/codex/login/cancel", adminSameOriginUnsafe(handleCodexLoginCancel(p)))
+	gmux.Handle("/api/codex/thread/start", adminSameOriginUnsafe(handleCodexThreadStart(p)))
+	gmux.Handle("/api/codex/turn/start", adminSameOriginUnsafe(handleCodexTurnStart(p)))
 	gmux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -160,6 +160,13 @@ func registerRoutes(p routeParams) error {
 	}
 
 	return nil
+}
+
+func adminSameOriginUnsafe(fn http.HandlerFunc) http.Handler {
+	return httpguard.SameOriginUnsafe(
+		fn,
+		"admin UI unsafe request must be same-origin",
+	)
 }
 
 func newConfiguredLogBuffer(cfg *config.AdminUIConfig) *LogBuffer {
