@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	oauthMetadataRequestRetryCount   = 3
-	oauthMetadataRequestTimeoutBase  = 2 * time.Second
-	authServerMetadataBodyLimitBytes = 1024 * 1024 // 1MB
+	oauthMetadataRequestRetryCount          = 3
+	oauthMetadataRequestTimeoutBase         = 2 * time.Second
+	protectedResourceMetadataBodyLimitBytes = 1024 * 1024 // 1MB
+	authServerMetadataBodyLimitBytes        = 1024 * 1024 // 1MB
 )
 
 type discoveryRetryMode int

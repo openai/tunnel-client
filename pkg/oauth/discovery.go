@@ -133,7 +133,7 @@ func runOAuthMetadataDiscoveryPass(
 
 		failureType = discoveryFailureTypeNonTimeout
 		attempts[i].StatusCode = resp.StatusCode
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, protectedResourceMetadataBodyLimitBytes+1))
 		_ = resp.Body.Close()
 		if readErr != nil {
 			lastErr = fmt.Errorf("oauth discovery read %s: %w", candidate.URL.String(), readErr)
@@ -141,6 +141,21 @@ func runOAuthMetadataDiscoveryPass(
 			if resp.StatusCode >= 500 && i+1 < len(filtered) {
 				if logger != nil {
 					logger.DebugContext(ctx, "oauth discovery retrying after read failure", slog.String("url", candidate.URL.String()), slog.Int("status", resp.StatusCode))
+				}
+				continue
+			}
+			return nil, nil, discoveryFailureTypeNotApplicable, lastErr
+		}
+		if len(body) > protectedResourceMetadataBodyLimitBytes {
+			lastErr = fmt.Errorf(
+				"oauth discovery response body from %s exceeds %d bytes",
+				candidate.URL.String(),
+				protectedResourceMetadataBodyLimitBytes,
+			)
+			attempts[i].Error = lastErr.Error()
+			if resp.StatusCode >= 500 && i+1 < len(filtered) {
+				if logger != nil {
+					logger.DebugContext(ctx, "oauth discovery retrying after oversized body", slog.String("url", candidate.URL.String()), slog.Int("status", resp.StatusCode))
 				}
 				continue
 			}

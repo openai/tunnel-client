@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +145,31 @@ func TestFetchOAuthMetadataEmptyBodyIsError(t *testing.T) {
 	)
 	require.Error(t, fetchErr)
 	require.Contains(t, fetchErr.Error(), "empty body")
+}
+
+func TestFetchOAuthMetadataRejectsOversizedBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(strings.Repeat("a", protectedResourceMetadataBodyLimitBytes+1)))
+	}))
+	t.Cleanup(server.Close)
+
+	candidateURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+
+	resp, _, attempts, fetchErr := FetchOAuthMetadata(
+		context.Background(),
+		server.Client(),
+		[]DiscoveryCandidate{{URL: candidateURL, Source: DiscoverySourceWWWAuthenticate}},
+		nil,
+	)
+	require.Error(t, fetchErr)
+	require.Nil(t, resp)
+	require.Contains(t, fetchErr.Error(), "exceeds")
+	require.Len(t, attempts, 1)
+	require.Contains(t, attempts[0].Error, "exceeds")
 }
 
 func TestFetchOAuthMetadataFallsBackOn5xxEmptyBody(t *testing.T) {
