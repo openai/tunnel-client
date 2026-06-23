@@ -3,6 +3,7 @@ package proxyhealth
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -263,11 +264,31 @@ func dialTCP(ctx context.Context, hostPort string, timeout time.Duration) (net.C
 }
 
 func connectThroughProxy(conn net.Conn, proxyURL *url.URL, targetHostPort string, timeout time.Duration) (time.Duration, string, error) {
+	return connectThroughProxyWithTLSConfig(conn, proxyURL, targetHostPort, timeout, nil)
+}
+
+func connectThroughProxyWithTLSConfig(conn net.Conn, proxyURL *url.URL, targetHostPort string, timeout time.Duration, tlsConfig *tls.Config) (time.Duration, string, error) {
 	if conn == nil {
 		return 0, "", errors.New("missing connection")
 	}
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	start := time.Now()
+	proxyConn := conn
+
+	if proxyURL != nil && strings.EqualFold(proxyURL.Scheme, "https") {
+		config := &tls.Config{}
+		if tlsConfig != nil {
+			config = tlsConfig.Clone()
+		}
+		if config.ServerName == "" {
+			config.ServerName = proxyURL.Hostname()
+		}
+		tlsConn := tls.Client(conn, config)
+		if err := tlsConn.Handshake(); err != nil {
+			return time.Since(start), "", fmt.Errorf("tls handshake with proxy: %w", err)
+		}
+		proxyConn = tlsConn
+	}
 
 	proxyAuth := ""
 	if proxyURL != nil && proxyURL.User != nil {
@@ -278,11 +299,11 @@ func connectThroughProxy(conn net.Conn, proxyURL *url.URL, targetHostPort string
 	}
 
 	request := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n", targetHostPort, targetHostPort, proxyAuth)
-	if _, err := conn.Write([]byte(request)); err != nil {
+	if _, err := proxyConn.Write([]byte(request)); err != nil {
 		return time.Since(start), "", err
 	}
 
-	reader := bufio.NewReader(conn)
+	reader := bufio.NewReader(proxyConn)
 	statusLine, err := reader.ReadString('\n')
 	if err != nil {
 		return time.Since(start), "", err

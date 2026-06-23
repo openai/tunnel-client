@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/base64"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -97,6 +99,61 @@ func TestConnectThroughProxyIncludesProxyAuthorization(t *testing.T) {
 	wantHeader := "Proxy-Authorization: Basic " + encodedCreds + "\r\n"
 	if !strings.Contains(rawRequest, wantHeader) {
 		t.Fatalf("missing proxy authorization header: got %q want to contain %q", rawRequest, wantHeader)
+	}
+}
+
+func TestConnectThroughHTTPSProxyEncryptsProxyAuthorization(t *testing.T) {
+	t.Parallel()
+
+	requests := make(chan *http.Request, 1)
+	proxy := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(proxy.Close)
+
+	conn, err := net.Dial("tcp", proxy.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial HTTPS proxy: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+
+	proxyURL := mustParseURL(t, "https://alice:wonderland@"+proxy.Listener.Addr().String())
+	transport, ok := proxy.Client().Transport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil {
+		t.Fatalf("TLS test transport missing client TLS config: %T", proxy.Client().Transport)
+	}
+
+	duration, category, err := connectThroughProxyWithTLSConfig(
+		conn,
+		proxyURL,
+		"api.example.com:443",
+		time.Second,
+		transport.TLSClientConfig,
+	)
+	if err != nil {
+		t.Fatalf("connectThroughProxyWithTLSConfig returned error: %v", err)
+	}
+	if category != "2xx" {
+		t.Fatalf("status category = %q, want %q", category, "2xx")
+	}
+	if duration <= 0 {
+		t.Fatalf("duration = %v, want > 0", duration)
+	}
+
+	select {
+	case req := <-requests:
+		if req.Method != http.MethodConnect {
+			t.Fatalf("method = %q, want %q", req.Method, http.MethodConnect)
+		}
+		encodedCreds := base64.StdEncoding.EncodeToString([]byte("alice:wonderland"))
+		if got, want := req.Header.Get("Proxy-Authorization"), "Basic "+encodedCreds; got != want {
+			t.Fatalf("Proxy-Authorization = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for HTTPS CONNECT request")
 	}
 }
 
