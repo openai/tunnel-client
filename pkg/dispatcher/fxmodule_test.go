@@ -2,12 +2,14 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"go.openai.org/api/tunnel-client/pkg/config"
 	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
@@ -23,6 +25,7 @@ func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
 			{
 				Channel:                    types.Channel(" MAIN "),
 				Priority:                   0,
+				TransportKind:              config.MCPTransportHTTPStreamable,
 				Transport:                  noopTransport{},
 				SupportsMCP:                true,
 				SupportsOAuth:              true,
@@ -31,6 +34,7 @@ func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
 			{
 				Channel:                    types.Channel("harpoon"),
 				Priority:                   0,
+				TransportKind:              config.MCPTransportInMemory,
 				Transport:                  noopTransport{},
 				SupportsMCP:                true,
 				SupportsOAuth:              false,
@@ -53,6 +57,30 @@ func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
 	require.True(t, harpoonBinding.SupportsMCP)
 	require.False(t, harpoonBinding.SupportsOAuth)
 	require.False(t, harpoonBinding.SupportsSessionTermination)
+}
+
+func TestNewProcessorChannelBindingsSerializesStdioTransport(t *testing.T) {
+	t.Parallel()
+
+	bindings, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				TransportKind: config.MCPTransportStdio,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.ChannelHarpoon,
+				TransportKind: config.MCPTransportInMemory,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, fmt.Sprintf("%T", bindings[types.DefaultChannel].Transport), "serializedForwardingTransport")
 }
 
 func TestNewProcessorChannelBindingsMissingRequired(t *testing.T) {

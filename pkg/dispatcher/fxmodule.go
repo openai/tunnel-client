@@ -53,6 +53,7 @@ func newPolledCommandQueue(p Params) Result {
 type dispatcherChannelBinding struct {
 	Channel                    types.Channel
 	Priority                   int
+	TransportKind              config.MCPTransportKind
 	Transport                  mcp.Transport
 	Routable                   func() bool
 	SupportsMCP                bool
@@ -115,6 +116,7 @@ func newConfiguredChannelBindings(cfg *config.MCPConfig, factory *mcpclient.Chan
 		bindings = append(bindings, dispatcherChannelBinding{
 			Channel:                    channelName,
 			Priority:                   0,
+			TransportKind:              transportKind,
 			Transport:                  transport,
 			SupportsMCP:                true,
 			SupportsOAuth:              channelName == types.DefaultChannel,
@@ -136,6 +138,7 @@ func newHarpoonChannelBinding(p harpoonChannelBindingParams) dispatcherChannelBi
 	return dispatcherChannelBinding{
 		Channel:                    types.ChannelHarpoon,
 		Priority:                   0,
+		TransportKind:              config.MCPTransportInMemory,
 		Transport:                  transport,
 		SupportsMCP:                true,
 		SupportsOAuth:              false,
@@ -179,7 +182,10 @@ func newProcessorChannelBindings(p processorChannelBindingsParams) (map[types.Ch
 		var transport mcpclient.ForwardingTransport
 		if binding.Transport != nil {
 			transport = mcpclient.NewForwardingTransport(binding.Transport)
-			if canonical == types.ChannelHarpoon {
+			// Stdio and Harpoon reuse a single underlying connection. Keep one
+			// request lifecycle active at a time so concurrent workers cannot
+			// consume another request's JSON-RPC response.
+			if canonical == types.ChannelHarpoon || binding.TransportKind == config.MCPTransportStdio {
 				transport = mcpclient.NewSerializedForwardingTransport(transport)
 			}
 		}
