@@ -74,6 +74,54 @@ func TestHarpoonMetricsRecordSuccessAndInvalidInput(t *testing.T) {
 	require.EqualValues(t, 0, int64HistogramSumByOutcome(responseSize.DataPoints, metricOutcomeInvalidInput))
 }
 
+func TestHarpoonMetricsCollapseUnknownTargetLabels(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+	})
+
+	cfg := &config.HarpoonConfig{
+		AllowPlaintextHTTP: true,
+		MaxResponseBytes:   1024,
+		MaxRedirects:       5,
+		Targets: []config.HarpoonTarget{{
+			Label:   "svc",
+			BaseURL: mustParseURL(t, "http://example.test"),
+		}},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, cfg.AllowPlaintextHTTP, convertTargets(cfg.Targets))
+	require.NoError(t, err)
+
+	server, err := NewServer(cfg, registry, NewCallBuffer(), logger, WithMeter(provider.Meter("harpoon-test")))
+	require.NoError(t, err)
+
+	for _, label := range []string{"unknown-a", "unknown-b"} {
+		_, err = server.callTarget(context.Background(), callTargetRequest{
+			Label:  label,
+			Method: http.MethodGet,
+		})
+		require.Error(t, err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	callTotal := findInt64Counter(t, rm, metricNameHarpoonCallTotal)
+	require.EqualValues(
+		t,
+		2,
+		counterValueByOutcomeAndLabel(
+			callTotal.DataPoints,
+			metricOutcomeInvalidInput,
+			defaultMetricsUnknownTargetLabel,
+		),
+	)
+	require.Zero(t, counterValueByOutcomeAndLabel(callTotal.DataPoints, metricOutcomeInvalidInput, "unknown-a"))
+	require.Zero(t, counterValueByOutcomeAndLabel(callTotal.DataPoints, metricOutcomeInvalidInput, "unknown-b"))
+}
+
 func findInt64Counter(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.Sum[int64] {
 	t.Helper()
 	for _, scope := range rm.ScopeMetrics {
@@ -125,6 +173,17 @@ func findInt64Histogram(t *testing.T, rm metricdata.ResourceMetrics, name string
 func counterValueByOutcome(dataPoints []metricdata.DataPoint[int64], outcome string) int64 {
 	for _, dp := range dataPoints {
 		if attr, ok := dp.Attributes.Value(attribute.Key("outcome")); ok && attr.AsString() == outcome {
+			return dp.Value
+		}
+	}
+	return 0
+}
+
+func counterValueByOutcomeAndLabel(dataPoints []metricdata.DataPoint[int64], outcome string, label string) int64 {
+	for _, dp := range dataPoints {
+		outcomeAttr, outcomeOK := dp.Attributes.Value(attribute.Key("outcome"))
+		labelAttr, labelOK := dp.Attributes.Value(attribute.Key("label"))
+		if outcomeOK && labelOK && outcomeAttr.AsString() == outcome && labelAttr.AsString() == label {
 			return dp.Value
 		}
 	}

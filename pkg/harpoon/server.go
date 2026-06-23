@@ -341,8 +341,9 @@ func (s *Server) callTarget(ctx context.Context, params callTargetRequest) (*cal
 	start := time.Now()
 
 	label := strings.TrimSpace(params.Label)
+	metricsLabel := defaultMetricsUnknownTargetLabel
 	recordMetrics := func(statusCode int, outcome string, responseBytes int) {
-		s.recordCallMetrics(ctx, label, statusCode, outcome, responseBytes, start)
+		s.recordCallMetrics(ctx, metricsLabel, statusCode, outcome, responseBytes, start)
 	}
 	if label == "" {
 		recordMetrics(0, metricOutcomeInvalidInput, 0)
@@ -353,6 +354,7 @@ func (s *Server) callTarget(ctx context.Context, params callTargetRequest) (*cal
 		recordMetrics(0, metricOutcomeInvalidInput, 0)
 		return nil, newToolError(label, "unknown target")
 	}
+	metricsLabel = label
 
 	method := strings.ToUpper(strings.TrimSpace(params.Method))
 	if _, ok := allowedMethods[method]; !ok {
