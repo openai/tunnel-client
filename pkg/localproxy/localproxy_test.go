@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,23 @@ import (
 	"go.openai.org/api/tunnel-client/pkg/types"
 	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
 )
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
+}
 
 func TestStartFrontsHTTPMCPServerWithoutHealthListener(t *testing.T) {
 	mcpServer := mockmcpserver.NewMockMCPServer(
@@ -40,7 +58,7 @@ func TestStartFrontsHTTPMCPServerWithoutHealthListener(t *testing.T) {
 	)
 	mcpServer.Start(t)
 
-	var stderr bytes.Buffer
+	var stderr lockedBuffer
 	proxy, err := Start(context.Background(), Options{
 		MCPServerURLs: []string{mcpServer.BaseURL().String()},
 		Stderr:        &stderr,
