@@ -2219,7 +2219,7 @@ func TestProcessorForwardResponsesClosesConnectionWhenNotificationForwardingFail
 	require.True(t, conn.closed)
 }
 
-func TestProcessorForwardResponsesStopsOnNonResponseMessage(t *testing.T) {
+func TestProcessorForwardResponsesPostsTerminalErrorOnNonResponseMessage(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -2257,15 +2257,50 @@ func TestProcessorForwardResponsesStopsOnNonResponseMessage(t *testing.T) {
 	}
 
 	require.NoError(t, processor.Process(context.Background(), cmd))
-
-	select {
-	case resp := <-responder.responses:
-		t.Fatalf("unexpected response posted: %+v", resp)
-	default:
-	}
+	assertTerminalJSONRPCErrorResponse(t, responder, cmd, http.StatusBadGateway, "Bad Gateway", "received non-response message from MCP server")
 }
 
-func TestProcessorForwardResponsesStopsOnIDMismatch(t *testing.T) {
+func TestProcessorForwardResponsesPostsTerminalErrorOnInvalidID(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	responder := newRecordingResponder()
+
+	callID, err := jsonrpc.MakeID("invalid-id-call")
+	require.NoError(t, err)
+
+	transport := &stubForwardingTransport{conn: &scriptedForwardingConnection{
+		statusCode: http.StatusOK,
+		readSteps: []readStep{
+			{msg: &jsonrpc.Response{Result: json.RawMessage(`{"ok":true}`)}, err: nil},
+		},
+	}}
+
+	meterProvider := newTestMeterProvider(t)
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: newTestChannelBindings(transport),
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, time.Second),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   meterProvider,
+	})
+	require.NoError(t, err)
+
+	cmd := &fakePolledCommand{
+		id:         types.RequestID("invalid-id-request"),
+		message:    &jsonrpc.Request{ID: callID, Method: "ping"},
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		shardToken: "shard-invalid-id",
+	}
+
+	require.NoError(t, processor.Process(context.Background(), cmd))
+	assertTerminalJSONRPCErrorResponse(t, responder, cmd, http.StatusBadGateway, "Bad Gateway", "received response without valid ID from MCP server")
+}
+
+func TestProcessorForwardResponsesPostsTerminalErrorOnIDMismatch(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -2304,12 +2339,7 @@ func TestProcessorForwardResponsesStopsOnIDMismatch(t *testing.T) {
 	}
 
 	require.NoError(t, processor.Process(context.Background(), cmd))
-
-	select {
-	case resp := <-responder.responses:
-		t.Fatalf("unexpected response posted: %+v", resp)
-	default:
-	}
+	assertTerminalJSONRPCErrorResponse(t, responder, cmd, http.StatusBadGateway, "Bad Gateway", "received response with mismatched ID from MCP server")
 }
 
 func TestProcessorForwardResponsesStopsWhenConnectionTTLReached(t *testing.T) {
