@@ -95,7 +95,7 @@ func TestChannelTransportFactoryAppliesProxy(t *testing.T) {
 func TestChannelTransportFactoryDialsUnixSocket(t *testing.T) {
 	t.Parallel()
 
-	socketFile, err := os.CreateTemp("/tmp", "mcp-client-*.sock")
+	socketFile, err := os.CreateTemp(t.TempDir(), "mcp-client-*.sock")
 	if err != nil {
 		t.Fatalf("create unix socket temp file: %v", err)
 	}

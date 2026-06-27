@@ -43,7 +43,7 @@ func TestApplyClientCertificateConfiguresExplicitClientCertificateCallback(t *te
 func TestApplyUnixSocketPathDialsUnixListener(t *testing.T) {
 	t.Parallel()
 
-	socketFile, err := os.CreateTemp("/tmp", "transport-*.sock")
+	socketFile, err := os.CreateTemp(t.TempDir(), "transport-*.sock")
 	require.NoError(t, err)
 	socketPath := socketFile.Name()
 	require.NoError(t, socketFile.Close())

@@ -1,6 +1,7 @@
 package mcpclient
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	tclog "go.openai.org/api/tunnel-client/pkg/log"
 	"go.openai.org/api/tunnel-client/pkg/proxy"
 	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
 )
 
 // ChannelTransportFactory builds and caches MCP transports for configured
@@ -28,6 +30,7 @@ import (
 // proxy selection, mTLS config, and raw-HTTP logging remain stable across
 // requests for that channel.
 type ChannelTransportFactory struct {
+	rootConfig    *config.Config
 	config        *config.MCPConfig
 	logger        *slog.Logger
 	logging       *config.LoggingConfig
@@ -35,9 +38,14 @@ type ChannelTransportFactory struct {
 	meterProvider *sdkmetric.MeterProvider
 	tlsBundle     *tlsconfig.Bundle
 
-	mu          sync.Mutex
-	transports  map[string]mcp.Transport
-	httpClients map[string]*http.Client
+	mu                sync.Mutex
+	transports        map[string]mcp.Transport
+	httpClients       map[string]*http.Client
+	dynamicTransports map[string]*tctransport.DynamicRoundTripper
+	activeClientCerts map[string]*tlsconfig.ClientCertificate
+	activeProxyURLs   map[string]*url.URL
+	activeUnixSockets map[string]string
+	activeServerURLs  map[string]*url.URL
 
 	transportGroup  singleflight.Group
 	httpClientGroup singleflight.Group
@@ -46,6 +54,8 @@ type ChannelTransportFactory struct {
 type channelTransportFactoryParams struct {
 	fx.In
 
+	Lifecycle          fx.Lifecycle
+	RootConfig         *config.Config
 	Config             *config.MCPConfig
 	Logging            *config.LoggingConfig
 	Logger             *slog.Logger
@@ -59,17 +69,82 @@ func newChannelTransportFactory(p channelTransportFactoryParams) (*ChannelTransp
 		return nil, fmt.Errorf("mcpclient: channel transport factory requires config, logging, logger, and meter provider")
 	}
 	factory := &ChannelTransportFactory{
-		config:        p.Config,
-		logger:        p.Logger,
-		logging:       p.Logging,
-		meterProvider: p.MeterProvider,
-		tlsBundle:     p.TLSBundle,
-		providers:     p.TransportProviders,
-		transports:    make(map[string]mcp.Transport),
-		httpClients:   make(map[string]*http.Client),
+		rootConfig:        p.RootConfig,
+		config:            p.Config,
+		logger:            p.Logger,
+		logging:           p.Logging,
+		meterProvider:     p.MeterProvider,
+		tlsBundle:         p.TLSBundle,
+		providers:         p.TransportProviders,
+		transports:        make(map[string]mcp.Transport),
+		httpClients:       make(map[string]*http.Client),
+		dynamicTransports: make(map[string]*tctransport.DynamicRoundTripper),
+		activeClientCerts: make(map[string]*tlsconfig.ClientCertificate),
+		activeProxyURLs:   make(map[string]*url.URL),
+		activeUnixSockets: make(map[string]string),
+		activeServerURLs:  make(map[string]*url.URL),
 	}
+
+	if p.RootConfig != nil && p.RootConfig.Runtime.ConfigFile != "" {
+		watcherCtx, watcherCancel := context.WithCancel(context.Background())
+		w, err := config.NewWatcher(p.Logger)
+		if err == nil {
+			_ = w.Add(p.RootConfig.Runtime.ConfigFile)
+			if p.TLSBundle != nil && p.TLSBundle.Path != "" {
+				_ = w.Add(p.TLSBundle.Path)
+			}
+			go w.Start(watcherCtx, func() {
+				factory.reloadConfig()
+			})
+			p.Lifecycle.Append(fx.Hook{
+				OnStop: func(context.Context) error {
+					watcherCancel()
+					_ = w.Close()
+					return nil
+				},
+			})
+		} else {
+			p.Logger.Warn("failed to initialize config watcher", slog.String("error", err.Error()))
+		}
+	}
+
 	factory.logProxyConfig()
 	return factory, nil
+}
+
+func (f *ChannelTransportFactory) reloadConfig() {
+	newBundle, newProxy, err := config.ReloadDynamicMCPConfig(f.rootConfig.Runtime.ConfigFile, os.LookupEnv)
+	if err != nil {
+		f.logger.Error("failed to dynamically reload mcp config", slog.String("error", err.Error()))
+		return
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.tlsBundle = newBundle
+
+	for key, dynRt := range f.dynamicTransports {
+		// Try to resolve the proxy for this specific channel if a global proxy changed
+		proxyURL := f.activeProxyURLs[key]
+		if proxyURL == nil && newProxy != nil {
+			proxyURL = newProxy
+		} else if proxyURL != nil && proxyURL.String() != newProxy.String() {
+			// If we had a specific proxy that wasn't the global one, keep it?
+			// Actually, dynamic proxy reload targets the global MCP_HTTP_PROXY overrides.
+			// Let's just use newProxy if they are using the default proxy.
+			// But since we just want to update the transport:
+			proxyURL = newProxy
+		}
+
+		newTransport, err := buildMcpHTTPTransport(f.logger, f.logging, f.meterProvider, f.tlsBundle, f.activeClientCerts[key], f.activeUnixSockets[key], proxyURL, f.activeServerURLs[key], f.config.ExtraHeaders, f.config.DiscoveryExtraHeaders)
+		if err != nil {
+			f.logger.Error("failed to rebuild dynamic transport", slog.String("channel", key), slog.String("error", err.Error()))
+			continue
+		}
+		dynRt.Update(newTransport)
+		f.logger.Info("dynamically reloaded mcp transport", slog.String("channel", key))
+	}
 }
 
 // HTTPClientForBinding returns the HTTP client used for streamable MCP transports for a binding.
@@ -189,9 +264,17 @@ func (f *ChannelTransportFactory) httpClientForKey(key string, serverURL *url.UR
 		if err != nil {
 			return nil, err
 		}
-		client := &http.Client{Transport: transport}
+
+		dynamicTransport := tctransport.NewDynamicRoundTripper(transport)
+
+		client := &http.Client{Transport: dynamicTransport}
 		f.mu.Lock()
 		f.httpClients[key] = client
+		f.dynamicTransports[key] = dynamicTransport
+		f.activeClientCerts[key] = clientCertificate
+		f.activeProxyURLs[key] = proxyURL
+		f.activeUnixSockets[key] = unixSocketPath
+		f.activeServerURLs[key] = serverURL
 		f.mu.Unlock()
 		return client, nil
 	})
