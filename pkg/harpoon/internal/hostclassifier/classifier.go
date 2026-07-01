@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/openai/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/config"
 )
 
 // HostClassifier decides whether a host should be treated as private. Private hosts are routed by Harpoon.

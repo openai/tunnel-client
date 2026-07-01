@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	assistantkb "github.com/openai/tunnel-client/docs"
+	assistantkb "go.openai.org/api/tunnel-client/docs"
 )
 
 func TestValidatePluginSegment(t *testing.T) {

@@ -88,7 +88,7 @@ traffic.
 
 Stable touch points:
 
-- Go tests can import `github.com/openai/tunnel-client/pkg/localproxy` and call
+- Go tests can import `go.openai.org/api/tunnel-client/pkg/localproxy` and call
   `localproxy.Start`.
 - Python tests can copy or import
   `wrappers/mcp-tunnel-client-proxy/python/mcp_tunnel_client_proxy.py`.

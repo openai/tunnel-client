@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 func TestApplyClientCertificateConfiguresExplicitClientCertificateCallback(t *testing.T) {

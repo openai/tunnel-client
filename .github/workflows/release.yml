@@ -16,7 +16,7 @@ concurrency:
 
 env:
   GO_VERSION: "1.26.x"
-  MODULE_PATH: github.com/openai/tunnel-client
+  MODULE_PATH: go.openai.org/api/tunnel-client
   BINARY_NAME: tunnel-client
   PUBLIC_STORAGE_ACCOUNT: prod1pstatic
   PUBLIC_STORAGE_CONTAINER: persistent

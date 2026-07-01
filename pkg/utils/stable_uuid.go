@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 // nsUUID is the namespace used to derive stable IDs.
