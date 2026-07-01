@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin/session"
-	pluginstate "github.com/openai/tunnel-client/pkg/codexplugin/state"
-	"github.com/openai/tunnel-client/pkg/config"
-	adminapi "github.com/openai/tunnel-client/pkg/controlplane/admin"
-	"github.com/openai/tunnel-client/pkg/healthurl"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
+	pluginstate "go.openai.org/api/tunnel-client/pkg/codexplugin/state"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	adminapi "go.openai.org/api/tunnel-client/pkg/controlplane/admin"
+	"go.openai.org/api/tunnel-client/pkg/healthurl"
 )
 
 const (

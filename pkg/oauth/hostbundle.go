@@ -14,7 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
 )
 
 // URLBundleOptions carries optional generic transport hints for discovered URLs.
