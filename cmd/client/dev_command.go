@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.openai.org/api/tunnel-client/pkg/localproxy"
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/localproxy"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 func newDevCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {

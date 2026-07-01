@@ -13,9 +13,9 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"go.openai.org/api/tunnel-client/pkg/headerscope"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	"go.openai.org/api/tunnel-client/pkg/version"
+	"github.com/openai/tunnel-client/pkg/headerscope"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/version"
 )
 
 // FetchOAuthMetadata attempts to retrieve OAuth ProtectedResourceMetaData

@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
+	"github.com/openai/tunnel-client/pkg/codexplugin/session"
 )
 
 func TestAdminProfilesSetAndListJSON(t *testing.T) {

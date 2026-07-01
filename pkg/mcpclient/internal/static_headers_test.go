@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"go.openai.org/api/tunnel-client/pkg/headerscope"
+	"github.com/openai/tunnel-client/pkg/headerscope"
 )
 
 func TestStaticHeadersRoundTripperScopesAndOverridesHeaders(t *testing.T) {

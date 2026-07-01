@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	harnesspkg "go.openai.org/api/tunnel-client/testsupport/e2e"
-	"go.openai.org/api/tunnel-client/testsupport/mocktunnelservice"
+	"github.com/openai/tunnel-client/pkg/config"
+	harnesspkg "github.com/openai/tunnel-client/testsupport/e2e"
+	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
 )
 
 const maxTunnelServicePollLimit = 25

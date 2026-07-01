@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/config"
 )
 
 var supportedRuntimeLogLevels = []string{"debug", "info", "warn"}
