@@ -759,11 +759,13 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 
 		response, ok := msg.(*jsonrpc.Response)
 		if !ok {
+			err := fmt.Errorf("received non-response message from MCP server: %T", msg)
 			logger.ErrorContext(
 				ctx,
 				"received non-response message from MCP server",
 				append(attrsToArgs(messageSummaryAttrs(msg)), slog.String("type", fmt.Sprintf("%T", msg)))...,
 			)
+			postTerminalErrorResponse(err)
 			return
 		}
 
@@ -783,11 +785,19 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		// Responses MUST include the same ID as the request they correspond to.
 		// Notifications MUST NOT include an ID.
 		// streamableClientConn.processStream has similar heuristics comparing req/resp IDs and breaking out
-		finalResponse := response.ID.IsValid() && response.ID == req.ID
-		if !finalResponse {
-			logger.ErrorContext(ctx, "Received response without valid ID")
+		if !response.ID.IsValid() {
+			err := errors.New("received response without valid ID from MCP server")
+			logger.ErrorContext(ctx, "received response without valid ID")
+			postTerminalErrorResponse(err)
 			return
 		}
+		if response.ID != req.ID {
+			err := errors.New("received response with mismatched ID from MCP server")
+			logger.ErrorContext(ctx, "received response with mismatched ID", attrsToArgs(jsonRPCResponseCorrelationAttrs(req, response))...)
+			postTerminalErrorResponse(err)
+			return
+		}
+		finalResponse := true
 
 		// Ensure final JSON-RPC responses present as application/json to the control plane,
 		// even if the upstream server labeled them differently, unless the upstream
