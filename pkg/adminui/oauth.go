@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/oauth"
+	"github.com/openai/tunnel-client/pkg/oauth"
 )
 
 type oauthStatusResponse struct {

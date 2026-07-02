@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 const (

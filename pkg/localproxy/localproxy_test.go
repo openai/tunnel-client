@@ -19,10 +19,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
+	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
 )
 
 type lockedBuffer struct {

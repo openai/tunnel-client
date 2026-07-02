@@ -14,15 +14,15 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
-	"go.openai.org/api/tunnel-client/pkg/health"
-	"go.openai.org/api/tunnel-client/pkg/healthurl"
-	"go.openai.org/api/tunnel-client/pkg/httpguard"
-	tclog "go.openai.org/api/tunnel-client/pkg/log"
-	"go.openai.org/api/tunnel-client/pkg/proxy"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
-	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	"github.com/openai/tunnel-client/pkg/health"
+	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/httpguard"
+	tclog "github.com/openai/tunnel-client/pkg/log"
+	"github.com/openai/tunnel-client/pkg/proxy"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	tctransport "github.com/openai/tunnel-client/pkg/transport"
 )
 
 // Module wires the harpoon MCP server.

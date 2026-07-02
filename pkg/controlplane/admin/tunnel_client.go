@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/clientinstance"
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/controlplane/apierror"
-	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
-	"go.openai.org/api/tunnel-client/pkg/version"
+	"github.com/openai/tunnel-client/pkg/clientinstance"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/controlplane/apierror"
+	tctransport "github.com/openai/tunnel-client/pkg/transport"
+	"github.com/openai/tunnel-client/pkg/version"
 )
 
 const (

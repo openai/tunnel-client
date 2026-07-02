@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 type contextKey struct{}
