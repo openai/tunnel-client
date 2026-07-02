@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/openai/tunnel-client/pkg/clientinstance"
-	tctransport "github.com/openai/tunnel-client/pkg/transport"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/clientinstance"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (

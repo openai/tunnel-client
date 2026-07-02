@@ -20,12 +20,12 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/openai/tunnel-client/pkg/app"
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
-	"github.com/openai/tunnel-client/pkg/health"
-	"github.com/openai/tunnel-client/pkg/mcpclient"
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/app"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	"go.openai.org/api/tunnel-client/pkg/health"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 // BackendName selects the local proxy engine used by Start.

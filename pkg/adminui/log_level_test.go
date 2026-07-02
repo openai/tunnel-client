@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	tclog "github.com/openai/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
 )
 
 func TestHandleLogLevelGetReturnsCurrentLevel(t *testing.T) {

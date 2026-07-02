@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin/session"
-	pluginstate "github.com/openai/tunnel-client/pkg/codexplugin/state"
-	adminapi "github.com/openai/tunnel-client/pkg/controlplane/admin"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
+	pluginstate "go.openai.org/api/tunnel-client/pkg/codexplugin/state"
+	adminapi "go.openai.org/api/tunnel-client/pkg/controlplane/admin"
 )
 
 func TestStatusReconcilesStaleAliasHealthURLWithLiveRuntimeAndPollHealth(t *testing.T) {
