@@ -6,9 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	"github.com/openai/tunnel-client/pkg/controlplane"
-	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
+	"go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 var (

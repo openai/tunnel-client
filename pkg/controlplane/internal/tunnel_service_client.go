@@ -17,17 +17,17 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane"
-	"github.com/openai/tunnel-client/pkg/controlplane/apierror"
-	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
-	tclog "github.com/openai/tunnel-client/pkg/log"
-	tcmetrics "github.com/openai/tunnel-client/pkg/metrics"
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
-	tctransport "github.com/openai/tunnel-client/pkg/transport"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
-	"github.com/openai/tunnel-client/pkg/types"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
+	"go.openai.org/api/tunnel-client/pkg/controlplane/apierror"
+	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (

@@ -10,9 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	"github.com/openai/tunnel-client/pkg/clientinstance"
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/clientinstance"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
 )
 
 const (
