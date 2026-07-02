@@ -11,10 +11,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane"
-	tclog "github.com/openai/tunnel-client/pkg/log"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
 )
 
 const poolReleaseTimeout = 10 * time.Second

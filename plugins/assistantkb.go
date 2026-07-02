@@ -1,7 +1,7 @@
 package pluginsbundle
 
 import (
-	assistantkb "github.com/openai/tunnel-client/docs"
+	assistantkb "go.openai.org/api/tunnel-client/docs"
 	"runtime"
 	"strings"
 )
