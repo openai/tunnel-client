@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/http"
 
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
 )
 
 // CloneDefault returns an isolated copy of the default HTTP transport so callers

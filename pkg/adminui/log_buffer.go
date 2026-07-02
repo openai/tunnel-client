@@ -88,7 +88,7 @@ func (b *LogBuffer) Capacity() int {
 	return b.capacity
 }
 
-// Handle implements go.openai.org/api/tunnel-client/pkg/log.Sink.
+// Handle implements github.com/openai/tunnel-client/pkg/log.Sink.
 func (b *LogBuffer) Handle(ctx context.Context, record slog.Record) {
 	if b == nil {
 		return
