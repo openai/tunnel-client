@@ -25,10 +25,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/mcpclient/internal"
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient/internal"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 func TestChannelTransportFactoryAppliesProxy(t *testing.T) {

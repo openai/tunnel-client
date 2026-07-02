@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin"
-	"github.com/openai/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin"
+	"go.openai.org/api/tunnel-client/pkg/config"
 )
 
 func TestRootHelpAdvertisesAgentFirstTopicsAndCommands(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/config"
 )
 
 // TransportProvider constructs an MCP transport for a specific transport kind.

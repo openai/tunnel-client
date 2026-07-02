@@ -19,10 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/oauth"
-	"github.com/openai/tunnel-client/pkg/types"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/oauth"
+	"go.openai.org/api/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 func TestHandleLogsExportReturnsRedactedTarGz(t *testing.T) {
