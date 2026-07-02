@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.openai.org/api/tunnel-client/pkg/codexplugin"
+	"github.com/openai/tunnel-client/pkg/codexplugin"
 )
 
 func newPluginCommand(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer) *cobra.Command {

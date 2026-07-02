@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	harnesspkg "go.openai.org/api/tunnel-client/testsupport/e2e"
-	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
-	"go.openai.org/api/tunnel-client/testsupport/mockproxy"
-	"go.openai.org/api/tunnel-client/testsupport/mocktunnelservice"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/types"
+	harnesspkg "github.com/openai/tunnel-client/testsupport/e2e"
+	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
+	"github.com/openai/tunnel-client/testsupport/mockproxy"
+	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
 )
 
 func TestProxyE2ESucceedsThroughProxy(t *testing.T) {
