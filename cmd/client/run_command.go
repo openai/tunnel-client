@@ -12,11 +12,11 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 
-	"github.com/openai/tunnel-client/pkg/app"
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane"
-	"github.com/openai/tunnel-client/pkg/oauth"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/app"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
+	"go.openai.org/api/tunnel-client/pkg/oauth"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 type runEmbeddedMCPStubOptions struct {

@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 
-	assistantkb "github.com/openai/tunnel-client/docs"
-	pluginsbundle "github.com/openai/tunnel-client/plugins"
+	assistantkb "go.openai.org/api/tunnel-client/docs"
+	pluginsbundle "go.openai.org/api/tunnel-client/plugins"
 )
 
 func buildCodexAssistantKnowledgeItem(prompt string) map[string]any {

@@ -13,10 +13,10 @@ import (
 	"go.uber.org/fx"
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
-	"github.com/openai/tunnel-client/pkg/harpoon/internal/hostclassifier"
-	tclog "github.com/openai/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/internal/hostclassifier"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
 )
 
 const autoRegistrationPrefix = "oauth"

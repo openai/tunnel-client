@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	tclog "github.com/openai/tunnel-client/pkg/log"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
 )
 
 type logLevelResponse struct {

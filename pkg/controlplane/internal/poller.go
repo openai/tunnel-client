@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/jpillora/backoff"
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	tclog "github.com/openai/tunnel-client/pkg/log"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
 )
 
 const (

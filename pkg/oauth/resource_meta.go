@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openai/tunnel-client/pkg/headerscope"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/headerscope"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const defaultProtectedResourceMetadataURI = "/.well-known/oauth-protected-resource"
