@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/headerscope"
+	"github.com/openai/tunnel-client/pkg/headerscope"
 )
 
 func TestBuildResourceMetadataURLs(t *testing.T) {

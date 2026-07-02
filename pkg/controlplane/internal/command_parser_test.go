@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
 )
 
 func TestBuildBase_ValidatesRequiredFields(t *testing.T) {

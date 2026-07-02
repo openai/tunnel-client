@@ -11,9 +11,9 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 
-	"go.openai.org/api/tunnel-client/pkg/controlplane"
-	"go.openai.org/api/tunnel-client/pkg/controlplane/internal"
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/controlplane/internal"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 func TestRunPollerStartsEvenWhenFetcherBlocks(t *testing.T) {

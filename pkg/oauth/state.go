@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 // DefaultDiscoveryTimeout bounds how long we wait for OAuth ProtectedResourceMetaData discovery.

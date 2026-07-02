@@ -3,7 +3,7 @@ package controlplane
 import (
 	"context"
 
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 // Responder posts JSON-RPC responses back to tunnel-service once the MCP server
