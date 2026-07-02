@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/httpguard"
+	"github.com/openai/tunnel-client/pkg/httpguard"
 )
 
 //go:embed assets/*

@@ -22,7 +22,7 @@ endif
 ABS_BIN := $(abspath $(BIN))
 
 GIT_SHA    := $(if $(GIT_SHA),$(GIT_SHA),$(shell git rev-parse --short HEAD 2>/dev/null))
-LDFLAGS    := -X go.openai.org/api/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
+LDFLAGS    := -X github.com/openai/tunnel-client/pkg/version.GitSHA=$(GIT_SHA)
 
 .PHONY: all help fmt test clean build-image mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides
 

@@ -1,4 +1,4 @@
-module go.openai.org/api/tunnel-client
+module github.com/openai/tunnel-client
 
 go 1.26.2
 

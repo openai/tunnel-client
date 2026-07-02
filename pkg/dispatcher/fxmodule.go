@@ -11,12 +11,12 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/controlplane"
-	dispatcherinternal "go.openai.org/api/tunnel-client/pkg/dispatcher/internal"
-	"go.openai.org/api/tunnel-client/pkg/harpoon"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/controlplane"
+	dispatcherinternal "github.com/openai/tunnel-client/pkg/dispatcher/internal"
+	"github.com/openai/tunnel-client/pkg/harpoon"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 var requiredDispatcherChannels = []types.Channel{

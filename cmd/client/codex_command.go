@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.openai.org/api/tunnel-client/pkg/codexappserver"
-	"go.openai.org/api/tunnel-client/pkg/codexplugin"
-	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
-	pluginstate "go.openai.org/api/tunnel-client/pkg/codexplugin/state"
+	"github.com/openai/tunnel-client/pkg/codexappserver"
+	"github.com/openai/tunnel-client/pkg/codexplugin"
+	"github.com/openai/tunnel-client/pkg/codexplugin/session"
+	pluginstate "github.com/openai/tunnel-client/pkg/codexplugin/state"
 )
 
 const codexCLIDocsURL = "https://developers.openai.com/codex/cli"
