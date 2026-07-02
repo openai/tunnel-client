@@ -7,7 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/openai/tunnel-client/pkg/mcpclient/internal"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient/internal"
 )
 
 var _ ForwardingTransport = (*forwardingTransport)(nil)

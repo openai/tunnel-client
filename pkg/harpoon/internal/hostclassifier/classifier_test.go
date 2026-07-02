@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/openai/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/config"
 )
 
 func TestHostClassifierDefaultsPrivateIPs(t *testing.T) {

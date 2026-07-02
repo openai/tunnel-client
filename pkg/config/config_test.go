@@ -19,7 +19,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 const (

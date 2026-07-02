@@ -21,10 +21,10 @@ import (
 	"github.com/invopop/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	tclog "github.com/openai/tunnel-client/pkg/log"
-	"github.com/openai/tunnel-client/pkg/transport"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/transport"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 const (

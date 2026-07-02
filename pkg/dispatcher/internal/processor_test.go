@@ -23,12 +23,12 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/harpoon"
-	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
-	"github.com/openai/tunnel-client/pkg/mcpclient"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/harpoon"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 func decodeJSONRPCResponse(t *testing.T, raw json.RawMessage) *jsonrpc.Response {

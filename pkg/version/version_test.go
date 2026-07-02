@@ -61,7 +61,7 @@ func TestDetectGitSHAFromCandidateDirs(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(moduleDir, "go.mod"),
-		[]byte("module github.com/openai/tunnel-client\n"),
+		[]byte("module go.openai.org/api/tunnel-client\n"),
 		0o644,
 	); err != nil {
 		t.Fatal(err)

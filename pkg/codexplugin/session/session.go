@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin/state"
-	"github.com/openai/tunnel-client/pkg/healthurl"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin/state"
+	"go.openai.org/api/tunnel-client/pkg/healthurl"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 // ChannelStdioRuntimeInfoProvider exposes stdio process details per channel.

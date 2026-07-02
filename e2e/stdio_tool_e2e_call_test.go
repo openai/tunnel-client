@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
-	harnesspkg "github.com/openai/tunnel-client/testsupport/e2e"
-	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
-	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	harnesspkg "go.openai.org/api/tunnel-client/testsupport/e2e"
+	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
+	"go.openai.org/api/tunnel-client/testsupport/mocktunnelservice"
 )
 
 func TestHarnessExecuteScenarioWithStdioCommand(t *testing.T) {
