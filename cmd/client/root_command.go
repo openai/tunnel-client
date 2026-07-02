@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	admincmd "github.com/openai/tunnel-client/cmd/client/admin"
-	"github.com/openai/tunnel-client/pkg/version"
+	admincmd "go.openai.org/api/tunnel-client/cmd/client/admin"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 func newRootCommand(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer) *cobra.Command {

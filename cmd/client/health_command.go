@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin/session"
-	"github.com/openai/tunnel-client/pkg/healthurl"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
+	"go.openai.org/api/tunnel-client/pkg/healthurl"
 )
 
 type healthLocatorReport struct {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin"
-	"github.com/openai/tunnel-client/pkg/codexplugin/session"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin/session"
 )
 
 type runtimesCommonFlags struct {

@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/openai/tunnel-client/pkg/clientinstance"
-	"github.com/openai/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/clientinstance"
+	"go.openai.org/api/tunnel-client/pkg/config"
 )
 
 // Module exposes the logger as an Fx module that owns the lifecycle of any

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
-	"github.com/openai/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/types"
 )
 
 func TestContextIdentifierHelpers(t *testing.T) {
