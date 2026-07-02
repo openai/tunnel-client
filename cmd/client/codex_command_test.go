@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/codexplugin"
+	"github.com/openai/tunnel-client/pkg/codexplugin"
 )
 
 func TestCodexCommandHelperProcess(t *testing.T) {

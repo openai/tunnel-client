@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	assistantkb "go.openai.org/api/tunnel-client/docs"
-	"go.openai.org/api/tunnel-client/pkg/codexappserver"
-	"go.openai.org/api/tunnel-client/pkg/controlplane"
-	"go.openai.org/api/tunnel-client/pkg/httpguard"
-	pluginsbundle "go.openai.org/api/tunnel-client/plugins"
+	assistantkb "github.com/openai/tunnel-client/docs"
+	"github.com/openai/tunnel-client/pkg/codexappserver"
+	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/httpguard"
+	pluginsbundle "github.com/openai/tunnel-client/plugins"
 )
 
 const (

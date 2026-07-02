@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	"go.openai.org/api/tunnel-client/pkg/version"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/version"
 )
 
 // LogFormat enumerates the supported logging formats.

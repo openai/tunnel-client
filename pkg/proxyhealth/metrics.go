@@ -7,7 +7,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"go.openai.org/api/tunnel-client/pkg/proxy"
+	"github.com/openai/tunnel-client/pkg/proxy"
 )
 
 type proxyMetrics struct {

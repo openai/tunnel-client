@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	assistantkb "go.openai.org/api/tunnel-client/docs"
+	assistantkb "github.com/openai/tunnel-client/docs"
 )
 
 func TestCodexSandboxTypeNormalizesLegacyAliases(t *testing.T) {

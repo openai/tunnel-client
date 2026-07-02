@@ -16,8 +16,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"github.com/openai/tunnel-client/pkg/config"
+	tclog "github.com/openai/tunnel-client/pkg/log"
 )
 
 type stdioCommandTransport struct {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
 )
 
 func TestMockTunnelServiceUsage(t *testing.T) {

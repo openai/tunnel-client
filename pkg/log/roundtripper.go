@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/config"
 )
 
 // LoggingRoundTripper wraps a base RoundTripper and emits raw HTTP request and response dumps when enabled.
