@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 // AdminConfig captures the options required for tunnel management API calls.

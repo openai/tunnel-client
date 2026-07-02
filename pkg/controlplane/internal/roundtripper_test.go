@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/openai/tunnel-client/pkg/clientinstance"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/clientinstance"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

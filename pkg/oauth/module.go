@@ -11,9 +11,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
-	tclog "github.com/openai/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
 )
 
 // Module wires OAuth discovery state and fetcher.

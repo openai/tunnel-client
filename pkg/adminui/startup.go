@@ -12,13 +12,13 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/openai/tunnel-client/pkg/codexplugin"
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/health"
-	"github.com/openai/tunnel-client/pkg/healthurl"
-	tclog "github.com/openai/tunnel-client/pkg/log"
-	"github.com/openai/tunnel-client/pkg/mcpclient"
-	"github.com/openai/tunnel-client/pkg/oauth"
+	"go.openai.org/api/tunnel-client/pkg/codexplugin"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/health"
+	"go.openai.org/api/tunnel-client/pkg/healthurl"
+	tclog "go.openai.org/api/tunnel-client/pkg/log"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
+	"go.openai.org/api/tunnel-client/pkg/oauth"
 )
 
 type startupParams struct {
