@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.openai.org/api/tunnel-client/pkg/codexappserver"
+	"github.com/openai/tunnel-client/pkg/codexappserver"
 )
 
 const (

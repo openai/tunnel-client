@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/config"
 )
 
 // RouteKind describes the type of outbound route.

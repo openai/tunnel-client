@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/healthurl"
 )
 
 func TestHealthCommandWithURLFileAndPIDFile(t *testing.T) {

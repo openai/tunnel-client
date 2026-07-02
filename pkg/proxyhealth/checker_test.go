@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/proxy"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/proxy"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
 )
 
 func TestRecordResultHistoryRetention(t *testing.T) {

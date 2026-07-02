@@ -19,14 +19,14 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/controlplane"
-	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
-	tclog "go.openai.org/api/tunnel-client/pkg/log"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/oauth"
-	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
-	"go.openai.org/api/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	tclog "github.com/openai/tunnel-client/pkg/log"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/oauth"
+	"github.com/openai/tunnel-client/pkg/tunnelctx"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 const (

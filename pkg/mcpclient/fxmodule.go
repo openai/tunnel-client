@@ -10,19 +10,19 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/headerscope"
-	tclog "go.openai.org/api/tunnel-client/pkg/log"
-	tcmetrics "go.openai.org/api/tunnel-client/pkg/metrics"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
-	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	"go.openai.org/api/tunnel-client/pkg/version"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/headerscope"
+	tclog "github.com/openai/tunnel-client/pkg/log"
+	tcmetrics "github.com/openai/tunnel-client/pkg/metrics"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	tctransport "github.com/openai/tunnel-client/pkg/transport"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/version"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/mcpclient/internal"
+	"github.com/openai/tunnel-client/pkg/mcpclient/internal"
 )
 
 var Module = fx.Module(
