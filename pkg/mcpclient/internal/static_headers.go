@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.openai.org/api/tunnel-client/pkg/headerscope"
+	"github.com/openai/tunnel-client/pkg/headerscope"
 )
 
 // StaticHeadersRoundTripper adds operator-configured MCP headers only for the

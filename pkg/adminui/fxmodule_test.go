@@ -10,7 +10,7 @@ import (
 
 	"go.uber.org/fx/fxtest"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/config"
 )
 
 func TestRegisterRoutesProtectsCodexWritesFromCrossOriginPosts(t *testing.T) {

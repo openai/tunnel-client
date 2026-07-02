@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	"github.com/openai/tunnel-client/pkg/config"
+	tctransport "github.com/openai/tunnel-client/pkg/transport"
 )
 
 //go:embed testdata/test_server_cert.pem testdata/test_server_key.pem testdata/test_ca_bundle.pem

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"text/template"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/config"
 )
 
 const defaultInitHealthListenAddr = "127.0.0.1:8080"

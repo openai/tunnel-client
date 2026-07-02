@@ -180,7 +180,7 @@ func moduleFileDeclaresTunnelClient(path string) bool {
 		return false
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "module go.openai.org/api/tunnel-client" {
+		if strings.TrimSpace(line) == "module github.com/openai/tunnel-client" {
 			return true
 		}
 	}

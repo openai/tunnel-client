@@ -20,16 +20,16 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/fx/fxtest"
 
-	"go.openai.org/api/tunnel-client/pkg/app"
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/controlplane"
-	"go.openai.org/api/tunnel-client/pkg/harpoon"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
-	"go.openai.org/api/tunnel-client/pkg/types"
-	"go.openai.org/api/tunnel-client/testsupport/mockmcpserver"
-	"go.openai.org/api/tunnel-client/testsupport/mocktunnelservice"
-	"go.openai.org/api/tunnel-client/testsupport/testctx"
+	"github.com/openai/tunnel-client/pkg/app"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/harpoon"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
+	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
+	"github.com/openai/tunnel-client/testsupport/testctx"
 )
 
 // Leave room for failure state dumps and cleanup before the outer runner stops the test.

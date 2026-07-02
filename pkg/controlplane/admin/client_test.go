@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"go.openai.org/api/tunnel-client/pkg/clientinstance"
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/version"
+	"github.com/openai/tunnel-client/pkg/clientinstance"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/version"
 )
 
 func TestAdminTunnelClientCreateAndGet(t *testing.T) {

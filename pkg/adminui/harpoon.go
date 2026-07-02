@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/harpoon"
-	"go.openai.org/api/tunnel-client/pkg/proxy"
-	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/harpoon"
+	"github.com/openai/tunnel-client/pkg/proxy"
+	"github.com/openai/tunnel-client/pkg/proxyhealth"
 )
 
 type harpoonStatusResponse struct {
