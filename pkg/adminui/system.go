@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/openai/tunnel-client/pkg/mcpclient"
-	"github.com/openai/tunnel-client/pkg/proxy"
-	"github.com/openai/tunnel-client/pkg/proxyhealth"
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/mcpclient"
+	"go.openai.org/api/tunnel-client/pkg/proxy"
+	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
 )
 
 type systemResponse struct {

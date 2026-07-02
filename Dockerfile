@@ -34,7 +34,7 @@ COPY --from=ui-builder /repo/pkg/adminui/assets ./pkg/adminui/assets
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build \
-    -ldflags "-X github.com/openai/tunnel-client/pkg/version.GitSHA=${GIT_SHA}" \
+    -ldflags "-X go.openai.org/api/tunnel-client/pkg/version.GitSHA=${GIT_SHA}" \
     -o /usr/local/bin/tunnel-client ./cmd/client
 
 FROM ${BASE_IMAGE} AS runtime-base

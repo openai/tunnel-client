@@ -31,13 +31,13 @@ import (
 	"github.com/stretchr/testify/require"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
-	"github.com/openai/tunnel-client/pkg/config"
-	"github.com/openai/tunnel-client/pkg/controlplane"
-	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
-	"github.com/openai/tunnel-client/pkg/tlsconfig"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
-	"github.com/openai/tunnel-client/pkg/types"
-	"github.com/openai/tunnel-client/pkg/version"
+	"go.openai.org/api/tunnel-client/pkg/config"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
+	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
+	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"go.openai.org/api/tunnel-client/pkg/tunnelctx"
+	"go.openai.org/api/tunnel-client/pkg/types"
+	"go.openai.org/api/tunnel-client/pkg/version"
 )
 
 var testMeterProvider = noopmetric.NewMeterProvider()

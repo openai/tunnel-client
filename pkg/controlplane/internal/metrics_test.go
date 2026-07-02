@@ -6,7 +6,7 @@ import (
 
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 
-	"github.com/openai/tunnel-client/pkg/controlplane"
+	"go.openai.org/api/tunnel-client/pkg/controlplane"
 
 	"github.com/stretchr/testify/require"
 )
