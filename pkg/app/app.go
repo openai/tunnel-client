@@ -7,19 +7,19 @@ import (
 
 	"go.uber.org/fx"
 
-	"go.openai.org/api/tunnel-client/pkg/adminui"
-	"go.openai.org/api/tunnel-client/pkg/config"
-	controlplane "go.openai.org/api/tunnel-client/pkg/controlplane/fx"
-	"go.openai.org/api/tunnel-client/pkg/dispatcher"
-	"go.openai.org/api/tunnel-client/pkg/harpoon"
-	"go.openai.org/api/tunnel-client/pkg/health"
-	"go.openai.org/api/tunnel-client/pkg/log"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/metrics"
-	"go.openai.org/api/tunnel-client/pkg/oauth"
-	"go.openai.org/api/tunnel-client/pkg/process"
-	"go.openai.org/api/tunnel-client/pkg/proxyhealth"
-	"go.openai.org/api/tunnel-client/pkg/tlsconfig"
+	"github.com/openai/tunnel-client/pkg/adminui"
+	"github.com/openai/tunnel-client/pkg/config"
+	controlplane "github.com/openai/tunnel-client/pkg/controlplane/fx"
+	"github.com/openai/tunnel-client/pkg/dispatcher"
+	"github.com/openai/tunnel-client/pkg/harpoon"
+	"github.com/openai/tunnel-client/pkg/health"
+	"github.com/openai/tunnel-client/pkg/log"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/metrics"
+	"github.com/openai/tunnel-client/pkg/oauth"
+	"github.com/openai/tunnel-client/pkg/process"
+	"github.com/openai/tunnel-client/pkg/proxyhealth"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
 )
 
 // RuntimeOptions controls optional app surfaces for embedders.

@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/healthurl"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/oauth"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/oauth"
 )
 
 func TestBuildHealthURLAssignsRandomPort(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	tctransport "go.openai.org/api/tunnel-client/pkg/transport"
+	tctransport "github.com/openai/tunnel-client/pkg/transport"
 )
 
 const unixScheme = "http+unix"

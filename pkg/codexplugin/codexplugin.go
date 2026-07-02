@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	pluginsbundle "go.openai.org/api/tunnel-client/plugins"
+	pluginsbundle "github.com/openai/tunnel-client/plugins"
 )
 
 const (

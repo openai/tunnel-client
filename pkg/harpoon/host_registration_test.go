@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"go.openai.org/api/tunnel-client/pkg/config"
-	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
-	"go.openai.org/api/tunnel-client/pkg/harpoon/internal/hostclassifier"
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	"github.com/openai/tunnel-client/pkg/harpoon/internal/hostclassifier"
 )
 
 func TestRegisterHostBundleRespectsClassifier(t *testing.T) {

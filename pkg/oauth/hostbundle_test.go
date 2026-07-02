@@ -15,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"go.openai.org/api/tunnel-client/pkg/harpoon/hostbus"
-	"go.openai.org/api/tunnel-client/pkg/transport"
+	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	"github.com/openai/tunnel-client/pkg/transport"
 )
 
 func TestBuildURLBundleFromPRMD(t *testing.T) {

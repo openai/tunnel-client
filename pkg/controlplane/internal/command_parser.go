@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	wiretypes "go.openai.org/api/tunnel-client/pkg/controlplane/wiretypes"
-	"go.openai.org/api/tunnel-client/pkg/mcpclient"
-	"go.openai.org/api/tunnel-client/pkg/types"
+	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 // buildBase constructs the common portion of a polled command from the raw
