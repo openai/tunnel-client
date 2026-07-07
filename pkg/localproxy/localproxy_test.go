@@ -343,6 +343,137 @@ func TestHandleResponsePreservesFinalWhenNotificationBufferIsFull(t *testing.T) 
 	require.Empty(t, server.inFlight)
 }
 
+func TestHandleTunnelRequiresExactBearerAuthorization(t *testing.T) {
+	const tunnelID = "tunnel_authboundaryaaaaaaaaaaaaaaaaaa"
+	server := &localServer{
+		tunnelID: types.TunnelID(tunnelID),
+		apiKey:   "local-secret",
+	}
+
+	tests := []struct {
+		name          string
+		authorization string
+		wantStatus    int
+	}{
+		{name: "missing", wantStatus: http.StatusUnauthorized},
+		{name: "wrong bearer", authorization: "Bearer wrong-secret", wantStatus: http.StatusUnauthorized},
+		{name: "non bearer", authorization: "local-secret", wantStatus: http.StatusUnauthorized},
+		{name: "extra token material", authorization: "Bearer local-secret extra", wantStatus: http.StatusUnauthorized},
+		{name: "exact bearer", authorization: "Bearer local-secret", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/v1/tunnels/"+tunnelID, nil)
+			if tt.authorization != "" {
+				request.Header.Set("Authorization", tt.authorization)
+			}
+
+			server.handleTunnel(recorder, request)
+
+			require.Equal(t, tt.wantStatus, recorder.Code)
+			if tt.wantStatus == http.StatusOK {
+				require.JSONEq(t, `{
+					"id":"`+tunnelID+`",
+					"name":"local tunnel-client dev proxy",
+					"description":"Pure-Go in-memory control plane for local MCP tests"
+				}`, recorder.Body.String())
+			} else {
+				require.Contains(t, recorder.Body.String(), "unauthorized")
+			}
+		})
+	}
+}
+
+func TestSanitizeForwardableRequestHeadersKeepsConnectorAuthorizationBoundary(t *testing.T) {
+	input := http.Header{
+		"Authorization":                {"Bearer connector-user-token"},
+		"Mcp-Session-Id":               {"session-123"},
+		"Mcp-Protocol-Version":         {"2025-06-18"},
+		"X-OpenAI-Authorization":       {"Bearer service-token"},
+		"X-OpenAI-Actor-Authorization": {"Bearer actor-token"},
+		"X-OpenAI-Skip-Auth":           {"true"},
+		"X-Tunnel-Traffic-Source":      {"spoofed"},
+		"X-Forwarded-For":              {"203.0.113.10"},
+		"Forwarded":                    {"for=203.0.113.10"},
+		"Cookie":                       {"session=blocked"},
+		"User-Agent":                   {"blocked-agent"},
+		"Content-Type":                 {"application/json"},
+		"Accept-Encoding":              {"gzip"},
+		"X-Custom-Connector-Header":    {"kept"},
+		"X-Empty-Connector-Header":     {""},
+	}
+
+	got := sanitizeForwardableRequestHeaders(input)
+
+	require.Equal(t, "Bearer connector-user-token", got.Get("Authorization"))
+	require.Equal(t, "session-123", got.Get("Mcp-Session-Id"))
+	require.Equal(t, "2025-06-18", got.Get("Mcp-Protocol-Version"))
+	require.Equal(t, "kept", got.Get("X-Custom-Connector-Header"))
+	require.Empty(t, got.Values("X-Empty-Connector-Header"))
+	for _, blocked := range []string{
+		"X-OpenAI-Authorization",
+		"X-OpenAI-Actor-Authorization",
+		"X-OpenAI-Skip-Auth",
+		"X-Tunnel-Traffic-Source",
+		"X-Forwarded-For",
+		"Forwarded",
+		"Cookie",
+		"User-Agent",
+		"Content-Type",
+		"Accept-Encoding",
+	} {
+		require.Empty(t, got.Values(blocked), "%s should not be forwarded to connector MCP servers", blocked)
+	}
+}
+
+func TestHandleOAuthDiscoveryDoesNotForwardConnectorAuthorization(t *testing.T) {
+	server := &localServer{
+		tunnelID:        types.TunnelID("tunnel_oauthdiscoveryaaaaaaaaaaaaaaa"),
+		responseTimeout: time.Second,
+		stateCh:         make(chan struct{}),
+		inFlight:        make(map[string]*localRequest),
+	}
+	stateChanged := server.stateCh
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/.well-known/oauth-protected-resource/v1/mcp/"+server.tunnelID.String(),
+		nil,
+	).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer connector-user-token")
+	request.Header.Set("Cookie", "session=blocked")
+
+	done := make(chan struct{})
+	go func() {
+		server.handleOAuthProtectedResource(recorder, request)
+		close(done)
+	}()
+	<-stateChanged
+
+	server.mu.Lock()
+	var pending *localRequest
+	if len(server.pending) == 1 {
+		pending = server.pending[0]
+	}
+	server.mu.Unlock()
+	require.NotNil(t, pending)
+
+	var raw wiretypes.RawOauthDiscoveryPolledCommand
+	require.NoError(t, json.Unmarshal(pending.command, &raw))
+	require.Equal(t, wiretypes.CommandTypeOAuthDiscovery, raw.CommandType)
+	require.Equal(t, types.DefaultChannel.String(), raw.Channel)
+	require.Empty(t, raw.Headers.Values("Authorization"))
+	require.Empty(t, raw.Headers.Values("Cookie"))
+	require.Empty(t, raw.Headers)
+
+	cancel()
+	<-done
+}
+
 func TestWaitForMCPProbeAllowsOAuthRequiredProbeError(t *testing.T) {
 	probeState := mcpclient.NewProbeState()
 	probeState.Set(errors.New("401 unauthorized"))
