@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ func TestNewSerializedForwardingTransportNilBaseReturnsNil(t *testing.T) {
 	require.Nil(t, NewSerializedForwardingTransport(nil))
 }
 
-func TestSerializedForwardingTransportBlocksSecondWriteUntilMatchingResponse(t *testing.T) {
+func TestSerializedForwardingTransportHoldsLifecycleLockUntilMatchingResponse(t *testing.T) {
 	t.Parallel()
 
 	baseConn := newStubSerializedForwardingConnection()
@@ -24,6 +23,7 @@ func TestSerializedForwardingTransportBlocksSecondWriteUntilMatchingResponse(t *
 		conn: baseConn,
 	})
 	require.NotNil(t, transport)
+	serializedTransport := transport.(*serializedForwardingTransport)
 
 	connA, err := transport.Connect(context.Background())
 	require.NoError(t, err)
@@ -35,47 +35,27 @@ func TestSerializedForwardingTransportBlocksSecondWriteUntilMatchingResponse(t *
 	reqA := &jsonrpc.Request{ID: idA, Method: "tools/call"}
 	_, _, err = connA.Write(context.Background(), nil, reqA)
 	require.NoError(t, err)
-
-	idB, err := jsonrpc.MakeID("b")
-	require.NoError(t, err)
-	reqB := &jsonrpc.Request{ID: idB, Method: "tools/call"}
-
-	secondWriteDone := make(chan error, 1)
-	go func() {
-		_, _, writeErr := connB.Write(context.Background(), nil, reqB)
-		secondWriteDone <- writeErr
-	}()
-
-	select {
-	case err := <-secondWriteDone:
-		t.Fatalf("second Write returned before first request finished: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
+	requireLifecycleLockHeld(t, serializedTransport)
 
 	notification := &jsonrpc.Request{Method: "notifications/progress"}
 	baseConn.enqueueRead(notification, nil)
 	msg, err := connA.Read(context.Background())
 	require.NoError(t, err)
 	require.Same(t, notification, msg)
-
-	select {
-	case err := <-secondWriteDone:
-		t.Fatalf("second Write returned after notification instead of final response: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
+	requireLifecycleLockHeld(t, serializedTransport)
 
 	responseA := &jsonrpc.Response{ID: idA}
 	baseConn.enqueueRead(responseA, nil)
 	msg, err = connA.Read(context.Background())
 	require.NoError(t, err)
 	require.Same(t, responseA, msg)
+	requireLifecycleLockReleased(t, serializedTransport)
 
-	select {
-	case err := <-secondWriteDone:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("second Write did not resume after first response was read")
-	}
+	idB, err := jsonrpc.MakeID("b")
+	require.NoError(t, err)
+	reqB := &jsonrpc.Request{ID: idB, Method: "tools/call"}
+	_, _, err = connB.Write(context.Background(), nil, reqB)
+	require.NoError(t, err)
 
 	require.NoError(t, connB.Close())
 }
@@ -112,6 +92,20 @@ func TestSerializedForwardingTransportReleasesAfterUpstreamErrorStatus(t *testin
 	require.Equal(t, http.StatusOK, status)
 
 	require.NoError(t, connB.Close())
+}
+
+func requireLifecycleLockHeld(t *testing.T, transport *serializedForwardingTransport) {
+	t.Helper()
+	if transport.mu.TryLock() {
+		transport.mu.Unlock()
+		t.Fatal("lifecycle lock was released")
+	}
+}
+
+func requireLifecycleLockReleased(t *testing.T, transport *serializedForwardingTransport) {
+	t.Helper()
+	require.True(t, transport.mu.TryLock(), "lifecycle lock was still held")
+	transport.mu.Unlock()
 }
 
 type stubSerializedForwardingTransport struct {
