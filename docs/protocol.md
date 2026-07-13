@@ -65,6 +65,9 @@ command; do not drop the excess. `timeout_ms` is an optional requested
 long-poll wait in milliseconds. The service bounds the effective wait, so a
 client must not assume the requested duration is exact.
 
+`limit` controls only the requested poll batch size. It is not an execution
+concurrency limit; each client chooses its own bounded concurrency.
+
 A `204 No Content` response means the poll completed without commands. Issue
 another poll. A `200 OK` response contains a JSON envelope:
 
@@ -212,12 +215,21 @@ Response fields:
 
 Supported `resp_type` values:
 
-| Value | Use |
-| --- | --- |
-| `jsonrpc_response` | Final JSON-RPC result or error with `resp_json`. |
-| `jsonrpc_notify` | Non-final JSON-RPC notification with `resp_json`. |
-| `notify_ack` | Acknowledgment for a notification that has no JSON-RPC result. |
-| `session_termination_response` | Acknowledgment after closing an MCP session. |
+| Value | Final? | Use |
+| --- | --- | --- |
+| `jsonrpc_response` | yes | Terminal JSON-RPC result or error with `resp_json`. |
+| `jsonrpc_notify` | no | Intermediate JSON-RPC notification with `resp_json`. |
+| `notify_ack` | yes | Terminal acknowledgment for a JSON-RPC notification that has no result. |
+| `session_termination_response` | yes | Terminal acknowledgment after closing an MCP session. |
+
+For a JSON-RPC request with an ID, a client may post zero or more
+`jsonrpc_notify` payloads while processing the command, followed by one
+terminal `jsonrpc_response`. Every POST for the command must reuse its
+`request_id` in the body and its `shard_token` in the
+`X-Tunnel-Shard-Token` header, and should echo its `channel` when present. A
+`jsonrpc_notify` does not complete the command. `notify_ack` is the terminal
+acknowledgment for a JSON-RPC notification without an ID; it is not a progress
+event.
 
 A successful POST returns:
 
@@ -236,15 +248,29 @@ A successful POST returns:
 - A response POST can return `404` when the request has already been fulfilled
   or is no longer pending. Treat that command as terminal and do not replay
   the MCP operation.
-- A client may process multiple commands concurrently, but correlation is
-  always per command: pair each `request_id`, `channel`, and `shard_token` from
-  one poll item with that item's response.
+- A client chooses its own bounded execution concurrency. Concurrent command
+  processing does not require overlapping poll requests; one poll loop can
+  submit returned commands to workers.
+- Commands may complete in any order. Correlation is always per command: pair
+  each `request_id`, `channel`, and `shard_token` from one poll item with every
+  response for that item.
 - Preserve multi-valued headers. Do not collapse repeated values into a
   comma-separated string unless the MCP transport itself requires it.
 
 ## Language-neutral implementation sketch
 
 ```text
+workers = bounded_worker_pool(client_defined_concurrency)
+
+process(command):
+  # Dispatch yields zero or more notifications, then a terminal response.
+  for response in dispatch_by_command_type(command):
+    POST /v1/tunnels/{tunnel_id}/response
+      header X-Tunnel-Shard-Token = command.shard_token
+      body.request_id = command.request_id
+      body.channel = command.channel
+      body.resp_* = response
+
 loop:
   poll = GET /v1/tunnels/{tunnel_id}/poll?limit=25&timeout_ms=15000
   if poll.status == 204:
@@ -254,12 +280,7 @@ loop:
     continue
 
   for command in poll.body.commands:
-    result = dispatch_by_command_type(command)
-    POST /v1/tunnels/{tunnel_id}/response
-      header X-Tunnel-Shard-Token = command.shard_token
-      body.request_id = command.request_id
-      body.channel = command.channel
-      body.resp_* = result
+    workers.submit(process, command)
 ```
 
 ## Implementation checklist
@@ -271,6 +292,9 @@ loop:
 - Support both documented `command_type` values.
 - Preserve raw JSON-RPC payloads and multi-valued headers.
 - Echo `request_id`, `channel`, and `shard_token` in the correct locations.
+- Use bounded command concurrency and preserve correlation when responses
+  complete out of order.
+- Forward non-final `jsonrpc_notify` payloads before the terminal response.
 - Cover each response discriminator with fixtures.
 - Ignore unknown JSON fields for forward compatibility.
 - Validate fixtures against the OpenAPI document in CI.
