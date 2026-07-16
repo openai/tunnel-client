@@ -2489,6 +2489,51 @@ func TestProcessorForwardResponsesForwardsUpstreamNotificationRequests(t *testin
 	require.Equal(t, types.ResponseTypeJSONRPCResponse, final.response.Type())
 }
 
+func TestProcessorForwardResponsesBoundsNotificationPostByConnectionTTL(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	responder := &firstDeadlineObservingResponder{}
+
+	callID, err := jsonrpc.MakeID("notification-ttl")
+	require.NoError(t, err)
+
+	transport := &stubForwardingTransport{conn: &scriptedForwardingConnection{
+		statusCode: http.StatusOK,
+		readSteps: []readStep{
+			{msg: &jsonrpc.Request{Method: "notifications/progress"}, err: nil},
+			{msg: &jsonrpc.Response{ID: callID, Result: json.RawMessage(`{"ok":true}`)}, err: nil},
+		},
+	}}
+
+	const connectionTTL = time.Minute
+	meterProvider := newTestMeterProvider(t)
+	processor, err := NewProcessor(processorParams{
+		Logger:          logger,
+		ChannelBindings: newTestChannelBindings(transport),
+		TunnelResponder: responder,
+		MCPConfig:       newTestMCPConfig(t, connectionTTL),
+		OAuthHTTPClient: &http.Client{},
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   meterProvider,
+	})
+	require.NoError(t, err)
+
+	cmd := &fakePolledCommand{
+		id:         types.RequestID("notification-ttl-request"),
+		message:    &jsonrpc.Request{ID: callID, Method: "ping"},
+		enqueuedAt: time.Now(),
+		polledAt:   time.Now(),
+		shardToken: "shard-notification-ttl",
+	}
+
+	started := time.Now()
+	require.NoError(t, processor.Process(context.Background(), cmd))
+
+	require.True(t, responder.hasDeadline, "notification post context must have a deadline")
+	require.WithinDuration(t, started.Add(connectionTTL), responder.deadline, time.Second)
+}
+
 func TestProcessorForwardResponsesClosesConnectionWhenNotificationForwardingFails(t *testing.T) {
 	t.Parallel()
 
@@ -3452,6 +3497,19 @@ type deadlineObservingResponder struct {
 
 func (r *deadlineObservingResponder) PostResponse(ctx context.Context, _ types.RequestID, _ *types.TunnelResponse) (types.TunnelServiceRequestID, error) {
 	r.deadline, _ = ctx.Deadline()
+	return "", nil
+}
+
+type firstDeadlineObservingResponder struct {
+	once        sync.Once
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (r *firstDeadlineObservingResponder) PostResponse(ctx context.Context, _ types.RequestID, _ *types.TunnelResponse) (types.TunnelServiceRequestID, error) {
+	r.once.Do(func() {
+		r.deadline, r.hasDeadline = ctx.Deadline()
+	})
 	return "", nil
 }
 

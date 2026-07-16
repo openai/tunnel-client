@@ -827,7 +827,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		}
 
 		if notifyMsg, ok := asNotification(msg); ok {
-			if err := p.forwardNotification(ctx, logger, cmd, responseCode, responseHeaders, notifyMsg, channel); err != nil {
+			if err := p.forwardNotification(ttlCtx, logger, cmd, responseCode, responseHeaders, notifyMsg, channel); err != nil {
 				return
 			}
 			continue
