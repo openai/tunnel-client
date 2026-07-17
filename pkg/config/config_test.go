@@ -145,6 +145,146 @@ func TestLoadUsesEnvWhenFlagsEmpty(t *testing.T) {
 	}
 }
 
+func TestLoadCloudflaredFromEnvironmentAndFlagReferences(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load([]string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "https://mcp.example",
+		"--cloudflared.token", "env:CLOUDFLARED_TOKEN_REF",
+		"--cloudflared.path", "/opt/tunnel-client/cloudflared",
+		"--cloudflared.ready-timeout", "45s",
+	}, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+		"CLOUDFLARED_TOKEN_REF": "cloudflare-secret-token",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Cloudflared.Enabled() {
+		t.Fatal("expected cloudflared to be enabled")
+	}
+	if cfg.Cloudflared.Token != "cloudflare-secret-token" {
+		t.Fatalf("unexpected cloudflared token")
+	}
+	if cfg.Cloudflared.Path != "/opt/tunnel-client/cloudflared" {
+		t.Fatalf("unexpected cloudflared path: %q", cfg.Cloudflared.Path)
+	}
+	if cfg.Cloudflared.ReadyTimeout != 45*time.Second {
+		t.Fatalf("unexpected cloudflared ready timeout: %s", cfg.Cloudflared.ReadyTimeout)
+	}
+}
+
+func TestLoadCloudflaredFromYAMLFileReference(t *testing.T) {
+	t.Parallel()
+
+	tokenPath := writeTempSecretFile(t, "cloudflare-file-token\n")
+	configPath := writeTempConfigFile(t, `
+control_plane:
+  tunnel_id: tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  api_key: env:YAML_CONTROL_PLANE_API_KEY
+cloudflared:
+  token: file:`+tokenPath+`
+  path: /opt/tunnel-client/cloudflared
+  ready_timeout: 20s
+mcp:
+  server_urls:
+    - channel: main
+      url: https://yaml-mcp.example/mcp
+`)
+
+	cfg, err := Load([]string{"--config", configPath}, lookupEnvMap(map[string]string{
+		"YAML_CONTROL_PLANE_API_KEY": "yaml-control-key",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Cloudflared.Token != "cloudflare-file-token" {
+		t.Fatalf("unexpected cloudflared token")
+	}
+	if cfg.Cloudflared.Path != "/opt/tunnel-client/cloudflared" {
+		t.Fatalf("unexpected cloudflared path: %q", cfg.Cloudflared.Path)
+	}
+	if cfg.Cloudflared.ReadyTimeout != 20*time.Second {
+		t.Fatalf("unexpected cloudflared ready timeout: %s", cfg.Cloudflared.ReadyTimeout)
+	}
+}
+
+func TestLoadCloudflaredEnvironmentOverridesInvalidYAMLReference(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeTempConfigFile(t, `
+control_plane:
+  tunnel_id: tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  api_key: env:YAML_CONTROL_PLANE_API_KEY
+cloudflared:
+  token: env:MISSING_YAML_CLOUDFLARED_TOKEN
+mcp:
+  server_urls:
+    - channel: main
+      url: https://yaml-mcp.example/mcp
+`)
+
+	cfg, err := Load([]string{"--config", configPath}, lookupEnvMap(map[string]string{
+		"YAML_CONTROL_PLANE_API_KEY": "yaml-control-key",
+		"CLOUDFLARED_TUNNEL_TOKEN":   "environment-cloudflared-token",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Cloudflared.Token != "environment-cloudflared-token" {
+		t.Fatalf("unexpected cloudflared token")
+	}
+}
+
+func TestLoadCloudflaredFlagOverridesInvalidYAMLReference(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeTempConfigFile(t, `
+control_plane:
+  tunnel_id: tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  api_key: env:YAML_CONTROL_PLANE_API_KEY
+cloudflared:
+  token: env:MISSING_YAML_CLOUDFLARED_TOKEN
+mcp:
+  server_urls:
+    - channel: main
+      url: https://yaml-mcp.example/mcp
+`)
+
+	cfg, err := Load([]string{
+		"--config", configPath,
+		"--cloudflared.token", "env:FLAG_CLOUDFLARED_TOKEN",
+	}, lookupEnvMap(map[string]string{
+		"YAML_CONTROL_PLANE_API_KEY": "yaml-control-key",
+		"FLAG_CLOUDFLARED_TOKEN":     "flag-cloudflared-token",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Cloudflared.Token != "flag-cloudflared-token" {
+		t.Fatalf("unexpected cloudflared token")
+	}
+}
+
+func TestLoadRejectsLiteralCloudflaredToken(t *testing.T) {
+	t.Parallel()
+
+	_, err := Load([]string{
+		"--control-plane.tunnel-id", flagTunnelID,
+		"--mcp.server-url", "https://mcp.example",
+		"--cloudflared.token", "literal-secret",
+	}, lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_API_KEY": "control-key",
+	}))
+	if err == nil {
+		t.Fatal("expected literal cloudflared token to be rejected")
+	}
+	if !strings.Contains(err.Error(), "cloudflared.token") || !strings.Contains(err.Error(), "env:") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestControlPlanePollDefaultsStayBounded(t *testing.T) {
 	t.Parallel()
 

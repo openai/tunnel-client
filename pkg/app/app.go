@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/openai/tunnel-client/pkg/adminui"
+	"github.com/openai/tunnel-client/pkg/cloudflared"
 	"github.com/openai/tunnel-client/pkg/config"
 	controlplane "github.com/openai/tunnel-client/pkg/controlplane/fx"
 	"github.com/openai/tunnel-client/pkg/dispatcher"
@@ -50,6 +51,7 @@ func OptionsWithRuntime(cfg *config.Config, runtime RuntimeOptions, opts ...fx.O
 			&cfg.Logging,
 			&cfg.Health,
 			&cfg.Process,
+			&cfg.Cloudflared,
 			&cfg.MCP,
 			&cfg.AdminUI,
 			&cfg.Harpoon,
@@ -66,6 +68,7 @@ func OptionsWithRuntime(cfg *config.Config, runtime RuntimeOptions, opts ...fx.O
 		process.Module,
 		proxyhealth.Module,
 		fx.Invoke(tlsconfig.LogTrustReport),
+		fx.StartTimeout(cloudflaredStartTimeout(cfg)),
 	}
 
 	if runtime.DisableHealthAdmin {
@@ -78,7 +81,25 @@ func OptionsWithRuntime(cfg *config.Config, runtime RuntimeOptions, opts ...fx.O
 		)
 	}
 
+	// Register cloudflared after the health/admin hooks so /healthz stays
+	// available while its intentionally blocking readiness wait is pending.
+	base = append(base, cloudflared.Module)
+
 	return append(base, opts...)
+}
+
+func cloudflaredStartTimeout(cfg *config.Config) time.Duration {
+	if cfg == nil || !cfg.Cloudflared.Enabled() || cfg.Cloudflared.ReadyTimeout <= 0 {
+		return fx.DefaultTimeout
+	}
+
+	const maxDuration = time.Duration(1<<63 - 1)
+	if cfg.Cloudflared.ReadyTimeout > maxDuration-fx.DefaultTimeout {
+		return maxDuration
+	}
+	// Keep Fx's normal startup allowance for the rest of the app in addition
+	// to the cloudflared-specific readiness budget.
+	return fx.DefaultTimeout + cfg.Cloudflared.ReadyTimeout
 }
 
 // New constructs a tunnel-client Fx app using the shared wiring plus any extra options.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/openai/tunnel-client/pkg/cloudflared"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
@@ -468,6 +469,20 @@ func TestReadinessHandler(t *testing.T) {
 		require.Contains(t, rec.Body.String(), "probe timed out")
 	})
 
+}
+
+func TestReadinessHandlerReportsCloudflaredPending(t *testing.T) {
+	t.Parallel()
+
+	state := cloudflared.NewState(&config.CloudflaredConfig{Token: "secret-token"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+
+	readinessHandler(nil, nil, state)(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Equal(t, "cloudflared startup pending", rec.Body.String())
+	require.NotContains(t, rec.Body.String(), "secret-token")
 }
 
 type fakeAddr struct{}

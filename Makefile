@@ -12,6 +12,7 @@ ADMIN_UI_BUILD_SCRIPT := scripts/build_admin_ui.sh
 PNPM       ?= pnpm
 ADMIN_UI_PNPM_FLAGS := --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false
 ADMIN_UI_PNPM_STORE_DIR ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/tunnel-client-adminui-pnpm-store
+GOPROXY ?= https://proxy.golang.org
 ifeq ($(OS),windows)
   BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET).exe
 endif
@@ -53,6 +54,7 @@ help:
 	@echo "  GOOS         - Target OS (default: $(OS))"
 	@echo "  GOARCH       - Target architecture (default: $(ARCH))"
 	@echo "  GIT_SHA      - Git SHA/tag for version info and Docker tagging"
+	@echo "  GOPROXY      - Proxy-only Go module source for bundled cloudflared builds"
 	@echo "  VERSION      - Version for make release-tag (required)"
 	@echo ""
 	@echo "Artifacts:"
@@ -130,7 +132,7 @@ IMAGE_NAME    := openai/tunnel-client
 IMAGE_TAG     := $(if $(GIT_SHA),$(GIT_SHA),latest)
 
 build-image: $(TARGET)
-	docker build --build-arg GIT_SHA=$(IMAGE_TAG) -t $(IMAGE_NAME):$(IMAGE_TAG) .
+	docker build --build-arg GIT_SHA=$(IMAGE_TAG) --build-arg GOPROXY=$(GOPROXY) -t $(IMAGE_NAME):$(IMAGE_TAG) .
 	@if [ "$(GIT_SHA)" != "" ]; then \
 		docker tag $(IMAGE_NAME):$(IMAGE_TAG) $(IMAGE_NAME):latest; \
 	fi

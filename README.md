@@ -89,6 +89,8 @@ tool and connects it to the OpenAI Tunnel control plane.
   [`docs/enterprise-customer-onboarding.md`](docs/enterprise-customer-onboarding.md)
 - **Configuration reference**: [`docs/configuration.md`](docs/configuration.md)
 - **Deployment guides**: [`docs/deployment/overview.md`](docs/deployment/overview.md)
+- **Bundled Cloudflare companion**:
+  [`docs/deployment/cloudflared.md`](docs/deployment/cloudflared.md)
 - **Troubleshooting**: [`docs/troubleshooting.md`](docs/troubleshooting.md)
 - **Development & testing**: [`docs/development.md`](docs/development.md)
 - **In-memory Go SDK example**:
@@ -201,6 +203,34 @@ archives from release tags carry the release version in
 `pkg/version/VERSION`. A plain `go build` from a downloaded release `.tar.gz`
 therefore reports the tag semantic version through `tunnel-client --version`,
 `User-Agent`, and the explicit control-plane version headers.
+
+Supported release archives also bundle pinned `cloudflared` `2026.7.2` beside
+the CLI for Linux `amd64`/`arm64`, macOS `amd64`/`arm64`, and Windows
+`amd64`/`arm64`.
+Docker images bundle the Linux `amd64`/`arm64` companion. To run a
+pre-provisioned Cloudflare tunnel without putting its token in argv:
+
+```bash
+export CLOUDFLARED_TOKEN='...'
+tunnel-client run \
+  --cloudflared.token env:CLOUDFLARED_TOKEN \
+  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \
+  --mcp.server-url https://mcp.example.com/mcp
+```
+
+See [`docs/deployment/cloudflared.md`](docs/deployment/cloudflared.md) for
+platform coverage, readiness/failure behavior, Go module provenance, and
+security-update ownership.
+
+If an operator intentionally runs `cloudflared` without `tunnel-client`, print
+a token-free production config and keep the token in a separate secret file:
+
+```bash
+tunnel-client cloudflared config \
+  --token-file /run/secrets/cloudflared/token \
+  > /etc/cloudflared/config.yml
+cloudflared tunnel --config /etc/cloudflared/config.yml run
+```
 
 Fastest Codex terminal path:
 
@@ -323,6 +353,10 @@ make admin-ui
   alias state and local runtime supervision.
 - `tunnel-client run` starts the foreground/manual client poller attached to
   the current terminal.
+- `tunnel-client cloudflared version` prints the bundled companion pin,
+  upstream release, and security-patch owner without starting a process.
+- `tunnel-client cloudflared config --token-file <path>` prints a token-free
+  production `cloudflared` config for operators who run `cloudflared` directly.
 - `tunnel-client admin tunnels get <id>` is the read-only metadata lookup used
   on the runtime-user path; broader `admin tunnels` CRUD still requires an
   admin key. When you need admin CRUD scope, inspect the returned

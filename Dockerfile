@@ -37,10 +37,28 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -ldflags "-X github.com/openai/tunnel-client/pkg/version.GitSHA=${GIT_SHA}" \
     -o /usr/local/bin/tunnel-client ./cmd/client
 
+FROM ${BASE_BUILDER_IMAGE} AS cloudflared-builder
+ARG PROJECT_ROOT=.
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG GOPROXY=https://proxy.golang.org
+ENV GOPROXY=${GOPROXY}
+WORKDIR /repo
+RUN apk add --no-cache bash python3
+COPY ${PROJECT_ROOT}/pkg/cloudflared/manifest.json ./pkg/cloudflared/manifest.json
+COPY ${PROJECT_ROOT}/scripts/build_cloudflared.sh ./scripts/build_cloudflared.sh
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    bash ./scripts/build_cloudflared.sh \
+    --goos "${TARGETOS}" \
+    --goarch "${TARGETARCH}" \
+    --output /usr/local/bin/cloudflared
+
 FROM ${BASE_IMAGE} AS runtime-base
 WORKDIR /app
 
 COPY --from=builder /usr/local/bin/tunnel-client /usr/bin/tunnel-client
+COPY --from=cloudflared-builder /usr/local/bin/cloudflared /usr/bin/cloudflared
 
 FROM runtime-base AS unittest
 RUN printf '#!/bin/sh\nexec "$@"\n' > /entrypoint.sh \

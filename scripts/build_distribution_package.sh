@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly BINARY_NAME="tunnel-client"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly CLOUDFLARED_MANIFEST="${SCRIPT_DIR}/../pkg/cloudflared/manifest.json"
 
 usage() {
   cat <<'EOF'
@@ -70,6 +71,7 @@ bundle_dir="${tmp_dir}/${bundle_name}"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 mkdir -p "${bundle_dir}/bin"
+cp "${CLOUDFLARED_MANIFEST}" "${bundle_dir}/cloudflared-manifest.json"
 
 # Reuse git archive so the bundled source tree respects export-ignore rules.
 git archive --worktree-attributes --format=tar HEAD | tar -xf - -C "$bundle_dir"
@@ -77,10 +79,14 @@ git archive --worktree-attributes --format=tar HEAD | tar -xf - -C "$bundle_dir"
 shopt -s nullglob
 binary_count=0
 prefix="${BINARY_NAME}-${tag}-"
+cloudflared_prefix="cloudflared-${tag}-"
 
 for path in "${binary_dir}"/*; do
   base="$(basename "$path")"
   [[ -f "$path" ]] || continue
+  if [[ "$base" == "${cloudflared_prefix}"* ]]; then
+    continue
+  fi
   [[ "$base" == "${prefix}"* ]] || die "unexpected binary artifact name: ${base}"
 
   suffix="${base#${prefix}}"
@@ -97,6 +103,9 @@ for path in "${binary_dir}"/*; do
   platform_dir="${bundle_dir}/bin/${goos}_${goarch}"
   mkdir -p "$platform_dir"
   cp "$path" "${platform_dir}/${BINARY_NAME}${ext}"
+  cloudflared_path="${binary_dir}/${cloudflared_prefix}${suffix}${ext}"
+  [[ -f "${cloudflared_path}" ]] || die "missing bundled cloudflared artifact for ${goos}/${goarch}: ${cloudflared_path}"
+  cp "${cloudflared_path}" "${platform_dir}/cloudflared${ext}"
   binary_count=$((binary_count + 1))
 done
 

@@ -290,6 +290,7 @@ func TestCollectLogExportRuntimeKeepsReproMetadataAndRedactsSecrets(t *testing.T
 			"tunnel-client",
 			"run",
 			"--control-plane.api-key=env:OPENAI_TUNNEL_KEY_PROD",
+			"--cloudflared.token=env:CLOUDFLARED_TOKEN_REF",
 			"--mcp.server-url",
 			"https://example.test/mcp?code=secret-code",
 			"--harpoon.target=url=https://target.test?access_token=target-token",
@@ -310,11 +311,14 @@ func TestCollectLogExportRuntimeKeepsReproMetadataAndRedactsSecrets(t *testing.T
 			"MCP_DISCOVERY_EXTRA_HEADERS=X-Discovery-Auth: env-discovery-secret",
 			"HTTPS_PROXY=http://proxy-user:proxy-pass@proxy.example:8080",
 			"OPENAI_TUNNEL_KEY_PROD=sk-proj-env-secret123456",
+			"CLOUDFLARED_TOKEN_REF=cloudflared-secret-value",
+			"CLOUDFLARED_TUNNEL_TOKEN=cloudflared-direct-secret",
 			"UNRELATED_SECRET=should-not-be-exported-because-not-relevant",
 		},
 	)
 
 	require.Contains(t, got.Argv, "--control-plane.api-key=env:OPENAI_TUNNEL_KEY_PROD")
+	require.Contains(t, got.Argv, "--cloudflared.token=env:CLOUDFLARED_TOKEN_REF")
 	require.Contains(t, got.Argv, "https://example.test/mcp?code=[REDACTED]")
 	require.Contains(t, got.Argv, "--harpoon.target=url=https://target.test?access_token=[REDACTED]")
 	require.Contains(t, got.Argv, "--control-plane.extra-headers=X-Tunnel-Shard-Token: [REDACTED]")
@@ -335,6 +339,8 @@ func TestCollectLogExportRuntimeKeepsReproMetadataAndRedactsSecrets(t *testing.T
 	require.Equal(t, "X-Discovery-Auth: [REDACTED]", got.Environment["MCP_DISCOVERY_EXTRA_HEADERS"])
 	require.Equal(t, "http://[REDACTED]@proxy.example:8080", got.Environment["HTTPS_PROXY"])
 	require.Equal(t, "[REDACTED]", got.Environment["OPENAI_TUNNEL_KEY_PROD"])
+	require.Equal(t, "[REDACTED]", got.Environment["CLOUDFLARED_TOKEN_REF"])
+	require.Equal(t, "[REDACTED]", got.Environment["CLOUDFLARED_TUNNEL_TOKEN"])
 	require.NotContains(t, got.Environment, "UNRELATED_SECRET")
 	require.NotContains(t, got.Environment, "should-not-be-exported-because-not-relevant")
 	require.Equal(t, version.ClientName, got.Client.ClientName)
@@ -375,6 +381,40 @@ func TestCollectLogExportRuntimeRedactsSplitHeaderFlagValues(t *testing.T) {
 	require.Equal(t, "[REDACTED]", got.Environment["MCP_RUNTIME_SECRET"])
 }
 
+func TestCollectLogExportRuntimeRedactsOpaqueCloudflaredTokenReferences(t *testing.T) {
+	t.Parallel()
+
+	fromArgs := collectLogExportRuntime(
+		[]string{
+			"tunnel-client",
+			"run",
+			"--cloudflared.token",
+			"env:CLOUDFLARED_CREDENTIAL",
+		},
+		[]string{
+			"CLOUDFLARED_CREDENTIAL=opaque-cloudflared-secret",
+		},
+	)
+	require.Equal(t, "[REDACTED]", fromArgs.Environment["CLOUDFLARED_CREDENTIAL"])
+
+	cfg := &config.Config{
+		Runtime: config.RuntimeConfig{
+			ConfigFileContents: []byte(`
+cloudflared:
+  token: env:CLOUDFLARED_CREDENTIAL
+`),
+		},
+	}
+	fromConfig := collectLogExportRuntime(
+		nil,
+		[]string{
+			"CLOUDFLARED_CREDENTIAL=opaque-cloudflared-secret",
+		},
+		sensitiveRuntimeEnvReferencesFromConfig(cfg),
+	)
+	require.Equal(t, "[REDACTED]", fromConfig.Environment["CLOUDFLARED_CREDENTIAL"])
+}
+
 func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {
 	t.Parallel()
 
@@ -394,6 +434,11 @@ func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {
 		},
 		Health:  config.HealthConfig{ListenAddr: "127.0.0.1:8080"},
 		Process: config.ProcessConfig{PIDFile: "/tmp/tunnel-client.pid"},
+		Cloudflared: config.CloudflaredConfig{
+			Token:        "cloudflared-secret-value",
+			Path:         "/opt/tunnel-client/cloudflared",
+			ReadyTimeout: 30 * time.Second,
+		},
 		MCP: config.MCPConfig{
 			ServerURL:             mustURLForTest(t, "https://alice:secret@mcp.example/mcp?access_token=secret-token"),
 			TransportKind:         config.MCPTransportHTTPStreamable,
@@ -427,7 +472,10 @@ func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {
 	require.NotContains(t, files[runtimeSnapshotFile], "secret-shard-token")
 	require.NotContains(t, files[runtimeSnapshotFile], "runtime-secret")
 	require.NotContains(t, files[runtimeSnapshotFile], "discovery-secret")
+	require.NotContains(t, files[runtimeSnapshotFile], "cloudflared-secret-value")
 	require.Contains(t, files[runtimeSnapshotFile], "api_key: '[REDACTED]'")
+	require.Contains(t, files[runtimeSnapshotFile], "cloudflared:")
+	require.Contains(t, files[runtimeSnapshotFile], "token: '[REDACTED]'")
 	require.Contains(t, files[runtimeSnapshotFile], "X-Internal-Auth: '[REDACTED]'")
 	require.Contains(t, files[runtimeSnapshotFile], "X-Discovery-Auth: '[REDACTED]'")
 	require.Contains(t, files[runtimeSnapshotFile], "https://mcp.example/mcp")
