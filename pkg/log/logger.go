@@ -48,6 +48,7 @@ const (
 	ComponentControlPlane = "controlplane"
 	ComponentMcpClient    = "mcpclient"
 	ComponentProcess      = "process"
+	ComponentCloudflared  = "cloudflared"
 	ComponentHarpoon      = "harpoon"
 )
 

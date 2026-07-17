@@ -89,7 +89,11 @@ type AdminSnapshotProvider func() logExportAdminSnapshots
 
 func NewRuntimeSnapshotProvider(cfg *config.Config) RuntimeSnapshotProvider {
 	return func() logExportRuntime {
-		runtime := collectLogExportRuntime(os.Args, os.Environ())
+		runtime := collectLogExportRuntime(
+			os.Args,
+			os.Environ(),
+			sensitiveRuntimeEnvReferencesFromConfig(cfg),
+		)
 		runtime.ActualConfig = buildConfigFileSnapshot(cfg)
 		runtime.EffectiveConfig = buildEffectiveConfigSnapshot(cfg)
 		return runtime
@@ -271,17 +275,28 @@ func buildLogsArchive(
 	return buf.Bytes(), nil
 }
 
-func collectLogExportRuntime(argv []string, environ []string) logExportRuntime {
+func collectLogExportRuntime(argv []string, environ []string, extraSensitiveEnvKeys ...map[string]struct{}) logExportRuntime {
 	env := splitEnvironment(environ)
 	envKeys := relevantRuntimeEnvKeys(env)
 	for key := range envReferencesFromArgs(argv) {
 		envKeys[key] = struct{}{}
+	}
+	sensitiveEnvKeys := sensitiveRuntimeEnvReferencesFromArgs(argv)
+	for _, keys := range extraSensitiveEnvKeys {
+		for key := range keys {
+			envKeys[key] = struct{}{}
+			sensitiveEnvKeys[key] = struct{}{}
+		}
 	}
 
 	outEnv := make(map[string]string, len(envKeys))
 	for key := range envKeys {
 		val, ok := env[key]
 		if !ok {
+			continue
+		}
+		if _, sensitive := sensitiveEnvKeys[key]; sensitive {
+			outEnv[key] = "[REDACTED]"
 			continue
 		}
 		outEnv[key] = redactRuntimeEnv(key, val)
@@ -351,6 +366,7 @@ func isRelevantRuntimeEnvKey(key string) bool {
 	}
 	for _, prefix := range []string{
 		"ADMIN_UI_",
+		"CLOUDFLARED_",
 		"CONTROL_PLANE_",
 		"HARPOON_",
 		"LOG_",
@@ -371,6 +387,43 @@ func envReferencesFromArgs(argv []string) map[string]struct{} {
 		for _, key := range envReferencesFromString(arg) {
 			out[key] = struct{}{}
 		}
+	}
+	return out
+}
+
+func sensitiveRuntimeEnvReferencesFromArgs(argv []string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for i, arg := range argv {
+		name, value, hasValue := splitLongFlag(arg)
+		if normalizeRuntimeKey(name) != "cloudflared_token" {
+			continue
+		}
+		if !hasValue && i+1 < len(argv) {
+			value = argv[i+1]
+		}
+		for _, key := range envReferencesFromString(value) {
+			out[key] = struct{}{}
+		}
+	}
+	return out
+}
+
+func sensitiveRuntimeEnvReferencesFromConfig(cfg *config.Config) map[string]struct{} {
+	out := make(map[string]struct{})
+	if cfg == nil || len(cfg.Runtime.ConfigFileContents) == 0 {
+		return out
+	}
+
+	var file struct {
+		Cloudflared struct {
+			Token *string `yaml:"token"`
+		} `yaml:"cloudflared"`
+	}
+	if err := yaml.Unmarshal(cfg.Runtime.ConfigFileContents, &file); err != nil || file.Cloudflared.Token == nil {
+		return out
+	}
+	for _, key := range envReferencesFromString(*file.Cloudflared.Token) {
+		out[key] = struct{}{}
 	}
 	return out
 }
@@ -590,6 +643,12 @@ func buildEffectiveConfigSnapshot(cfg *config.Config) map[string]any {
 		"process": map[string]any{
 			"pid_file": redactString(cfg.Process.PIDFile),
 		},
+		"cloudflared": map[string]any{
+			"enabled":       cfg.Cloudflared.Enabled(),
+			"token":         redactedPresence(cfg.Cloudflared.Token),
+			"path":          redactString(cfg.Cloudflared.Path),
+			"ready_timeout": durationForSnapshot(cfg.Cloudflared.ReadyTimeout),
+		},
 		"admin_ui": map[string]any{
 			"allow_remote":      cfg.AdminUI.AllowRemote,
 			"open_browser":      cfg.AdminUI.OpenBrowser,
@@ -750,8 +809,12 @@ func isSafeReferenceValue(value string) bool {
 }
 
 func isHeaderListKey(key string) bool {
-	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(strings.TrimLeft(key, "-")))
+	normalized := normalizeRuntimeKey(key)
 	return strings.HasSuffix(normalized, "extra_headers") || strings.HasSuffix(normalized, "extra_header")
+}
+
+func normalizeRuntimeKey(key string) string {
+	return strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(strings.TrimLeft(key, "-")))
 }
 
 func redactHeaderListValue(value string) string {
@@ -786,7 +849,7 @@ func redactHeaderListValue(value string) string {
 }
 
 func isSensitiveRuntimeKey(key string) bool {
-	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(strings.TrimLeft(key, "-")))
+	normalized := normalizeRuntimeKey(key)
 	if isSensitiveAttrKey(normalized) {
 		return true
 	}

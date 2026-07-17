@@ -16,6 +16,7 @@ concurrency:
 
 env:
   GO_VERSION: "1.26.x"
+  GOPROXY: https://proxy.golang.org
   MODULE_PATH: github.com/openai/tunnel-client
   BINARY_NAME: tunnel-client
   PUBLIC_STORAGE_ACCOUNT: prod1pstatic
@@ -43,6 +44,15 @@ jobs:
           ./scripts/release_tag.sh check-source-version "${GITHUB_REF_NAME}"
       - name: Test release tag tooling
         run: bash ./scripts/release_tag_test.sh
+      - name: Validate bundled cloudflared manifest
+        run: |
+          set -euo pipefail
+          ./scripts/build_cloudflared.sh --describe --goos linux --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos linux --goarch arm64
+          ./scripts/build_cloudflared.sh --describe --goos darwin --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos darwin --goarch arm64
+          ./scripts/build_cloudflared.sh --describe --goos windows --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos windows --goarch arm64
       - name: Validate
         run: |
           go env
@@ -100,7 +110,12 @@ jobs:
           fi
           GOFLAGS="-trimpath -buildvcs=false"
           RAW_BINARY_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          CLOUDFLARED_RAW_NAME=cloudflared-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
           go build $GOFLAGS -ldflags "$LDFLAGS" -o "dist/package-input/$RAW_BINARY_NAME" ./cmd/client
+          ./scripts/build_cloudflared.sh \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --output "dist/package-input/$CLOUDFLARED_RAW_NAME"
           if [[ "${GITHUB_REF_TYPE}" == "tag" && "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
             expected_version="${release_version}+${GITHUB_SHA} (git sha: ${GITHUB_SHA})"
             actual_version="$("dist/package-input/$RAW_BINARY_NAME" --version)"
@@ -111,12 +126,32 @@ jobs:
               exit 1
             fi
           fi
+          if [[ "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
+            expected_cloudflared_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/manifest.json"))["version"])')"
+            actual_cloudflared_version="$("dist/package-input/$CLOUDFLARED_RAW_NAME" --version)"
+            if [[ "${actual_cloudflared_version}" != *"${expected_cloudflared_version}"* ]]; then
+              echo "bundled cloudflared version mismatch" >&2
+              printf 'expected substring: %s\n' "${expected_cloudflared_version}" >&2
+              printf 'actual:             %s\n' "${actual_cloudflared_version}" >&2
+              exit 1
+            fi
+          fi
+          if [[ "${{ matrix.goos }}" == "windows" && "${{ matrix.goarch }}" == "arm64" ]]; then
+            expected_cloudflared_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/manifest.json"))["version"])')"
+            if ! grep -a -Fq "${expected_cloudflared_version}" "dist/package-input/$CLOUDFLARED_RAW_NAME"; then
+              echo "proxy-built cloudflared does not embed the pinned version" >&2
+              exit 1
+            fi
+          fi
 
           # Package as zip with OS/Arch/Tag in name
           ASSET_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}
           stage_dir="$(mktemp -d)"
           cp "dist/package-input/$RAW_BINARY_NAME" "$stage_dir/$BIN_NAME"
-          (cd "$stage_dir" && zip -9 "${GITHUB_WORKSPACE}/dist/public/$ASSET_NAME.zip" "$BIN_NAME")
+          cp "dist/package-input/$CLOUDFLARED_RAW_NAME" "$stage_dir/cloudflared${{ matrix.ext }}"
+          cp "pkg/cloudflared/manifest.json" "$stage_dir/cloudflared-manifest.json"
+          cp "LICENSE" "$stage_dir/LICENSE"
+          (cd "$stage_dir" && zip -9 "${GITHUB_WORKSPACE}/dist/public/$ASSET_NAME.zip" "$BIN_NAME" "cloudflared${{ matrix.ext }}" cloudflared-manifest.json LICENSE)
           rm -rf "$stage_dir"
 
       - name: Upload artifact

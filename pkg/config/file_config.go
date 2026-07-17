@@ -13,13 +13,14 @@ import (
 )
 
 type fileConfigValues struct {
-	Path        string
-	ProfileName string
-	ProfilePath string
-	ProfileDir  string
-	ProfileFile bool
-	Raw         []byte
-	Env         map[string]string
+	Path             string
+	ProfileName      string
+	ProfilePath      string
+	ProfileDir       string
+	ProfileFile      bool
+	Raw              []byte
+	Env              map[string]string
+	CloudflaredToken *string
 }
 
 type fileConfig struct {
@@ -31,6 +32,7 @@ type fileConfig struct {
 	Health        fileHealthConfig       `yaml:"health"`
 	AdminUI       fileAdminUIConfig      `yaml:"admin_ui"`
 	Process       fileProcessConfig      `yaml:"process"`
+	Cloudflared   fileCloudflaredConfig  `yaml:"cloudflared"`
 	MCP           fileMCPConfig          `yaml:"mcp"`
 	Harpoon       fileHarpoonConfig      `yaml:"harpoon"`
 	Proxy         fileProxyConfig        `yaml:"proxy"`
@@ -72,6 +74,12 @@ type fileAdminUIConfig struct {
 
 type fileProcessConfig struct {
 	PIDFile *string `yaml:"pid_file"`
+}
+
+type fileCloudflaredConfig struct {
+	Token        *string `yaml:"token"`
+	Path         *string `yaml:"path"`
+	ReadyTimeout *string `yaml:"ready_timeout"`
 }
 
 type fileMCPConfig struct {
@@ -149,13 +157,14 @@ func loadFileConfigValues(fs *pflag.FlagSet, lookupEnv func(string) (string, boo
 		return nil, fmt.Errorf("parse config file %s: %w", source.Path, err)
 	}
 	return &fileConfigValues{
-		Path:        source.Path,
-		ProfileName: source.ProfileName,
-		ProfilePath: source.ProfilePath,
-		ProfileDir:  source.ProfileDir,
-		ProfileFile: source.ProfileFile,
-		Raw:         bytes.Clone(data),
-		Env:         env,
+		Path:             source.Path,
+		ProfileName:      source.ProfileName,
+		ProfilePath:      source.ProfilePath,
+		ProfileDir:       source.ProfileDir,
+		ProfileFile:      source.ProfileFile,
+		Raw:              bytes.Clone(data),
+		Env:              env,
+		CloudflaredToken: cfg.Cloudflared.Token,
 	}, nil
 }
 
@@ -232,6 +241,8 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 	setBool(env, "OPEN_WEB_UI", c.AdminUI.OpenBrowser)
 	setInt(env, "ADMIN_UI_LOG_BUFFER_EVENTS", c.AdminUI.LogBufferEvents)
 	setString(env, "PID_FILE", c.Process.PIDFile)
+	setString(env, "CLOUDFLARED_PATH", c.Cloudflared.Path)
+	setString(env, "CLOUDFLARED_READY_TIMEOUT", c.Cloudflared.ReadyTimeout)
 
 	mcpServerEntries, err := formatResolvedMCPServerURLEntries(c.MCP.ServerURLs, lookupEnv)
 	if err != nil {

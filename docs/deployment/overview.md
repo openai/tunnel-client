@@ -61,6 +61,7 @@ materializes a YAML profile with `http_proxy: env:HTTPS_PROXY` and
 ## Choose a deployment pattern
 
 - **Docker**: [`docker.md`](docker.md)
+- **Bundled Cloudflare companion**: [`cloudflared.md`](cloudflared.md)
 - **Kubernetes sidecar**: [`kubernetes-sidecar.md`](kubernetes-sidecar.md)
 - **Kubernetes dedicated pod**: [`kubernetes-dedicated.md`](kubernetes-dedicated.md)
 - **VM / systemd**: [`systemd-vm.md`](systemd-vm.md)

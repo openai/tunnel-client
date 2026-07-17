@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/fx/fxevent"
 
 	"github.com/openai/tunnel-client/pkg/app"
+	"github.com/openai/tunnel-client/pkg/cloudflared"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/controlplane"
 	"github.com/openai/tunnel-client/pkg/oauth"
@@ -130,14 +132,56 @@ func runTunnel(cmd *cobra.Command, lookupEnv func(string) (string, bool), embedd
 		return fmt.Errorf("configure tunnel-client: %w", err)
 	}
 
+	var cloudflaredSupervisor *cloudflared.Supervisor
 	fxApp := app.New(cfg,
 		fx.Provide(func() io.Writer { return cmd.OutOrStdout() }),
+		fx.Populate(&cloudflaredSupervisor),
 		fx.WithLogger(func(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState, mcpConfig *config.MCPConfig) fxevent.Logger {
 			return newTunnelEventLogger(logger, cfg, metadataState, mcpConfig)
 		}),
 	)
-	fxApp.Run()
-	return nil
+	return runFXApp(cmd.Context(), fxApp, cloudflaredSupervisor)
+}
+
+func runFXApp(ctx context.Context, fxApp *fx.App, cloudflaredSupervisor *cloudflared.Supervisor) error {
+	if fxApp == nil {
+		return errors.New("tunnel-client app is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	startCtx, startCancel := context.WithTimeout(ctx, fxApp.StartTimeout())
+	defer startCancel()
+	if err := fxApp.Start(startCtx); err != nil {
+		return fmt.Errorf("start tunnel-client: %w", err)
+	}
+
+	var failureCh <-chan error
+	if cloudflaredSupervisor != nil {
+		failureCh = cloudflaredSupervisor.Failures()
+	}
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case shutdown := <-fxApp.Wait():
+		if shutdown.ExitCode != 0 {
+			runErr = fmt.Errorf("tunnel-client shutdown requested with exit code %d", shutdown.ExitCode)
+		}
+	case err := <-failureCh:
+		if err != nil {
+			runErr = fmt.Errorf("cloudflared supervision failed: %w", err)
+		}
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), fxApp.StopTimeout())
+	defer stopCancel()
+	stopErr := fxApp.Stop(stopCtx)
+	if stopErr != nil {
+		stopErr = fmt.Errorf("stop tunnel-client: %w", stopErr)
+	}
+	return errors.Join(runErr, stopErr)
 }
 
 func configureRunEmbeddedMCPStub(cmd *cobra.Command, opts runEmbeddedMCPStubOptions) (*devMCPStubInstance, error) {

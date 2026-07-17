@@ -28,6 +28,7 @@ func newRootCommand(lookupEnv func(string) (string, bool), stdout io.Writer, std
 	rootCmd.AddCommand(newDoctorCommand(lookupEnv, stdout, stderr))
 	rootCmd.AddCommand(newHealthCommand(stdout, stderr))
 	rootCmd.AddCommand(newRunCommand(lookupEnv))
+	rootCmd.AddCommand(newCloudflaredCommand(stdout, stderr))
 	rootCmd.AddCommand(newDevCommand(stdout, stderr))
 	rootCmd.AddCommand(newCodexCommand(lookupEnv, stdout, stderr))
 	rootCmd.AddCommand(newProfilesCommand(lookupEnv, stdout, stderr))

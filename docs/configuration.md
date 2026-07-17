@@ -131,6 +131,12 @@ admin_ui:
   log_buffer_events: 2000
 process:
   pid_file: /run/tunnel-client/tunnel-client.pid
+cloudflared:
+  # Optional. Use an env: or file: reference; literal tokens are rejected.
+  token: env:CLOUDFLARED_TOKEN
+  # Optional source-build/test override. Release archives discover the sibling binary.
+  path: /opt/tunnel-client/cloudflared
+  ready_timeout: 30s
 mcp:
   server_urls:
     - channel: main
@@ -167,6 +173,14 @@ supported for control-plane, MCP runtime, and MCP discovery/probe extra
 headers. The `env:` and `file:` prefixes are reserved for these references;
 all other values are treated literally.
 
+`cloudflared.token` is stricter: it accepts only `env:VARNAME` or
+`file:/path/to/secret`, and `CLOUDFLARED_TUNNEL_TOKEN` is the direct environment
+equivalent. When configured, `tunnel-client run` starts the adjacent bundled
+`cloudflared`, passes the token only through the child environment, waits for
+its loopback readiness endpoint, and propagates unexpected process exits.
+`cloudflared.path` / `CLOUDFLARED_PATH` is only an advanced source-build or test
+override; supported release archives do not require it.
+
 The admin UI log export includes `tunnel-client.runtime.yaml`, a redacted
 snapshot of argv, relevant environment variables, the startup YAML config file
 under `actual_config.contents` when present, and the effective startup config.
@@ -180,6 +194,10 @@ secrets are redacted before export.
 - `help <topic>`: show embedded operator guidance for `quickstart`, `samples`,
   `doctor`, `oauth`, or `plugin`.
 - `run`: start the tunnel client poll loop.
+- `cloudflared version`: print the bundled companion version, pinned Go module,
+  release commit, and security-patch owner.
+- `cloudflared config --token-file <path>`: print a token-free production
+  `cloudflared` YAML config for operators who run `cloudflared` directly.
 - `profiles list`: list profile YAML files in the selected profile directory.
 - `profiles samples list`: enumerate built-in sample profiles.
 - `profiles samples show <name>`: print the sample plus required inputs and

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/openai/tunnel-client/pkg/cloudflared"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/pkg/httpguard"
@@ -104,14 +105,15 @@ func (s *healthService) markBound() {
 
 type healthParams struct {
 	fx.In
-	Lifecycle      fx.Lifecycle
-	MetricExporter metrics.MetricsExporter
-	HealthConfig   *config.HealthConfig
-	Logger         *slog.Logger
-	MeterProvider  *sdkmetric.MeterProvider
-	AdminMux       *http.ServeMux `name:"admin_mux"`
-	OAuthState     *oauth.DiscoveryState
-	MCPProbeState  *mcpclient.ProbeState `optional:"true"`
+	Lifecycle        fx.Lifecycle
+	MetricExporter   metrics.MetricsExporter
+	HealthConfig     *config.HealthConfig
+	Logger           *slog.Logger
+	MeterProvider    *sdkmetric.MeterProvider
+	AdminMux         *http.ServeMux `name:"admin_mux"`
+	OAuthState       *oauth.DiscoveryState
+	MCPProbeState    *mcpclient.ProbeState `optional:"true"`
+	CloudflaredState *cloudflared.State    `optional:"true"`
 }
 
 func newHealthService(p healthParams) (*healthService, error) {
@@ -122,7 +124,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 	}
 
 	p.AdminMux.HandleFunc("/healthz", okHandler("live"))
-	p.AdminMux.HandleFunc("/readyz", readinessHandler(p.OAuthState, p.MCPProbeState))
+	p.AdminMux.HandleFunc("/readyz", readinessHandler(p.OAuthState, p.MCPProbeState, p.CloudflaredState))
 	p.AdminMux.Handle("/metrics", p.MetricExporter)
 
 	meter := p.MeterProvider.Meter("health")
@@ -155,7 +157,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 		OnStart: func(ctx context.Context) error {
 			_, err := meter.RegisterCallback(func(ctx context.Context, observer metric.Observer) error {
 				observer.ObserveInt64(livenessGauge, 1)
-				if isReady(p.OAuthState, p.MCPProbeState) {
+				if isReady(p.OAuthState, p.MCPProbeState, p.CloudflaredState) {
 					observer.ObserveInt64(readinessGauge, 1)
 				} else {
 					observer.ObserveInt64(readinessGauge, 0)
@@ -350,8 +352,8 @@ func isUnspecifiedHost(host string) bool {
 	return ip != nil && ip.IsUnspecified()
 }
 
-func isReady(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState) bool {
-	status, _ := readinessStatus(oauthState, probeState)
+func isReady(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState, cloudflaredStates ...*cloudflared.State) bool {
+	status, _ := readinessStatus(oauthState, probeState, cloudflaredStates...)
 	return status == http.StatusOK
 }
 
@@ -363,16 +365,25 @@ func okHandler(status string) http.HandlerFunc {
 	}
 }
 
-func readinessHandler(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState) http.HandlerFunc {
+func readinessHandler(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState, cloudflaredStates ...*cloudflared.State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		statusCode, body := readinessStatus(oauthState, probeState)
+		statusCode, body := readinessStatus(oauthState, probeState, cloudflaredStates...)
 		w.WriteHeader(statusCode)
 		_, _ = w.Write([]byte(body))
 	}
 }
 
-func readinessStatus(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState) (int, string) {
+func readinessStatus(oauthState *oauth.DiscoveryState, probeState *mcpclient.ProbeState, cloudflaredStates ...*cloudflared.State) (int, string) {
+	var cloudflaredState *cloudflared.State
+	if len(cloudflaredStates) > 0 {
+		cloudflaredState = cloudflaredStates[0]
+	}
+	if cloudflaredState != nil {
+		if ready, reason := cloudflaredState.Readiness(); !ready {
+			return http.StatusServiceUnavailable, reason
+		}
+	}
 	if oauthState != nil && !oauthState.IsDone() {
 		return http.StatusServiceUnavailable, "oauth discovery pending"
 	}

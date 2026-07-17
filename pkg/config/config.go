@@ -58,6 +58,7 @@ const (
 	defaultLogLevel                                    = "info"
 	defaultLogFormat                         LogFormat = LogFormatUnset
 	defaultHealthListenAddr                            = "127.0.0.1:8080"
+	defaultCloudflaredReadyTimeout                     = 30 * time.Second
 	defaultAdminUILogBufferEvents                      = 2000
 	maxAdminUILogBufferEvents                          = 100000
 	defaultMCPConnectionMaxTTL                         = 10 * time.Minute
@@ -112,6 +113,7 @@ type Config struct {
 	Logging      LoggingConfig
 	Health       HealthConfig
 	Process      ProcessConfig
+	Cloudflared  CloudflaredConfig
 	MCP          MCPConfig
 	AdminUI      AdminUIConfig
 	Harpoon      HarpoonConfig
@@ -185,6 +187,25 @@ type HealthConfig struct {
 // ProcessConfig defines process-level runtime settings.
 type ProcessConfig struct {
 	PIDFile string
+}
+
+// CloudflaredConfig defines the optional bundled Cloudflare Tunnel companion
+// process. A token enables supervision; an empty token leaves the normal
+// tunnel-client runtime unchanged.
+type CloudflaredConfig struct {
+	// Token is the pre-provisioned remotely managed Cloudflare Tunnel token.
+	// It is kept in memory only and is passed to cloudflared through its
+	// TUNNEL_TOKEN environment variable, never argv.
+	Token string
+	// Path overrides sibling-binary discovery for source builds and tests.
+	Path string
+	// ReadyTimeout bounds startup while waiting for cloudflared /ready.
+	ReadyTimeout time.Duration
+}
+
+// Enabled reports whether the bundled cloudflared companion should run.
+func (c CloudflaredConfig) Enabled() bool {
+	return strings.TrimSpace(c.Token) != ""
 }
 
 // MCPConfig captures configuration for the Model Context Protocol integration.
@@ -383,6 +404,9 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  ALLOW_REMOTE_UI\tSet to true to allow non-loopback access to the embedded web UI (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  OPEN_WEB_UI\tSet to true to open the embedded web UI in a browser on startup (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  ADMIN_UI_LOG_BUFFER_EVENTS\tRecent log-event capacity for the embedded web UI and export archive (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_TUNNEL_TOKEN\tPre-provisioned remotely managed Cloudflare Tunnel token; enables bundled cloudflared supervision (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_PATH\tAdvanced override for the bundled cloudflared executable path (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_READY_TIMEOUT\tMaximum startup wait for bundled cloudflared readiness (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  CA_BUNDLE\tPath to a PEM CA bundle used for outbound TLS connections (additive to system trust) (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_EXTRA_HEADERS\tStatic headers for outbound MCP HTTP requests to the configured MCP server origin; values accept env:VAR or file:/path (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_DISCOVERY_EXTRA_HEADERS\tStatic headers for MCP discovery/probe requests to the configured MCP server origin; values accept env:VAR or file:/path (optional)")
@@ -421,6 +445,9 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("open-web-ui", false, "Open the embedded web UI in your default browser on startup (env.OPEN_WEB_UI)")
 	fs.Int("admin-ui.log-buffer-events", defaultAdminUILogBufferEvents, "Number of recent log events to keep in memory for the embedded web UI and export archive (env.ADMIN_UI_LOG_BUFFER_EVENTS, max 100000)")
 	fs.String("pid.file", "", "File to write the tunnel-client process ID to (env.PID_FILE)")
+	fs.String("cloudflared.token", "", "Reference to an environment variable or file containing a pre-provisioned Cloudflare Tunnel token (format env:VARNAME or file:/path; env.CLOUDFLARED_TUNNEL_TOKEN)")
+	fs.String("cloudflared.path", "", "Path to the bundled cloudflared executable; defaults to the executable beside tunnel-client (env.CLOUDFLARED_PATH)")
+	fs.Duration("cloudflared.ready-timeout", defaultCloudflaredReadyTimeout, "Maximum time to wait for bundled cloudflared to report ready (env.CLOUDFLARED_READY_TIMEOUT)")
 	fs.String("http-proxy", "", "Global outbound HTTP proxy (applies to control-plane, MCP, and Harpoon) (format <url|env:VAR>)")
 	fs.Duration("proxy.check-interval", defaultProxyCheckInterval, "Interval between proxy connectivity checks (env.PROXY_CHECK_INTERVAL)")
 	fs.StringArray("mcp.server-url", nil, "Target MCP server URL (repeatable; format url=...,channel=...,unix-socket=...,http-proxy=...,client-cert=...,client-key=...) (env.MCP_SERVER_URL)")
@@ -452,8 +479,8 @@ func RegisterFlags(fs *pflag.FlagSet) {
 
 // LoadFromFlagSet builds a Config using the parsed values from the provided flag set.
 //
-// It respects the same precedence rules as Load(): flags override environment variables,
-// which override defaults.
+// It respects the same precedence rules as Load(): flags override environment
+// variables, which override config-file values, which override defaults.
 func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (*Config, error) {
 	if lookupEnv == nil {
 		lookupEnv = os.LookupEnv
@@ -493,6 +520,14 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 
 	health := buildHealthConfig(fs, lookupEnv)
 	process := buildProcessConfig(fs, lookupEnv)
+	var fileCloudflaredToken *string
+	if fileValues != nil {
+		fileCloudflaredToken = fileValues.CloudflaredToken
+	}
+	cloudflared, err := buildCloudflaredConfig(fs, lookupEnv, fileCloudflaredToken)
+	if err != nil {
+		return nil, err
+	}
 
 	adminUI, err := buildAdminUIConfig(fs, lookupEnv)
 	if err != nil {
@@ -514,6 +549,7 @@ func LoadFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		Logging:      logging,
 		Health:       health,
 		Process:      process,
+		Cloudflared:  cloudflared,
 		MCP:          mcp,
 		AdminUI:      adminUI,
 		Harpoon:      harpoon,
@@ -1340,6 +1376,66 @@ func buildProcessConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 	)
 
 	return ProcessConfig{PIDFile: pidFile}
+}
+
+func buildCloudflaredConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), fileToken *string) (CloudflaredConfig, error) {
+	var token string
+	if raw := getValue(fs, "cloudflared.token"); raw != "" {
+		resolved, err := resolveRequiredSecretReference("cloudflared.token", raw, lookupEnv)
+		if err != nil {
+			return CloudflaredConfig{}, err
+		}
+		token = resolved
+	} else if envToken, ok := lookupEnv("CLOUDFLARED_TUNNEL_TOKEN"); ok {
+		token = strings.TrimSpace(envToken)
+		if token == "" {
+			return CloudflaredConfig{}, errors.New("CLOUDFLARED_TUNNEL_TOKEN is set but empty")
+		}
+	} else if fileToken != nil {
+		resolved, err := resolveRequiredSecretReference("cloudflared.token", *fileToken, lookupEnv)
+		if err != nil {
+			return CloudflaredConfig{}, err
+		}
+		token = resolved
+	}
+
+	path := firstSet(
+		getValue(fs, "cloudflared.path"),
+		envOrDefault(lookupEnv, "CLOUDFLARED_PATH", ""),
+	)
+	readyTimeoutRaw := firstSet(
+		getValue(fs, "cloudflared.ready-timeout"),
+		envOrDefault(lookupEnv, "CLOUDFLARED_READY_TIMEOUT", defaultCloudflaredReadyTimeout.String()),
+	)
+	readyTimeout, err := time.ParseDuration(readyTimeoutRaw)
+	if err != nil {
+		return CloudflaredConfig{}, fmt.Errorf("invalid cloudflared.ready-timeout: %w", err)
+	}
+	if readyTimeout <= 0 {
+		return CloudflaredConfig{}, errors.New("cloudflared.ready-timeout must be positive")
+	}
+
+	return CloudflaredConfig{
+		Token:        token,
+		Path:         strings.TrimSpace(path),
+		ReadyTimeout: readyTimeout,
+	}, nil
+}
+
+func resolveRequiredSecretReference(source, raw string, lookupEnv func(string) (string, bool)) (string, error) {
+	raw = strings.TrimSpace(raw)
+	lower := strings.ToLower(raw)
+	if !strings.HasPrefix(lower, "env:") && !strings.HasPrefix(lower, "file:") {
+		return "", fmt.Errorf("invalid %s: value must be prefixed with %q or %q", source, "env:", "file:")
+	}
+	value, err := resolveConfigSecretReference(source, raw, lookupEnv)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("invalid %s: resolved value is empty", source)
+	}
+	return value, nil
 }
 
 func buildAdminUIConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (AdminUIConfig, error) {
