@@ -18,10 +18,6 @@ type systemResponse struct {
 	MainChannelProbeError  string                           `json:"main_channel_probe_error,omitempty"`
 }
 
-type harpoonProxyRoutesResponse struct {
-	Routes []proxy.RouteSummary `json:"routes,omitempty"`
-}
-
 func buildSystem(p routeParams) systemResponse {
 	response := systemResponse{}
 	response.TLS = tlsconfig.BuildTrustReport(p.TLSBundle)
