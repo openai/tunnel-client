@@ -426,16 +426,16 @@ func printTunnel(cmd *cobra.Command, t *admin.Tunnel) error {
 	}
 
 	builder := strings.Builder{}
-	builder.WriteString(fmt.Sprintf("Tunnel %s\n", t.ID))
-	builder.WriteString(fmt.Sprintf("  Name: %s\n", t.Name))
-	builder.WriteString(fmt.Sprintf("  Description: %s\n", t.Description))
+	fmt.Fprintf(&builder, "Tunnel %s\n", t.ID)
+	fmt.Fprintf(&builder, "  Name: %s\n", t.Name)
+	fmt.Fprintf(&builder, "  Description: %s\n", t.Description)
 	if t.Creator != "" {
-		builder.WriteString(fmt.Sprintf("  Creator: %s\n", t.Creator))
+		fmt.Fprintf(&builder, "  Creator: %s\n", t.Creator)
 	}
-	builder.WriteString(fmt.Sprintf("  Organizations: %s\n", strings.Join(t.OrganizationIDs, ", ")))
-	builder.WriteString(fmt.Sprintf("  Workspaces: %s\n", strings.Join(t.WorkspaceIDs, ", ")))
+	fmt.Fprintf(&builder, "  Organizations: %s\n", strings.Join(t.OrganizationIDs, ", "))
+	fmt.Fprintf(&builder, "  Workspaces: %s\n", strings.Join(t.WorkspaceIDs, ", "))
 	if len(t.TenantIDs) > 0 {
-		builder.WriteString(fmt.Sprintf("  Tenants: %s\n", strings.Join(t.TenantIDs, ", ")))
+		fmt.Fprintf(&builder, "  Tenants: %s\n", strings.Join(t.TenantIDs, ", "))
 	}
 
 	_, err := fmt.Fprint(cmd.OutOrStdout(), builder.String())
