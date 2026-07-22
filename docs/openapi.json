@@ -530,7 +530,8 @@
               }
             },
             "type": "array",
-            "title": "Commands"
+            "title": "Commands",
+            "description": "Pending commands the tunnel client must process from this poll response."
           }
         },
         "type": "object",
