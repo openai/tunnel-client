@@ -102,11 +102,15 @@ func TestClientForwardsMCPToolCallsOverInMemoryTransport(t *testing.T) {
 				tb.Helper()
 				require.Equal(tb, http.StatusOK, response.ResponseCode)
 				require.Equal(tb, string(wiretypes.ResponsePayloadJSONRPC), response.ResponseType)
-				var payload map[string]any
+				var payload struct {
+					Result struct {
+						StructuredContent struct {
+							Message string `json:"message"`
+						} `json:"structuredContent"`
+					} `json:"result"`
+				}
 				require.NoError(tb, json.Unmarshal(response.JSONResponse, &payload))
-				result := payload["result"].(map[string]any)
-				structured := result["structuredContent"].(map[string]any)
-				require.Equal(tb, "Echo: hello from sdk", structured["message"])
+				require.Equal(tb, "Echo: hello from sdk", payload.Result.StructuredContent.Message)
 			},
 		}},
 	}

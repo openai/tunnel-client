@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -204,6 +206,12 @@ func buildLogsArchive(
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
+	writersClosed := false
+	defer func() {
+		if !writersClosed {
+			_ = closeLogArchiveWriters(tw, gz)
+		}
+	}()
 
 	files := []string{
 		"manifest.json",
@@ -266,13 +274,23 @@ func buildLogsArchive(
 		return nil, err
 	}
 
-	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("close tar writer: %w", err)
+	if err := closeLogArchiveWriters(tw, gz); err != nil {
+		writersClosed = true
+		return nil, err
 	}
-	if err := gz.Close(); err != nil {
-		return nil, fmt.Errorf("close gzip writer: %w", err)
-	}
+	writersClosed = true
 	return buf.Bytes(), nil
+}
+
+func closeLogArchiveWriters(tarWriter, gzipWriter io.Closer) error {
+	var closeErrors []error
+	if err := tarWriter.Close(); err != nil {
+		closeErrors = append(closeErrors, fmt.Errorf("close tar writer: %w", err))
+	}
+	if err := gzipWriter.Close(); err != nil {
+		closeErrors = append(closeErrors, fmt.Errorf("close gzip writer: %w", err))
+	}
+	return errors.Join(closeErrors...)
 }
 
 func collectLogExportRuntime(argv []string, environ []string, extraSensitiveEnvKeys ...map[string]struct{}) logExportRuntime {

@@ -85,6 +85,34 @@ type mcpProcessor struct {
 	withDeadlineCause func(context.Context, time.Time, error) (context.Context, context.CancelFunc)
 }
 
+// responsePostResult keeps the control-plane request ID together with any
+// posting error so callers can consistently attach both fields to logs.
+type responsePostResult struct {
+	tunnelServiceRequestID types.TunnelServiceRequestID
+	err                    error
+}
+
+// postTunnelResponse wraps Responder.PostResponse and preserves its request ID
+// even when the post fails.
+func (p *mcpProcessor) postTunnelResponse(ctx context.Context, requestID types.RequestID, response *types.TunnelResponse) responsePostResult {
+	tunnelServiceRequestID, err := p.tunnelResponder.PostResponse(ctx, requestID, response)
+	return responsePostResult{
+		tunnelServiceRequestID: tunnelServiceRequestID,
+		err:                    err,
+	}
+}
+
+func (r responsePostResult) errorAttrs() []any {
+	return r.appendTunnelServiceRequestIDAttr([]any{slog.String("error", r.err.Error())})
+}
+
+func (r responsePostResult) appendTunnelServiceRequestIDAttr(attrs []any) []any {
+	if r.tunnelServiceRequestID == "" {
+		return attrs
+	}
+	return append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, r.tunnelServiceRequestID.String()))
+}
+
 type channelFeatures struct {
 	supportsMCP                bool
 	supportsOAuth              bool
@@ -384,9 +412,10 @@ func (p *mcpProcessor) rejectUnsupportedChannel(ctx context.Context, logger *slo
 	if response == nil {
 		return fmt.Errorf("unsupported channel %q for command type %T", channel, cmd)
 	}
-	if _, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), response); postErr != nil {
-		logger.ErrorContext(ctx, "failed to post channel error response to control plane", slog.String("error", postErr.Error()))
-		return postErr
+	post := p.postTunnelResponse(ctx, cmd.RequestID(), response)
+	if post.err != nil {
+		logger.ErrorContext(ctx, "failed to post channel error response to control plane", post.errorAttrs()...)
+		return post.err
 	}
 
 	return err
@@ -433,14 +462,10 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		respHeader.Set("Content-Type", "application/json")
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedError, status, respHeader)
-		tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, requestID, tunnelResponse)
-		if postErr != nil {
-			attrs := []any{slog.String("error", postErr.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			logger.ErrorContext(ctx, "failed to post error response to control plane", attrs...)
-			return postErr
+		post := p.postTunnelResponse(ctx, requestID, tunnelResponse)
+		if post.err != nil {
+			logger.ErrorContext(ctx, "failed to post error response to control plane", post.errorAttrs()...)
+			return post.err
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, status, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -450,9 +475,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 			slog.String("rpc_method", req.Method),
 		}
 		attrs = append(attrs, tunnelFailureLogAttrs(failure, classifyTransportErrorKind(0, err))...)
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.WarnContext(ctx, "dispatcher failed to connect to MCP transport; posted error response to control plane", attrs...)
 		return nil
 	}
@@ -477,14 +500,10 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		encodedError := preserved.Payload()
 		respHeader = jsonRPCResponseHeaders(ctx, logger, respHeader)
 		tunnelResponse := types.NewTunnelResponse(channel, encodedError, statusCode, respHeader)
-		tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, requestID, tunnelResponse)
-		if postErr != nil {
-			attrs := []any{slog.String("error", postErr.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			logger.ErrorContext(ctx, "failed to post preserved MCP error response to control plane", attrs...)
-			return postErr
+		post := p.postTunnelResponse(ctx, requestID, tunnelResponse)
+		if post.err != nil {
+			logger.ErrorContext(ctx, "failed to post preserved MCP error response to control plane", post.errorAttrs()...)
+			return post.err
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, statusCode, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -495,9 +514,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 			slog.Int64("rpc_error_code", preserved.Code()),
 			jsonRPCIDAttr("rpc_response_id", req.ID),
 		}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.DebugContext(ctx, "dispatcher delivered preserved MCP error response to control plane", attrs...)
 		return nil
 	}
@@ -519,14 +536,10 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		}
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedError, status, respHeader)
-		tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, requestID, tunnelResponse)
-		if postErr != nil {
-			attrs := []any{slog.String("error", postErr.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			logger.ErrorContext(ctx, "failed to post error response to control plane", attrs...)
-			return postErr
+		post := p.postTunnelResponse(ctx, requestID, tunnelResponse)
+		if post.err != nil {
+			logger.ErrorContext(ctx, "failed to post error response to control plane", post.errorAttrs()...)
+			return post.err
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, status, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -539,9 +552,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		if respHeader != nil {
 			attrs = append(attrs, slog.String("response_content_type", respHeader.Get("Content-Type")))
 		}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.WarnContext(
 			ctx,
 			"dispatcher received MCP upstream error; posted error response to control plane",
@@ -561,17 +572,15 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		logger.DebugContext(ctx, "dispatcher forwarded notification to MCP server; acknowledging without waiting for response. conn.Write returned w/o error")
 
 		notificationAck := types.NewNotificationAck(channel, statusCode, respHeader)
-		if tsRequestID, err := p.tunnelResponder.PostResponse(ctx, requestID, notificationAck); err != nil {
-			attrs := []any{slog.String("error", err.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		post := p.postTunnelResponse(ctx, requestID, notificationAck)
+		if post.err != nil {
+			attrs := post.errorAttrs()
+			if errors.Is(post.err, context.DeadlineExceeded) || errors.Is(post.err, context.Canceled) {
 				logger.WarnContext(ctx, "context canceled while acknowledging notification", attrs...)
 			} else {
 				logger.ErrorContext(ctx, "failed to acknowledge notification with control plane", attrs...)
 			}
-			return err
+			return post.err
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, statusCode, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -597,14 +606,10 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 
 	if !channelCfg.features.supportsSessionTermination {
 		tunnelResponse := types.NewSessionTerminationResponse(channel, http.StatusMethodNotAllowed, http.Header{})
-		tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), tunnelResponse)
-		if postErr != nil {
-			attrs := []any{slog.String("error", postErr.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			logger.ErrorContext(ctx, "failed to post unsupported session termination response to control plane", attrs...)
-			return postErr
+		post := p.postTunnelResponse(ctx, cmd.RequestID(), tunnelResponse)
+		if post.err != nil {
+			logger.ErrorContext(ctx, "failed to post unsupported session termination response to control plane", post.errorAttrs()...)
+			return post.err
 		}
 
 		p.metrics.recordCommandLatencies(ctx, p.tunnelID, http.StatusMethodNotAllowed, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -612,9 +617,7 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 			slog.Int("status_code", http.StatusMethodNotAllowed),
 			slog.String("channel", channel.String()),
 		}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.WarnContext(ctx, "dispatcher rejected MCP session termination for unsupported transport", attrs...)
 		return nil
 	}
@@ -630,14 +633,10 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 		respHeader = http.Header{}
 	}
 	tunnelResponse := types.NewSessionTerminationResponse(channel, statusCode, respHeader)
-	tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), tunnelResponse)
-	if postErr != nil {
-		attrs := []any{slog.String("error", postErr.Error())}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
-		logger.ErrorContext(ctx, "failed to post session termination response to control plane", attrs...)
-		return postErr
+	post := p.postTunnelResponse(ctx, cmd.RequestID(), tunnelResponse)
+	if post.err != nil {
+		logger.ErrorContext(ctx, "failed to post session termination response to control plane", post.errorAttrs()...)
+		return post.err
 	}
 
 	p.metrics.recordCommandLatencies(ctx, p.tunnelID, statusCode, requestKindAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
@@ -648,9 +647,7 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 	if err != nil {
 		attrs = append(attrs, slog.String("error", err.Error()))
 	}
-	if tsRequestID != "" {
-		attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-	}
+	attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 	if statusCode >= http.StatusBadRequest || err != nil {
 		logger.WarnContext(ctx, "dispatcher received MCP session termination upstream error; posted response to control plane", attrs...)
 		return nil
@@ -701,18 +698,15 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 		}
 	}
 
-	tsRequestID, postErr := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), resp)
-	if postErr != nil {
-		attrs := []any{slog.String("error", postErr.Error())}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
-		if errors.Is(postErr, context.DeadlineExceeded) || errors.Is(postErr, context.Canceled) {
+	post := p.postTunnelResponse(ctx, cmd.RequestID(), resp)
+	if post.err != nil {
+		attrs := post.errorAttrs()
+		if errors.Is(post.err, context.DeadlineExceeded) || errors.Is(post.err, context.Canceled) {
 			logger.WarnContext(ctx, "context canceled while posting OAuth discovery response", attrs...)
 		} else {
 			logger.ErrorContext(ctx, "failed to post OAuth discovery response to control plane", attrs...)
 		}
-		return postErr
+		return post.err
 	}
 
 	latencyRecorded := &latencyFlags{}
@@ -768,13 +762,10 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		}
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedError, statusCode, jsonRPCResponseHeaders(ctx, logger, responseHeaders))
-		tsRequestID, err := p.tunnelResponder.PostResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
-		if err != nil {
-			attrs := []any{slog.String("error", err.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		post := p.postTunnelResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
+		if post.err != nil {
+			attrs := post.errorAttrs()
+			if errors.Is(post.err, context.DeadlineExceeded) || errors.Is(post.err, context.Canceled) {
 				if errors.Is(ttlCtx.Err(), context.DeadlineExceeded) {
 					logger.InfoContext(ctx, "MCP connection TTL reached while delivering terminal error response", attrs...)
 				} else {
@@ -793,9 +784,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			slog.Int("status_code", statusCode),
 		}
 		attrs = append(attrs, tunnelFailureLogAttrs(failure, classifyTransportErrorKind(0, cause))...)
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.WarnContext(ctx, "dispatcher posted terminal downstream error response to control plane", attrs...)
 	}
 
@@ -886,13 +875,10 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedResponse, responseCode, responseHeaders)
 
-		tsRequestID, err := p.tunnelResponder.PostResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
-		if err != nil {
-			attrs := []any{slog.String("error", err.Error())}
-			if tsRequestID != "" {
-				attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-			}
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		post := p.postTunnelResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
+		if post.err != nil {
+			attrs := post.errorAttrs()
+			if errors.Is(post.err, context.DeadlineExceeded) || errors.Is(post.err, context.Canceled) {
 				if errors.Is(ttlCtx.Err(), context.DeadlineExceeded) {
 					logger.InfoContext(ctx, "MCP connection TTL reached while delivering response", attrs...)
 				} else {
@@ -911,9 +897,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			slog.String("channel", channel.String()),
 		}
 		attrs = append(attrs, attrsToArgs(jsonRPCResponseCorrelationAttrs(req, response))...)
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
+		attrs = post.appendTunnelServiceRequestIDAttr(attrs)
 		logger.DebugContext(ctx, "dispatcher delivered response to control plane", attrs...)
 		responseDelivered = true
 		terminalResponseDelivered = true
@@ -971,17 +955,15 @@ func (p *mcpProcessor) forwardNotification(ctx context.Context, logger *slog.Log
 	}
 
 	tunnelNotification := types.NewJSONRPCNotification(channel, encodedNotification, responseCode, notificationHeaders)
-	if tsRequestID, err := p.tunnelResponder.PostResponse(ctx, cmd.RequestID(), tunnelNotification); err != nil {
-		attrs := []any{slog.String("error", err.Error())}
-		if tsRequestID != "" {
-			attrs = append(attrs, slog.String(tclog.FieldTunnelServiceRequestID, tsRequestID.String()))
-		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	post := p.postTunnelResponse(ctx, cmd.RequestID(), tunnelNotification)
+	if post.err != nil {
+		attrs := post.errorAttrs()
+		if errors.Is(post.err, context.DeadlineExceeded) || errors.Is(post.err, context.Canceled) {
 			logger.WarnContext(ctx, "context canceled while forwarding notification to control plane", attrs...)
 		} else {
 			logger.ErrorContext(ctx, "failed to forward notification to control plane", attrs...)
 		}
-		return err
+		return post.err
 	}
 
 	return nil

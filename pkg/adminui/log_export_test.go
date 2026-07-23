@@ -232,6 +232,36 @@ func TestBuildLogsArchiveOmitsMetricsFileWhenSnapshotUnavailable(t *testing.T) {
 	require.NotContains(t, manifest.Files, metricsSnapshotFile)
 }
 
+func TestBuildLogsArchiveReturnsRuntimeMarshalError(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildLogsArchive(
+		nil,
+		time.Now().UTC(),
+		time.Minute,
+		10,
+		logExportRuntime{EffectiveConfig: func() {}},
+		metricsSnapshot{},
+		logExportAdminSnapshots{},
+	)
+
+	require.Error(t, err)
+}
+
+func TestCloseLogArchiveWritersClosesBothAfterError(t *testing.T) {
+	t.Parallel()
+
+	tarCloser := &recordingCloser{err: errors.New("tar close failed")}
+	gzipCloser := &recordingCloser{err: errors.New("gzip close failed")}
+
+	err := closeLogArchiveWriters(tarCloser, gzipCloser)
+
+	require.ErrorContains(t, err, "close tar writer: tar close failed")
+	require.ErrorContains(t, err, "close gzip writer: gzip close failed")
+	require.Equal(t, 1, tarCloser.calls)
+	require.Equal(t, 1, gzipCloser.calls)
+}
+
 func TestBuildLogsArchiveRedactsAdminSnapshots(t *testing.T) {
 	t.Parallel()
 
@@ -634,4 +664,14 @@ func readTarGzForTest(t *testing.T, data []byte) map[string]string {
 		files[hdr.Name] = string(body)
 	}
 	return files
+}
+
+type recordingCloser struct {
+	calls int
+	err   error
+}
+
+func (c *recordingCloser) Close() error {
+	c.calls++
+	return c.err
 }

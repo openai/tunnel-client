@@ -27,6 +27,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/controlplane"
 	"github.com/openai/tunnel-client/pkg/harpoon"
 	"github.com/openai/tunnel-client/pkg/harpoon/hostbus"
+	tclog "github.com/openai/tunnel-client/pkg/log"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
 	"github.com/openai/tunnel-client/pkg/tunnelctx"
 	"github.com/openai/tunnel-client/pkg/types"
@@ -76,6 +77,42 @@ func requireTunnelFailure(t *testing.T, response *jsonrpc.Response, want tunnelF
 	var data tunnelFailureData
 	require.NoError(t, json.Unmarshal(wireError.Data, &data))
 	require.Equal(t, want, data.TunnelFailure)
+}
+
+func TestPostTunnelResponse(t *testing.T) {
+	t.Parallel()
+
+	responder := newRecordingResponder()
+	responder.tunnelServiceRequestID = "tunnel-service-request-id"
+	response := types.NewNotificationAck(types.DefaultChannel, http.StatusNoContent, nil)
+	processor := &mcpProcessor{tunnelResponder: responder}
+
+	post := processor.postTunnelResponse(context.Background(), "request-id", response)
+
+	require.NoError(t, post.err)
+	require.Equal(t, types.TunnelServiceRequestID("tunnel-service-request-id"), post.tunnelServiceRequestID)
+	got := responder.waitForResponse(t)
+	require.Equal(t, types.RequestID("request-id"), got.requestID)
+	require.Same(t, response, got.response)
+}
+
+func TestResponsePostResultAttrs(t *testing.T) {
+	t.Parallel()
+
+	post := responsePostResult{
+		tunnelServiceRequestID: "tunnel-service-request-id",
+		err:                    errors.New("post failed"),
+	}
+
+	errorAttrs := post.errorAttrs()
+	require.Len(t, errorAttrs, 2)
+	require.Equal(t, "error", errorAttrs[0].(slog.Attr).Key)
+	require.Equal(t, "post failed", errorAttrs[0].(slog.Attr).Value.String())
+	require.Equal(t, tclog.FieldTunnelServiceRequestID, errorAttrs[1].(slog.Attr).Key)
+	require.Equal(t, "tunnel-service-request-id", errorAttrs[1].(slog.Attr).Value.String())
+
+	baseAttrs := []any{slog.Int("status_code", http.StatusOK)}
+	require.Equal(t, baseAttrs, responsePostResult{}.appendTunnelServiceRequestIDAttr(baseAttrs))
 }
 
 func TestProcessorForwardResponses(t *testing.T) {
