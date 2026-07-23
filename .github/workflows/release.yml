@@ -44,6 +44,10 @@ jobs:
           ./scripts/release_tag.sh check-source-version "${GITHUB_REF_NAME}"
       - name: Test release tag tooling
         run: bash ./scripts/release_tag_test.sh
+      - name: Test Homebrew formula tooling
+        run: bash ./scripts/generate_homebrew_formula_test.sh
+      - name: Test Homebrew publishing tooling
+        run: bash ./scripts/publish_homebrew_formula_test.sh
       - name: Validate bundled cloudflared manifest
         run: |
           set -euo pipefail

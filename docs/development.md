@@ -23,6 +23,28 @@ make release-source-version VERSION=1.2.3
 make release-tag VERSION=1.2.3
 ```
 
+Homebrew Formula tooling is available for deterministic rendering and explicit
+test publishes, but production tap publication is not wired into the release
+workflow yet. Add that integration only after the tap bootstrap and scoped
+GitHub App credential path are provisioned. Do not document
+`brew install openai/tools/tunnel-client` as supported before a compatible
+stable Formula is present in the tap.
+
+Exercise the deterministic renderer and tap-PR publisher with:
+
+```bash
+bash ./scripts/generate_homebrew_formula_test.sh
+bash ./scripts/publish_homebrew_formula_test.sh
+```
+
+The standalone `Homebrew formula smoke` workflow downloads checksums from an
+already-published release, renders the Formula, and runs `brew readall`,
+`brew install`, and `brew test` without uploading artifacts, creating a
+release, or minting a tap write token. For an explicit remote draft publish,
+run `publish_homebrew_formula.sh --draft` with human `gh` auth and a
+`test-tunnel-client-*` branch. `--allow-prerelease` exists only for these
+test paths; normal stable publication continues to reject prereleases.
+
 ## Unit tests
 
 ```bash

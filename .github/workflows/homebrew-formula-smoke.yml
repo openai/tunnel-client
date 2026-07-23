@@ -1,0 +1,51 @@
+name: Homebrew formula smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing public release tag to render and install in a local test tap
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Test Homebrew formula from public release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Derive release metadata
+        id: release_meta
+        env:
+          HOMEBREW_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done < <(./scripts/release_tag.sh parse "${HOMEBREW_RELEASE_TAG}")
+      - name: Download published release checksums
+        run: |
+          curl -fsSLo SHA256SUMS.txt "${{ steps.release_meta.outputs.public_base_url }}/SHA256SUMS.txt"
+      - name: Render and validate Homebrew formula
+        env:
+          HOMEBREW_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          ./scripts/generate_homebrew_formula.sh \
+            --tag "${HOMEBREW_RELEASE_TAG}" \
+            --checksums SHA256SUMS.txt \
+            --output tunnel-client.rb \
+            --allow-prerelease
+          ruby -c tunnel-client.rb
+      - name: Test Homebrew install from published release
+        run: |
+          brew tap-new openai/tunnel-client-test
+          cp tunnel-client.rb "$(brew --repository openai/tunnel-client-test)/Formula/tunnel-client.rb"
+          brew readall openai/tunnel-client-test
+          brew install openai/tunnel-client-test/tunnel-client
+          brew test openai/tunnel-client-test/tunnel-client
+          prefix="$(brew --prefix tunnel-client)"
+          test -x "${prefix}/libexec/tunnel-client"
+          test -x "${prefix}/libexec/cloudflared"
+          test -f "${prefix}/libexec/cloudflared-manifest.json"
