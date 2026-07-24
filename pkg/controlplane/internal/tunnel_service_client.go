@@ -75,6 +75,9 @@ func NewTunnelServiceClient(ctx context.Context, cfg *config.ControlPlaneConfig,
 	if cfg.APIKey == "" {
 		return nil, errors.New("controlplane client: control-plane.api-key is required")
 	}
+	if err := config.ValidateControlPlaneAPIKey(cfg.APIKey); err != nil {
+		return nil, fmt.Errorf("controlplane client: %w", err)
+	}
 	if meterProvider == nil {
 		return nil, errors.New("controlplane client: meter provider is required")
 	}

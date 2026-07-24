@@ -27,6 +27,47 @@ const (
 	flagTunnelID = "tunnel_fedcba9876543210fedcba9876543210"
 )
 
+func TestValidateControlPlaneAPIKey(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "synthetic admin-shaped key", key: "synthetic-admin-Key_123"},
+		{name: "synthetic project-shaped key", key: "synthetic-proj-Key_456"},
+		{name: "short fake key", key: "fake"},
+		{name: "leading whitespace", key: " abcdefghijklmnop", wantErr: true},
+		{name: "trailing whitespace", key: "abcdefghijklmnop ", wantErr: true},
+		{name: "embedded space", key: "abc def", wantErr: true},
+		{name: "embedded tab", key: "abc\tdef", wantErr: true},
+		{name: "embedded newline", key: "abc\ndef", wantErr: true},
+		{name: "embedded unicode whitespace", key: "abc\u00a0def", wantErr: true},
+		{name: "other punctuation", key: "abc!def", wantErr: true},
+		{name: "quote", key: `abc"def`, wantErr: true},
+		{name: "backslash", key: `abc\def`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateControlPlaneAPIKey(tc.key)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected API key validation error")
+				}
+				if strings.Contains(err.Error(), tc.key) {
+					t.Fatal("validation error exposed API key material")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected API key validation error: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolveControlPlanePathUsesSingleSeparator(t *testing.T) {
 	t.Parallel()
 
@@ -1074,7 +1115,7 @@ func TestLoadRejectsUnsetEnvForControlPlaneAPIKeyFlag(t *testing.T) {
 func TestLoadUsesControlPlaneAPIKeyFile(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := filepath.Join(dir, "api_key.txt")
-	if err := os.WriteFile(secretPath, []byte("file-key\n"), 0o600); err != nil {
+	if err := os.WriteFile(secretPath, []byte("file-key"), 0o600); err != nil {
 		t.Fatalf("write secret file: %v", err)
 	}
 
@@ -1093,6 +1134,74 @@ func TestLoadUsesControlPlaneAPIKeyFile(t *testing.T) {
 	}
 	if cfg.ControlPlane.APIKey != "file-key" {
 		t.Fatalf("expected control plane API key file-key, got %s", cfg.ControlPlane.APIKey)
+	}
+}
+
+func TestLoadTrimsControlPlaneAPIKeyFileTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "api_key.txt")
+	if err := os.WriteFile(secretPath, []byte("file-key\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+
+	cfg, err := Load(
+		[]string{
+			"--control-plane.base-url", "http://localhost:8080",
+			"--control-plane.api-key", "file:" + secretPath,
+		},
+		lookupEnvMap(map[string]string{
+			"CONTROL_PLANE_TUNNEL_ID": envTunnelID,
+			"MCP_SERVER_URL":          "https://mcp.default",
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error for file-backed API key with trailing newline: %v", err)
+	}
+	if cfg.ControlPlane.APIKey != "file-key" {
+		t.Fatalf("expected trimmed file-backed control plane API key")
+	}
+}
+
+func TestLoadRejectsMalformedControlPlaneAPIKeyReference(t *testing.T) {
+	const malformedKey = "bad key"
+	_, err := Load(
+		[]string{
+			"--control-plane.base-url", "http://localhost:8080",
+			"--control-plane.api-key", "env:REFERENCED_CONTROL_PLANE_API_KEY",
+		},
+		lookupEnvMap(map[string]string{
+			"CONTROL_PLANE_TUNNEL_ID":          envTunnelID,
+			"MCP_SERVER_URL":                   "https://mcp.default",
+			"REFERENCED_CONTROL_PLANE_API_KEY": malformedKey,
+		}),
+	)
+	if err == nil {
+		t.Fatal("expected malformed env-referenced API key to be rejected")
+	}
+	if strings.Contains(err.Error(), malformedKey) {
+		t.Fatal("error exposed API key material")
+	}
+}
+
+func TestLoadRejectsMalformedDirectControlPlaneAPIKey(t *testing.T) {
+	const malformedKey = "bad\tkey"
+	for _, envName := range []string{"CONTROL_PLANE_API_KEY", "OPENAI_API_KEY"} {
+		t.Run(envName, func(t *testing.T) {
+			_, err := Load(
+				[]string{"--control-plane.base-url", "http://localhost:8080"},
+				lookupEnvMap(map[string]string{
+					"CONTROL_PLANE_TUNNEL_ID": envTunnelID,
+					envName:                   malformedKey,
+					"MCP_SERVER_URL":          "https://mcp.default",
+				}),
+			)
+			if err == nil {
+				t.Fatal("expected malformed direct environment API key to be rejected")
+			}
+			if strings.Contains(err.Error(), malformedKey) {
+				t.Fatal("error exposed API key material")
+			}
+		})
 	}
 }
 
@@ -1122,7 +1231,7 @@ func TestLoadRejectsMissingControlPlaneAPIKeyFile(t *testing.T) {
 func TestLoadRejectsEmptyControlPlaneAPIKeyFile(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := filepath.Join(dir, "api_key.txt")
-	if err := os.WriteFile(secretPath, []byte("\n"), 0o600); err != nil {
+	if err := os.WriteFile(secretPath, nil, 0o600); err != nil {
 		t.Fatalf("write empty secret file: %v", err)
 	}
 

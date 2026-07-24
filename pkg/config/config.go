@@ -76,13 +76,31 @@ const _ = uint(maxControlPlanePollDeadlineGuardrail - defaultControlPlanePollDea
 var harpoonLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 var (
-	errMissingControlPlaneAPIKey = errors.New("control plane API key is required; set --control-plane.api-key (env:/file:) or CONTROL_PLANE_API_KEY or OPENAI_API_KEY")
-	tunnelIDPattern              = regexp.MustCompile(`^tunnel_[a-z0-9]{32}$`)
-	logFormatToString            = map[LogFormat]string{
+	errMissingControlPlaneAPIKey   = errors.New("control plane API key is required; set --control-plane.api-key (env:/file:) or CONTROL_PLANE_API_KEY or OPENAI_API_KEY")
+	errMalformedControlPlaneAPIKey = errors.New("control plane API key is malformed")
+	controlPlaneAPIKeyPattern      = regexp.MustCompile("^[0-9A-Za-z_-]+$")
+	tunnelIDPattern                = regexp.MustCompile(`^tunnel_[a-z0-9]{32}$`)
+	logFormatToString              = map[LogFormat]string{
 		LogFormatStructText: "struct-text",
 		LogFormatJSON:       "json",
 	}
 )
+
+// ValidateControlPlaneAPIKey verifies that key can be safely used as an HTTP
+// bearer token. It deliberately returns redacted errors: callers must not
+// expose any key-derived details while reporting configuration failures.
+func ValidateControlPlaneAPIKey(key string) error {
+	if key == "" {
+		return errMissingControlPlaneAPIKey
+	}
+	if strings.TrimSpace(key) != key {
+		return errMalformedControlPlaneAPIKey
+	}
+	if !controlPlaneAPIKeyPattern.MatchString(key) {
+		return errMalformedControlPlaneAPIKey
+	}
+	return nil
+}
 
 type flagAlias struct {
 	Canonical string
@@ -944,6 +962,9 @@ func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, 
 
 	apiKey, err := getControlPlaneAPIKey(apiKeyFlagValue, lookupEnv)
 	if err != nil {
+		return ControlPlaneConfig{}, err
+	}
+	if err := ValidateControlPlaneAPIKey(apiKey); err != nil {
 		return ControlPlaneConfig{}, err
 	}
 

@@ -1972,6 +1972,20 @@ func TestNewTunnelServiceClientValidatesInputs(t *testing.T) {
 		require.Contains(t, err.Error(), "control-plane.api-key is required")
 	})
 
+	t.Run("MalformedAPIKey", func(t *testing.T) {
+		t.Parallel()
+
+		const malformedKey = "bad key"
+		_, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
+			BaseURL:  baseURL,
+			TunnelID: "tunnel",
+			APIKey:   malformedKey,
+		}, nil, logger, &config.LoggingConfig{}, testMeterProvider)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "control plane API key is malformed")
+		require.NotContains(t, err.Error(), malformedKey)
+	})
+
 	t.Run("NilMeterProvider", func(t *testing.T) {
 		t.Parallel()
 
