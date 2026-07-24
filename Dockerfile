@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.6
+# syntax=openaiapibase.azurecr.io/mirror/docker/dockerfile:1@sha256:9857836c9ee4268391bb5b09f9f157f3c91bb15821bb77969642813b0d00518d
 
 ARG BASE_BUILDER_IMAGE=golang:1.26.2-alpine
 ARG BASE_UI_BUILDER_IMAGE=node:22-alpine
@@ -9,15 +9,24 @@ ARG PROJECT_ROOT=.
 FROM ${BASE_UI_BUILDER_IMAGE} AS ui-builder
 ARG PROJECT_ROOT=.
 WORKDIR /repo
-RUN --mount=type=bind,source=.,target=/context,ro \
-    package_manager="$(node -e 'const fs = require("fs"); const path = "/context/package.json"; if (fs.existsSync(path)) process.stdout.write(require(path).packageManager || "")')" \
-    && corepack enable pnpm \
-    && corepack prepare "${package_manager:-pnpm@11.4.0+sha512.f0febc7e37552ab485494a914241b338e0b3580b93d54ce31f00933015880863129038a1b4ae4e414a0ee63ac35bf21197e990172c4a68256450b5636310968f}" --activate
+COPY package.json /tmp/openai-root-package.json
+RUN --mount=type=secret,id=COREPACK_NPM_REGISTRY,env=COREPACK_NPM_REGISTRY \
+    --mount=type=secret,id=NPM_CONFIG_REGISTRY,env=NPM_CONFIG_REGISTRY \
+    --mount=type=secret,id=npm_config_registry,env=npm_config_registry \
+    --mount=type=secret,id=PNPM_CONFIG_REGISTRY,env=PNPM_CONFIG_REGISTRY \
+    --mount=type=secret,id=pnpm_config_registry,env=pnpm_config_registry \
+    corepack enable pnpm \
+    && corepack prepare "$(node -p 'require("/tmp/openai-root-package.json").packageManager')" --activate
 COPY ${PROJECT_ROOT}/adminui/package.json ./adminui/
 COPY ${PROJECT_ROOT}/adminui/pnpm-lock.yaml ./adminui/
 COPY ${PROJECT_ROOT}/adminui/pnpm-workspace.yaml ./adminui/
 COPY ${PROJECT_ROOT}/adminui/ ./adminui/
-RUN CI=true pnpm --dir adminui install --frozen-lockfile --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false \
+RUN --mount=type=secret,id=COREPACK_NPM_REGISTRY,env=COREPACK_NPM_REGISTRY \
+    --mount=type=secret,id=NPM_CONFIG_REGISTRY,env=NPM_CONFIG_REGISTRY \
+    --mount=type=secret,id=npm_config_registry,env=npm_config_registry \
+    --mount=type=secret,id=PNPM_CONFIG_REGISTRY,env=PNPM_CONFIG_REGISTRY \
+    --mount=type=secret,id=pnpm_config_registry,env=pnpm_config_registry \
+    CI=true pnpm --dir adminui install --frozen-lockfile --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false \
     && pnpm --dir adminui build
 
 FROM ${BASE_BUILDER_IMAGE} AS builder
