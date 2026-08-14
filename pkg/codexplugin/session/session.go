@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -102,6 +103,8 @@ type Process interface {
 type Starter func(args []string, env map[string]string, logPath string) (Process, error)
 
 type Runtime struct {
+	// Run and RunInput are retained for callers that inject a test or
+	// embedding runtime. DefaultRuntime does not use them for OS execution.
 	Run      Runner
 	RunInput RunnerWithInput
 	Start    Starter
@@ -109,8 +112,8 @@ type Runtime struct {
 
 func DefaultRuntime() Runtime {
 	return Runtime{
-		Run:      runTmuxCommand,
-		RunInput: runTmuxCommandWithInput,
+		Run:      rejectGenericTmuxCommand,
+		RunInput: rejectGenericTmuxCommandWithInput,
 		Start:    startProcess,
 	}
 }
@@ -265,10 +268,18 @@ func TunnelClientCommand(tunnelClientBin string, profileName string, profileDir 
 	return strings.Join(quoted, " ")
 }
 
-func currentTunnelClientInvocation(profileName string, profileDir string) ([]string, error) {
+func currentTunnelClientExecutable() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("resolve current tunnel-client executable: %w", err)
+		return "", fmt.Errorf("resolve current tunnel-client executable: %w", err)
+	}
+	return executable, nil
+}
+
+func currentTunnelClientInvocation(profileName string, profileDir string) ([]string, error) {
+	executable, err := currentTunnelClientExecutable()
+	if err != nil {
+		return nil, err
 	}
 	return append([]string{executable}, tunnelClientRunArgs(profileName, profileDir)...), nil
 }
@@ -448,7 +459,7 @@ func StartOrReuse(
 }
 
 func TmuxAvailable(rt Runtime) (bool, error) {
-	result, err := rt.Run([]string{"tmux", "-V"}, nil)
+	result, err := runTmuxVersionForRuntime(rt)
 	if err != nil {
 		var execErr *exec.Error
 		if ok := AsExecError(err, &execErr); ok {
@@ -463,7 +474,10 @@ func TmuxAvailable(rt Runtime) (bool, error) {
 }
 
 func TmuxHasSessionName(rt Runtime, sessionName string) (bool, error) {
-	result, err := rt.Run([]string{"tmux", "has-session", "-t", "=" + sessionName}, nil)
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return false, err
+	}
+	result, err := runTmuxHasSessionForRuntime(rt, sessionName)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -484,10 +498,10 @@ func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileNa
 		return CompletedProcess{}, err
 	}
 	if len(env) > 0 {
-		if rt.RunInput == nil {
+		if !usesManagedTmuxInput(rt) && rt.RunInput == nil {
 			return CompletedProcess{}, fmt.Errorf("tmux source-file runner is required when launch environment is set")
 		}
-		if result, err := rt.Run([]string{"tmux", "new-session", "-d", "-s", sessionName}, nil); err != nil {
+		if result, err := runTmuxNewSessionForRuntime(rt, sessionName, nil); err != nil {
 			return result, err
 		} else if result.ReturnCode != 0 {
 			return result, nil
@@ -500,12 +514,7 @@ func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileNa
 			cleanupSession()
 			return CompletedProcess{}, err
 		}
-		script, err := tmuxEnvironmentScript(sessionName, env)
-		if err != nil {
-			cleanupSession()
-			return CompletedProcess{}, err
-		}
-		result, err := rt.RunInput([]string{"tmux", "source-file", "-"}, nil, script)
+		result, err := applyTmuxEnvironmentForRuntime(rt, sessionName, env)
 		if err != nil {
 			cleanupSession()
 			return result, err
@@ -514,12 +523,7 @@ func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileNa
 			cleanupSession()
 			return result, nil
 		}
-		commandArgs, err := currentTunnelClientInvocation(profileName, profileDir)
-		if err != nil {
-			cleanupSession()
-			return CompletedProcess{}, err
-		}
-		result, err = rt.Run(append([]string{"tmux", "respawn-pane", "-k", "-t", paneID}, commandArgs...), nil)
+		result, err = runTmuxRespawnPaneForRuntime(rt, paneID, profileName, profileDir, nil)
 		if err != nil {
 			cleanupSession()
 			return result, err
@@ -529,14 +533,9 @@ func StartTmux(rt Runtime, sessionName string, tunnelClientBin string, profileNa
 		}
 		return result, nil
 	}
-	commandArgs, err := currentTunnelClientInvocation(profileName, profileDir)
-	if err != nil {
-		return CompletedProcess{}, err
-	}
 	// tmux directly execs a shell-command supplied as multiple arguments.
 	// Keep the invocation split so profile values are never shell syntax.
-	args := append([]string{"tmux", "new-session", "-d", "-s", sessionName}, commandArgs...)
-	return rt.Run(args, childEnv(env))
+	return runTmuxNewSessionWithClientForRuntime(rt, sessionName, profileName, profileDir, childEnv(env))
 }
 
 func tmuxEnvironmentScript(sessionName string, env map[string]string) (string, error) {
@@ -559,7 +558,10 @@ func tmuxEnvironmentScript(sessionName string, env map[string]string) (string, e
 }
 
 func tmuxFirstPaneID(rt Runtime, sessionName string) (string, error) {
-	result, err := rt.Run([]string{"tmux", "list-panes", "-t", "=" + sessionName, "-F", "#{pane_id}"}, nil)
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return "", err
+	}
+	result, err := runTmuxListPanesForRuntime(rt, sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -578,7 +580,10 @@ func tmuxFirstPaneID(rt Runtime, sessionName string) (string, error) {
 }
 
 func StopTmux(rt Runtime, sessionName string) (CompletedProcess, error) {
-	return rt.Run([]string{"tmux", "kill-session", "-t", "=" + sessionName}, nil)
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
+	}
+	return runTmuxKillSessionForRuntime(rt, sessionName)
 }
 
 func LogPath(alias string, root state.Root) string {
@@ -690,27 +695,262 @@ func WaitForProcessExit(pid int) bool {
 	return !PIDIsRunning(pid)
 }
 
-func runTmuxCommand(args []string, env map[string]string) (CompletedProcess, error) {
-	return runTmuxCommandWithInput(args, env, "")
+func rejectGenericTmuxCommand([]string, map[string]string) (CompletedProcess, error) {
+	return CompletedProcess{}, fmt.Errorf("default runtime does not expose generic tmux command execution")
 }
 
-func runTmuxCommandWithInput(args []string, env map[string]string, stdin string) (CompletedProcess, error) {
-	tmuxArgs, err := validatedTmuxArgs(args)
+func rejectGenericTmuxCommandWithInput([]string, map[string]string, string) (CompletedProcess, error) {
+	return CompletedProcess{}, fmt.Errorf("default runtime does not expose generic tmux command execution")
+}
+
+// DefaultRuntime installs exact rejecting callbacks so callers cannot reach an
+// argv-shaped OS execution path. Detect each callback independently so a caller
+// can replace only the hook it needs without disabling the other managed path.
+func usesManagedTmuxRun(rt Runtime) bool {
+	if rt.Run == nil {
+		return false
+	}
+	return reflect.ValueOf(rt.Run).Pointer() == reflect.ValueOf(rejectGenericTmuxCommand).Pointer()
+}
+
+func usesManagedTmuxInput(rt Runtime) bool {
+	if rt.RunInput == nil {
+		return false
+	}
+	return reflect.ValueOf(rt.RunInput).Pointer() == reflect.ValueOf(rejectGenericTmuxCommandWithInput).Pointer()
+}
+
+func runTmuxVersionForRuntime(rt Runtime) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxVersion(nil)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	return rt.Run([]string{"tmux", "-V"}, nil)
+}
+
+func runTmuxHasSessionForRuntime(rt Runtime, sessionName string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxHasSession(sessionName, nil)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	return rt.Run([]string{"tmux", "has-session", "-t", "=" + sessionName}, nil)
+}
+
+func runTmuxNewSessionForRuntime(rt Runtime, sessionName string, env map[string]string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxNewSession(sessionName, env)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	return rt.Run([]string{"tmux", "new-session", "-d", "-s", sessionName}, env)
+}
+
+func runTmuxNewSessionWithClientForRuntime(rt Runtime, sessionName string, profileName string, profileDir string, env map[string]string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxNewSessionWithClient(sessionName, profileName, profileDir, env)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	commandArgs, err := currentTunnelClientInvocation(profileName, profileDir)
 	if err != nil {
 		return CompletedProcess{}, err
 	}
-	cmd := exec.Command("tmux", tmuxArgs...)
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
+	return rt.Run(append([]string{"tmux", "new-session", "-d", "-s", sessionName}, commandArgs...), env)
+}
+
+func runTmuxListPanesForRuntime(rt Runtime, sessionName string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxListPanes(sessionName, nil)
 	}
-	if env != nil {
-		cmd.Env = envList(env)
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	return rt.Run([]string{"tmux", "list-panes", "-t", "=" + sessionName, "-F", "#{pane_id}"}, nil)
+}
+
+func runTmuxKillSessionForRuntime(rt Runtime, sessionName string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxKillSession(sessionName, nil)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	return rt.Run([]string{"tmux", "kill-session", "-t", "=" + sessionName}, nil)
+}
+
+func applyTmuxEnvironmentForRuntime(rt Runtime, sessionName string, env map[string]string) (CompletedProcess, error) {
+	if usesManagedTmuxInput(rt) {
+		return applyManagedTmuxEnvironment(sessionName, env)
+	}
+	if rt.RunInput == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux source-file runner is required when launch environment is set")
+	}
+	script, err := tmuxEnvironmentScript(sessionName, env)
+	if err != nil {
+		return CompletedProcess{}, err
+	}
+	return rt.RunInput([]string{"tmux", "source-file", "-"}, nil, script)
+}
+
+func runTmuxRespawnPaneForRuntime(rt Runtime, paneID string, profileName string, profileDir string, env map[string]string) (CompletedProcess, error) {
+	if usesManagedTmuxRun(rt) {
+		return runTmuxRespawnPane(paneID, profileName, profileDir, env)
+	}
+	if rt.Run == nil {
+		return CompletedProcess{}, fmt.Errorf("tmux runner is required")
+	}
+	commandArgs, err := currentTunnelClientInvocation(profileName, profileDir)
+	if err != nil {
+		return CompletedProcess{}, err
+	}
+	return rt.Run(append([]string{"tmux", "respawn-pane", "-k", "-t", paneID}, commandArgs...), env)
+}
+
+// Keep each built-in process creation fixed-shape. Every dynamic value is
+// validated or canonicalized at this boundary; no caller-supplied argv slice or
+// raw tmux script reaches an OS execution sink.
+func runTmuxVersion(env map[string]string) (CompletedProcess, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command("tmux", "-V")
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err := cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxHasSession(sessionName string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd := exec.Command("tmux", "has-session", "-t", "="+sessionName)
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err := cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxNewSession(sessionName string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err := cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxNewSessionWithClient(sessionName string, profileName string, profileDir string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
+	}
+	executable, err := currentTunnelClientExecutable()
+	if err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command(
+		"tmux",
+		"new-session",
+		"-d",
+		"-s",
+		sessionName,
+		executable,
+		"run",
+		"--profile-dir",
+		profileDir,
+		"--profile",
+		profileName,
+	)
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
 	err = cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxListPanes(sessionName string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command("tmux", "list-panes", "-t", "="+sessionName, "-F", "#{pane_id}")
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err := cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxKillSession(sessionName string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxSessionName(sessionName); err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command("tmux", "kill-session", "-t", "="+sessionName)
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err := cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func applyManagedTmuxEnvironment(sessionName string, env map[string]string) (CompletedProcess, error) {
+	script, err := tmuxEnvironmentScript(sessionName, env)
+	if err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command("tmux", "source-file", "-")
+	cmd.Stdin = strings.NewReader(script)
+	configureTmuxCommand(cmd, nil, &stdout, &stderr)
+	err = cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func runTmuxRespawnPane(paneID string, profileName string, profileDir string, env map[string]string) (CompletedProcess, error) {
+	if err := validateTmuxPaneID(paneID); err != nil {
+		return CompletedProcess{}, err
+	}
+	executable, err := currentTunnelClientExecutable()
+	if err != nil {
+		return CompletedProcess{}, err
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command(
+		"tmux",
+		"respawn-pane",
+		"-k",
+		"-t",
+		paneID,
+		executable,
+		"run",
+		"--profile-dir",
+		profileDir,
+		"--profile",
+		profileName,
+	)
+	configureTmuxCommand(cmd, env, &stdout, &stderr)
+	err = cmd.Run()
+	return completedProcessFromTmuxRun(stdout, stderr, err)
+}
+
+func configureTmuxCommand(cmd *exec.Cmd, env map[string]string, stdout *bytes.Buffer, stderr *bytes.Buffer) {
+	if env != nil {
+		cmd.Env = envList(env)
+	}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+}
+
+func completedProcessFromTmuxRun(stdout bytes.Buffer, stderr bytes.Buffer, err error) (CompletedProcess, error) {
 	result := CompletedProcess{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err == nil {
 		return result, nil
@@ -723,89 +963,16 @@ func runTmuxCommandWithInput(args []string, env map[string]string, stdin string)
 	return result, err
 }
 
-func validatedTmuxArgs(args []string) ([]string, error) {
-	if len(args) == 0 || args[0] != "tmux" {
-		return nil, fmt.Errorf("default runtime only supports tmux commands")
-	}
-	if len(args) < 2 {
-		return nil, fmt.Errorf("default runtime only supports managed tmux commands")
-	}
-	switch args[1] {
-	case "-V":
-		if len(args) == 2 {
-			return []string{"-V"}, nil
-		}
-	case "has-session":
-		if len(args) == 4 && args[2] == "-t" {
-			if err := validateTmuxTarget(args[3]); err != nil {
-				return nil, err
-			}
-			return []string{"has-session", "-t", args[3]}, nil
-		}
-	case "new-session":
-		if len(args) >= 5 && args[2] == "-d" && args[3] == "-s" {
-			if err := validateTmuxSessionName(args[4]); err != nil {
-				return nil, err
-			}
-			if len(args) == 5 {
-				return []string{"new-session", "-d", "-s", args[4]}, nil
-			}
-			if len(args) == 11 {
-				profileName, profileDir, err := fixedTunnelClientRunArgs(args[5:])
-				if err != nil {
-					return nil, err
-				}
-				invocation, err := currentTunnelClientInvocation(profileName, profileDir)
-				if err != nil {
-					return nil, err
-				}
-				return append([]string{"new-session", "-d", "-s", args[4]}, invocation...), nil
-			}
-		}
-	case "list-panes":
-		if len(args) == 6 && args[2] == "-t" && args[4] == "-F" && args[5] == "#{pane_id}" {
-			if err := validateTmuxTarget(args[3]); err != nil {
-				return nil, err
-			}
-			return []string{"list-panes", "-t", args[3], "-F", "#{pane_id}"}, nil
-		}
-	case "kill-session":
-		if len(args) == 4 && args[2] == "-t" {
-			if err := validateTmuxTarget(args[3]); err != nil {
-				return nil, err
-			}
-			return []string{"kill-session", "-t", args[3]}, nil
-		}
-	case "source-file":
-		if len(args) == 3 && args[2] == "-" {
-			return []string{"source-file", "-"}, nil
-		}
-	case "respawn-pane":
-		if len(args) == 11 && args[2] == "-k" && args[3] == "-t" && tmuxPaneIDPattern.MatchString(args[4]) {
-			profileName, profileDir, err := fixedTunnelClientRunArgs(args[5:])
-			if err != nil {
-				return nil, err
-			}
-			invocation, err := currentTunnelClientInvocation(profileName, profileDir)
-			if err != nil {
-				return nil, err
-			}
-			return append([]string{"respawn-pane", "-k", "-t", args[4]}, invocation...), nil
-		}
-	}
-	return nil, fmt.Errorf("default runtime only supports managed tmux commands")
-}
-
-func validateTmuxTarget(target string) error {
-	if !strings.HasPrefix(target, "=") {
-		return fmt.Errorf("tmux target must use an exact session name")
-	}
-	return validateTmuxSessionName(strings.TrimPrefix(target, "="))
-}
-
 func validateTmuxSessionName(sessionName string) error {
 	if !tmuxSessionNamePattern.MatchString(sessionName) {
 		return fmt.Errorf("tmux session name must use letters, numbers, '.', '_' or '-'")
+	}
+	return nil
+}
+
+func validateTmuxPaneID(paneID string) error {
+	if !tmuxPaneIDPattern.MatchString(paneID) {
+		return fmt.Errorf("tmux pane id must use %% followed by numbers")
 	}
 	return nil
 }

@@ -98,22 +98,65 @@ func TestTunnelClientRunArgsRemainRawArgv(t *testing.T) {
 	}, tunnelClientRunArgs("docs|mcp", "/tmp/profiles & data"))
 }
 
-func TestDefaultRuntimeRejectsNonTmuxCommands(t *testing.T) {
+func TestDefaultRuntimeRejectsGenericTmuxExecution(t *testing.T) {
 	t.Parallel()
 
 	rt := DefaultRuntime()
-	_, err := rt.Run([]string{"sh", "-c", "touch /tmp/injected"}, nil)
-	require.EqualError(t, err, "default runtime only supports tmux commands")
-	_, err = rt.RunInput([]string{"sh", "-c", "touch /tmp/injected"}, nil, "secret")
-	require.EqualError(t, err, "default runtime only supports tmux commands")
+	require.True(t, usesManagedTmuxRun(rt))
+	require.True(t, usesManagedTmuxInput(rt))
+	_, err := rt.Run([]string{"tmux", "new-session", "-d", "-s", "safe", "sh", "-c", "touch /tmp/injected"}, nil)
+	require.EqualError(t, err, "default runtime does not expose generic tmux command execution")
+	_, err = rt.RunInput([]string{"tmux", "source-file", "-"}, nil, "run-shell 'touch /tmp/injected'")
+	require.EqualError(t, err, "default runtime does not expose generic tmux command execution")
 }
 
-func TestDefaultRuntimeRejectsUnmanagedTmuxCommands(t *testing.T) {
+func TestDefaultRuntimeHonorsInjectedTmuxRunner(t *testing.T) {
 	t.Parallel()
 
 	rt := DefaultRuntime()
-	_, err := rt.Run([]string{"tmux", "new-session", "-d", "-s", "safe", "sh", "-c", "touch /tmp/injected"}, nil)
-	require.EqualError(t, err, "default runtime only supports managed tmux commands")
+	var gotArgs []string
+	rt.Run = func(args []string, env map[string]string) (CompletedProcess, error) {
+		gotArgs = append([]string{}, args...)
+		return CompletedProcess{}, nil
+	}
+	require.False(t, usesManagedTmuxRun(rt))
+	require.True(t, usesManagedTmuxInput(rt))
+
+	available, err := TmuxAvailable(rt)
+	require.NoError(t, err)
+	require.True(t, available)
+	require.Equal(t, []string{"tmux", "-V"}, gotArgs)
+}
+
+func TestDefaultRuntimeHonorsInjectedTmuxInputRunner(t *testing.T) {
+	t.Parallel()
+
+	rt := DefaultRuntime()
+	var gotArgs []string
+	var gotInput string
+	rt.RunInput = func(args []string, env map[string]string, stdin string) (CompletedProcess, error) {
+		gotArgs = append([]string{}, args...)
+		gotInput = stdin
+		return CompletedProcess{}, nil
+	}
+	require.True(t, usesManagedTmuxRun(rt))
+	require.False(t, usesManagedTmuxInput(rt))
+
+	_, err := applyTmuxEnvironmentForRuntime(rt, "safe", map[string]string{"KEY": "value"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"tmux", "source-file", "-"}, gotArgs)
+	require.Equal(t, "set-environment -t ='safe' 'KEY' 'value'\n", gotInput)
+}
+
+func TestManagedTmuxOperationsRejectUnsafeIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	_, err := runTmuxHasSession("safe;touch", nil)
+	require.EqualError(t, err, "tmux session name must use letters, numbers, '.', '_' or '-'")
+	_, err = runTmuxRespawnPane("%42;touch", "docs-mcp", "/tmp/profiles", nil)
+	require.EqualError(t, err, "tmux pane id must use % followed by numbers")
+	_, err = applyManagedTmuxEnvironment("safe", map[string]string{"BAD;run-shell": "value"})
+	require.EqualError(t, err, "tmux environment name \"BAD;run-shell\" must use letters, numbers or underscore")
 }
 
 func TestDefaultRuntimeRejectsNonFixedProcessArgs(t *testing.T) {
