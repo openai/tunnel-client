@@ -1,8 +1,6 @@
 package version
 
 import (
-	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -49,76 +47,10 @@ func TestDetectBuildGitSHA(t *testing.T) {
 	}
 }
 
-func TestDetectGitSHAFromCandidateDirs(t *testing.T) {
-	root := t.TempDir()
-	moduleDir := filepath.Join(root, "api", "tunnel-client")
-	versionDir := filepath.Join(moduleDir, "pkg", "version")
-	if err := os.MkdirAll(versionDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(moduleDir, "go.mod"),
-		[]byte("module github.com/openai/tunnel-client\n"),
-		0o644,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	originalRunGitCommand := runGitCommand
-	t.Cleanup(func() {
-		runGitCommand = originalRunGitCommand
-	})
-
-	sha := "ad0e6ff2e60a55267f6f03de5bd2c2cba0e5f4e9"
-	runGitCommand = func(dir string, args ...string) string {
-		if strings.Join(args, " ") == "rev-parse --show-toplevel" {
-			switch filepath.Clean(dir) {
-			case filepath.Clean(versionDir):
-				return root
-			case filepath.Clean(filepath.Join(root, "bazel-bin", "api", "tunnel-client", "cmd", "client")):
-				return ""
-			}
-		}
-		if filepath.Clean(dir) == filepath.Clean(root) && strings.Join(args, " ") == "rev-parse HEAD" {
-			return sha
-		}
-		return ""
-	}
-
-	got := detectGitSHAFromCandidateDirs([]string{versionDir})
-	if got != sha {
-		t.Fatalf("expected checkout sha %q, got %q", sha, got)
-	}
-
-	bazelOutput := t.TempDir()
-	bazelBin := filepath.Join(root, "bazel-bin")
-	if err := os.Symlink(bazelOutput, bazelBin); err != nil {
-		t.Fatal(err)
-	}
-
-	got = detectGitSHAFromCandidateDirs([]string{
-		filepath.Join(bazelBin, "api", "tunnel-client", "cmd", "client"),
-	})
-	if got != sha {
-		t.Fatalf("expected checkout sha through bazel-bin symlink %q, got %q", sha, got)
-	}
-}
-
-func TestFindGitRootByWalkingParentsStopsAtRoot(t *testing.T) {
-	root := filepath.VolumeName(os.TempDir()) + string(os.PathSeparator)
-	if got := findGitRootByWalkingParents(root); got != "" {
-		t.Fatalf("expected no git root at filesystem root, got %q", got)
-	}
-}
-
 func TestInitVersionUpdatesGlobals(t *testing.T) {
 	originalSemanticVersion := semanticVersion
 	originalSourceSemanticVersion := sourceSemanticVersion
 	originalUserAgentPrefix := userAgentPrefix
-	originalDetectCheckoutGitSHA := detectCheckoutGitSHA
 	originalGitSHA := GitSHA
 	originalSemanticVersionGlobal := SemanticVersion
 	originalVersion := Version
@@ -126,7 +58,6 @@ func TestInitVersionUpdatesGlobals(t *testing.T) {
 
 	semanticVersion = "1.2.3"
 	userAgentPrefix = "oai-tunnel-client/"
-	detectCheckoutGitSHA = func() string { return "" }
 	GitSHA = ""
 	SemanticVersion = ""
 	Version = ""
@@ -136,7 +67,6 @@ func TestInitVersionUpdatesGlobals(t *testing.T) {
 		semanticVersion = originalSemanticVersion
 		sourceSemanticVersion = originalSourceSemanticVersion
 		userAgentPrefix = originalUserAgentPrefix
-		detectCheckoutGitSHA = originalDetectCheckoutGitSHA
 		GitSHA = originalGitSHA
 		SemanticVersion = originalSemanticVersionGlobal
 		Version = originalVersion
@@ -168,11 +98,10 @@ func TestInitVersionUpdatesGlobals(t *testing.T) {
 	}
 }
 
-func TestInitVersionUsesSourceVersionWhenBuildVersionIsFallback(t *testing.T) {
+func TestInitVersionUsesSourceVersionWithoutBuildMetadata(t *testing.T) {
 	originalSemanticVersion := semanticVersion
 	originalSourceSemanticVersion := sourceSemanticVersion
 	originalUserAgentPrefix := userAgentPrefix
-	originalDetectCheckoutGitSHA := detectCheckoutGitSHA
 	originalGitSHA := GitSHA
 	originalSemanticVersionGlobal := SemanticVersion
 	originalVersion := Version
@@ -181,7 +110,6 @@ func TestInitVersionUsesSourceVersionWhenBuildVersionIsFallback(t *testing.T) {
 	semanticVersion = fallbackSemanticVersion
 	sourceSemanticVersion = "4.5.6\n"
 	userAgentPrefix = "oai-tunnel-client/"
-	detectCheckoutGitSHA = func() string { return "" }
 	GitSHA = ""
 	SemanticVersion = ""
 	Version = ""
@@ -191,7 +119,6 @@ func TestInitVersionUsesSourceVersionWhenBuildVersionIsFallback(t *testing.T) {
 		semanticVersion = originalSemanticVersion
 		sourceSemanticVersion = originalSourceSemanticVersion
 		userAgentPrefix = originalUserAgentPrefix
-		detectCheckoutGitSHA = originalDetectCheckoutGitSHA
 		GitSHA = originalGitSHA
 		SemanticVersion = originalSemanticVersionGlobal
 		Version = originalVersion
@@ -202,6 +129,9 @@ func TestInitVersionUsesSourceVersionWhenBuildVersionIsFallback(t *testing.T) {
 
 	initVersion(emptyRead)
 
+	if GitSHA != "" {
+		t.Fatalf("expected GitSHA to remain empty without build metadata, got %q", GitSHA)
+	}
 	if SemanticVersion != "4.5.6" {
 		t.Fatalf("expected SemanticVersion from source VERSION, got %q", SemanticVersion)
 	}
