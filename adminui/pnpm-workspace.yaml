@@ -1,0 +1,8 @@
+packages:
+  - .
+
+minimumReleaseAge: 10080
+
+strictDepBuilds: true
+allowBuilds:
+  esbuild: true

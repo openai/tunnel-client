@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "tunnelMcp": {
+      "cwd": ".",
+      "command": "node",
+      "args": [
+        "./mcp/server.cjs",
+        "--stdio"
+      ]
+    }
+  }
+}

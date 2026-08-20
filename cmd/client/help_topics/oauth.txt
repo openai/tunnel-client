@@ -1,0 +1,18 @@
+OAuth discovery matters when your main MCP target is an HTTP server that expects DCR/PRMD metadata.
+
+Why it matters:
+  - /readyz can stay degraded if the MCP server does not expose the expected metadata
+  - tunnel-client logs the discovery URLs it will try for the main MCP channel
+  - the expected minimum contract is:
+    - GET /.well-known/oauth-protected-resource/mcp
+    - then GET /.well-known/oauth-authorization-server using authorization_servers[0]
+
+Recommended path:
+  tunnel-client doctor --profile <name> --explain
+  tunnel-client run --profile <name>
+  tunnel-client dev mcp-stub
+
+If readiness stays degraded, inspect:
+  - the logged oauth_discovery_urls
+  - /readyz
+  - the embedded UI at /ui

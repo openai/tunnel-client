@@ -1,0 +1,265 @@
+package dispatcher
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+
+	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/types"
+)
+
+type noopTransport struct{}
+
+func (noopTransport) Connect(context.Context) (mcp.Connection, error) { return nil, nil }
+
+func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
+	t.Parallel()
+
+	bindings, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:                    types.Channel(" MAIN "),
+				Priority:                   0,
+				TransportKind:              config.MCPTransportHTTPStreamable,
+				Transport:                  noopTransport{},
+				SupportsMCP:                true,
+				SupportsOAuth:              true,
+				SupportsSessionTermination: true,
+			},
+			{
+				Channel:                    types.Channel("harpoon"),
+				Priority:                   0,
+				TransportKind:              config.MCPTransportInMemory,
+				Transport:                  noopTransport{},
+				SupportsMCP:                true,
+				SupportsOAuth:              false,
+				SupportsSessionTermination: false,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, bindings, 2)
+	mainBinding, ok := bindings[types.DefaultChannel]
+	require.True(t, ok)
+	require.NotNil(t, mainBinding.Transport)
+	require.True(t, mainBinding.SupportsMCP)
+	require.True(t, mainBinding.SupportsOAuth)
+	require.True(t, mainBinding.SupportsSessionTermination)
+
+	harpoonBinding, ok := bindings[types.ChannelHarpoon]
+	require.True(t, ok)
+	require.NotNil(t, harpoonBinding.Transport)
+	require.True(t, harpoonBinding.SupportsMCP)
+	require.False(t, harpoonBinding.SupportsOAuth)
+	require.False(t, harpoonBinding.SupportsSessionTermination)
+}
+
+func TestNewProcessorChannelBindingsSerializesStdioTransport(t *testing.T) {
+	t.Parallel()
+
+	bindings, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				TransportKind: config.MCPTransportStdio,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.ChannelHarpoon,
+				TransportKind: config.MCPTransportInMemory,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, fmt.Sprintf("%T", bindings[types.DefaultChannel].Transport), "serializedForwardingTransport")
+	conn, err := bindings[types.DefaultChannel].Transport.Connect(context.Background())
+	require.NoError(t, err)
+	_, ok := conn.(mcpclient.ResponseDeadlineRetiringConnection)
+	require.True(t, ok, "stdio binding must retire deadlines without closing its shared transport")
+}
+
+func TestNewProcessorChannelBindingsMissingRequired(t *testing.T) {
+	t.Parallel()
+
+	_, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "missing required channels")
+	require.ErrorContains(t, err, "required channels")
+}
+
+func TestNewProcessorChannelBindingsRejectsDuplicateNormalizedChannel(t *testing.T) {
+	t.Parallel()
+
+	_, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.Channel("harpoon"),
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: false,
+			},
+			{
+				Channel:       types.Channel(" HARPOON "),
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: false,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "duplicate channel")
+}
+
+func TestNewProcessorChannelBindingsRejectsNonMainOAuth(t *testing.T) {
+	t.Parallel()
+
+	_, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.ChannelHarpoon,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "non-main channel")
+}
+
+func TestNewProcessorChannelBindingsRejectsEmptyNormalizedChannel(t *testing.T) {
+	t.Parallel()
+
+	_, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.ChannelHarpoon,
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: false,
+			},
+			{
+				Channel:       types.Channel("   "),
+				Priority:      0,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: false,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "invalid after normalization")
+}
+
+func TestNewProcessorChannelBindingsProducesInternalBindingType(t *testing.T) {
+	t.Parallel()
+
+	bindings, err := newProcessorChannelBindings(processorChannelBindingsParams{
+		Bindings: []dispatcherChannelBinding{
+			{
+				Channel:       types.DefaultChannel,
+				Priority:      3,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: true,
+			},
+			{
+				Channel:       types.ChannelHarpoon,
+				Priority:      7,
+				Transport:     noopTransport{},
+				SupportsMCP:   true,
+				SupportsOAuth: false,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 3, bindings[types.DefaultChannel].Priority)
+	require.Equal(t, 7, bindings[types.ChannelHarpoon].Priority)
+}
+
+func TestNewHarpoonChannelBindingUsesSharedConnectionTransport(t *testing.T) {
+	t.Parallel()
+
+	base := &countingMCPTransport{}
+	binding := newHarpoonChannelBinding(harpoonChannelBindingParams{
+		HarpoonTransport: base,
+	})
+	require.NotNil(t, binding.Transport)
+
+	connA, err := binding.Transport.Connect(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, connA)
+
+	connB, err := binding.Transport.Connect(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, connB)
+
+	require.Same(t, connA, connB)
+	require.Equal(t, 1, base.connectCalls)
+}
+
+type countingMCPTransport struct {
+	connectCalls int
+	conn         mcp.Connection
+}
+
+func (t *countingMCPTransport) Connect(context.Context) (mcp.Connection, error) {
+	t.connectCalls++
+	if t.conn == nil {
+		t.conn = &noopConnection{}
+	}
+	return t.conn, nil
+}
+
+type noopConnection struct{}
+
+func (noopConnection) Read(context.Context) (jsonrpc.Message, error) { return nil, nil }
+func (noopConnection) Write(context.Context, jsonrpc.Message) error  { return nil }
+func (noopConnection) Close() error                                  { return nil }
+func (noopConnection) SessionID() string                             { return "" }

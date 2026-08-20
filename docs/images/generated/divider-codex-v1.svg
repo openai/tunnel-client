@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 240" role="img" aria-labelledby="title desc">
+  <title id="title">Codex divider</title>
+  <desc id="desc">Abstract divider with a prompt window, automation cards, and a runtime bridge.</desc>
+  <rect width="1200" height="240" rx="34" fill="#f4efe8"/>
+  <path d="M88 128H1112" stroke="#12304a" stroke-opacity="0.1" stroke-width="8" stroke-linecap="round"/>
+  <path d="M88 128H1112" stroke="#0d8b84" stroke-width="4" stroke-dasharray="14 16" stroke-linecap="round"/>
+  <g transform="translate(118 42)">
+    <rect width="292" height="156" rx="28" fill="#173753"/>
+    <rect x="24" y="24" width="144" height="12" rx="6" fill="#ffffff" opacity="0.18"/>
+    <rect x="24" y="56" width="228" height="12" rx="6" fill="#ffffff" opacity="0.12"/>
+    <rect x="24" y="84" width="174" height="12" rx="6" fill="#80efe7"/>
+    <rect x="24" y="118" width="114" height="18" rx="9" fill="#f2b443"/>
+    <rect x="148" y="118" width="86" height="18" rx="9" fill="#ff8a75"/>
+  </g>
+  <g transform="translate(500 74)">
+    <rect width="186" height="108" rx="24" fill="#fffdf8" stroke="#12304a" stroke-opacity="0.12"/>
+    <circle cx="52" cy="54" r="22" fill="#0d8b84"/>
+    <circle cx="132" cy="54" r="22" fill="#f2b443"/>
+    <path d="M74 54H110" stroke="#12304a" stroke-opacity="0.18" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(776 46)">
+    <rect width="296" height="148" rx="28" fill="#fffdf8" stroke="#12304a" stroke-opacity="0.12"/>
+    <rect x="22" y="24" width="124" height="12" rx="6" fill="#12304a" opacity="0.14"/>
+    <rect x="22" y="58" width="246" height="18" rx="9" fill="#0d8b84"/>
+    <rect x="22" y="92" width="194" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="22" y="120" width="164" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+  </g>
+</svg>

@@ -1,0 +1,5 @@
+{
+  "name": "@openai/tunnel-client-mcp-tunnel-proxy",
+  "private": true,
+  "type": "module"
+}

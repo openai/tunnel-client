@@ -1,0 +1,496 @@
+#!/bin/sh
+set -eu
+
+case "$0" in
+  */*) script_dir=${0%/*} ;;
+  *) script_dir=. ;;
+esac
+plugin_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+tunnel_client_bin=""
+attempts=""
+
+append_attempt() {
+  if [ -z "$attempts" ]; then
+    attempts="- $1"
+  else
+    attempts="$attempts
+- $1"
+  fi
+}
+
+is_executable_file() {
+  [ -f "$1" ] && [ -x "$1" ]
+}
+
+find_bazel_client_binary() {
+  search_root=$1
+  [ -d "$search_root/bazel-bin" ] || return 1
+  find_bin=find
+  if [ -x /usr/bin/find ]; then
+    find_bin=/usr/bin/find
+  fi
+  found=$(
+    "$find_bin" "$search_root/bazel-bin" -type f \( -name client -o -name client.exe \) -print 2>/dev/null |
+      while IFS= read -r candidate; do
+        if [ "${candidate#*/cmd/client/}" != "$candidate" ] && is_executable_file "$candidate"; then
+          printf '%s\n' "$candidate"
+          break
+        fi
+      done
+  )
+  [ -n "$found" ] || return 1
+  printf '%s\n' "$found"
+}
+
+search_binary_root() {
+  search_root=$1
+  for candidate in \
+    "$search_root/tunnel-client" \
+    "$search_root/tunnel-client.exe" \
+    "$search_root/bin/tunnel-client" \
+    "$search_root/bin/tunnel-client.exe" \
+    "$search_root/bazel-bin/cmd/client/client" \
+    "$search_root/bazel-bin/cmd/client/client.exe" \
+    "$search_root/bazel-bin/api/tunnel-client/cmd/client/client" \
+    "$search_root/bazel-bin/api/tunnel-client/cmd/client/client.exe"
+  do
+    if is_executable_file "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  find_bazel_client_binary "$search_root"
+}
+
+find_repo_root_binary() {
+  search_root=$plugin_root
+  while [ -n "$search_root" ]; do
+    case "$search_root" in
+      */*) parent=${search_root%/*} ;;
+      *) parent=. ;;
+    esac
+    if [ -z "$parent" ]; then
+      parent=/
+    fi
+    if [ "$parent" = "$search_root" ]; then
+      break
+    fi
+    if is_tunnel_client_repo_root "$parent" && search_binary_root "$parent"; then
+      return 0
+    fi
+    search_root=$parent
+  done
+  return 1
+}
+
+is_tunnel_client_repo_root() {
+  [ -d "$1/cmd/client" ] || [ -d "$1/api/tunnel-client/cmd/client" ]
+}
+
+find_adjacent_binary() {
+  if search_binary_root "$plugin_root"; then
+    return 0
+  fi
+  find_repo_root_binary
+}
+
+resolve_explicit_binary() {
+  if [ "${1:-}" != "--tunnel-client-bin" ]; then
+    append_attempt "--tunnel-client-bin: not provided"
+    return 0
+  fi
+  if [ $# -lt 2 ]; then
+    echo "error: --tunnel-client-bin requires a value" >&2
+    exit 2
+  fi
+  if is_executable_file "$2"; then
+    tunnel_client_bin=$2
+  else
+    append_attempt "--tunnel-client-bin: $2 was not an executable file"
+  fi
+  shift 2
+  set -- "$@"
+}
+
+resolve_env_binary() {
+  if [ -n "$tunnel_client_bin" ]; then
+    return 0
+  fi
+  if [ -n "${TUNNEL_CLIENT_BIN:-}" ]; then
+    if is_executable_file "$TUNNEL_CLIENT_BIN"; then
+      tunnel_client_bin=$TUNNEL_CLIENT_BIN
+    else
+      append_attempt "TUNNEL_CLIENT_BIN: $TUNNEL_CLIENT_BIN was not an executable file"
+    fi
+    return 0
+  fi
+  append_attempt "TUNNEL_CLIENT_BIN: not set"
+}
+
+resolve_hint_binary() {
+  if [ -n "$tunnel_client_bin" ]; then
+    return 0
+  fi
+  if [ -f "$plugin_root/.tunnel-client-bin" ]; then
+    IFS= read -r hinted_bin < "$plugin_root/.tunnel-client-bin" || true
+    if [ -n "${hinted_bin:-}" ] && is_executable_file "$hinted_bin"; then
+      tunnel_client_bin=$hinted_bin
+    else
+      append_attempt "installed .tunnel-client-bin hint: ${hinted_bin:-empty} was not an executable file"
+    fi
+    return 0
+  fi
+  append_attempt "installed .tunnel-client-bin hint: not present"
+}
+
+resolve_adjacent_binary() {
+  if [ -n "$tunnel_client_bin" ]; then
+    return 0
+  fi
+  adjacent_bin=$(find_adjacent_binary || true)
+  if [ -n "$adjacent_bin" ]; then
+    tunnel_client_bin=$adjacent_bin
+  else
+    append_attempt "adjacent build outputs: no executable tunnel-client binary found next to the plugin"
+  fi
+}
+
+record_path_probe() {
+  if [ -n "$tunnel_client_bin" ]; then
+    return 0
+  fi
+  path_candidate=$(command -v tunnel-client 2>/dev/null || true)
+  if [ -z "$path_candidate" ]; then
+    path_candidate=$(command -v tunnel-client.exe 2>/dev/null || true)
+  fi
+  if [ -n "$path_candidate" ]; then
+    append_attempt "PATH: found $path_candidate but ignored because .tunnel-client-bin is missing; set TUNNEL_CLIENT_BIN or pass --tunnel-client-bin to use it explicitly"
+  else
+    append_attempt "PATH: no tunnel-client executable found"
+  fi
+}
+
+resolve_tunnel_client_bin() {
+  resolve_explicit_binary "$@"
+  resolve_env_binary
+  resolve_hint_binary
+  resolve_adjacent_binary
+  record_path_probe
+}
+
+print_help() {
+  cat <<'EOF'
+Usage: tunnel_mcp <command> [args]
+
+Routes to native tunnel-client commands:
+  create|connect|list|status|stop|disconnect|rm|cleanup
+  admin-profiles <subcommand>
+  diagnose [alias]
+  self-check [alias]
+
+All routed commands default to --json.
+EOF
+}
+
+command_supports_diagnose_plugin_root() {
+  [ -n "$tunnel_client_bin" ] || return 1
+  "$tunnel_client_bin" codex diagnose --help 2>&1 | grep -q -- "--plugin-root"
+}
+
+run_python_compat_json() {
+  compat_command=$1
+  shift
+  if [ -z "$tunnel_client_bin" ]; then
+    print_missing_binary_error
+    exit 2
+  fi
+  python_bin=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+  if [ -z "$python_bin" ]; then
+    printf 'error: %s compatibility JSON requires python3 or python on PATH\n' "$compat_command" >&2
+    exit 2
+  fi
+  TUNNEL_MCP_PLUGIN_ROOT=$plugin_root TUNNEL_MCP_BIN=$tunnel_client_bin TUNNEL_MCP_COMPAT_COMMAND=$compat_command exec "$python_bin" - "$@" <<'PY'
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+
+PLUGIN_ROOT = os.environ["TUNNEL_MCP_PLUGIN_ROOT"]
+TUNNEL_CLIENT_BIN = os.environ["TUNNEL_MCP_BIN"]
+COMPAT_COMMAND = os.environ["TUNNEL_MCP_COMPAT_COMMAND"]
+ARGS = sys.argv[1:]
+UNSUPPORTED_FLAG = "--plugin-root"
+
+
+def run_tunnel(args, timeout=30):
+    try:
+        proc = subprocess.run(
+            [TUNNEL_CLIENT_BIN, *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return {
+            "command": [TUNNEL_CLIENT_BIN, *args],
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except Exception as exc:
+        return {
+            "command": [TUNNEL_CLIENT_BIN, *args],
+            "exit_code": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
+def payload_from(result):
+    text = result.get("stdout", "")
+    if text:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def command_result(result):
+    payload = payload_from(result)
+    out = {
+        "command": result["command"][1:],
+        "exit_code": result["exit_code"],
+    }
+    if payload is not None:
+        out["json"] = payload
+    if result.get("stdout") and payload is None:
+        out["stdout"] = result["stdout"]
+    if result.get("stderr"):
+        out["stderr"] = result["stderr"]
+    return out
+
+
+def plugin_version():
+    manifest = pathlib.Path(PLUGIN_ROOT) / ".codex-plugin" / "plugin.json"
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version", "")
+    except Exception:
+        return ""
+
+
+def diagnose_support():
+    help_result = run_tunnel(["codex", "diagnose", "--help"], timeout=10)
+    help_text = "\n".join([help_result.get("stdout", ""), help_result.get("stderr", "")])
+    supported = UNSUPPORTED_FLAG in help_text
+    return supported, help_result
+
+
+def fallback_diagnose(args):
+    diagnose_args = ["codex", "diagnose", *args, "--json"]
+    diagnose = run_tunnel(diagnose_args)
+    if diagnose["exit_code"] == 0:
+        return "codex_diagnose_without_plugin_root", diagnose
+    status = run_tunnel(["codex", "status", "--json"])
+    return "codex_status", status
+
+
+def env_ref(ref):
+    if not ref.startswith("env:"):
+        return {"reference": ref, "present": False}
+    name = ref.split(":", 1)[1]
+    return {"reference": ref, "present": bool(os.environ.get(name))}
+
+
+def self_check(args):
+    supported, help_result = diagnose_support()
+    version_result = run_tunnel(["--version"], timeout=10)
+    status_result = run_tunnel(["codex", "status", "--json"])
+    admin_result = run_tunnel(["admin-profiles", "list", "--json"])
+    if supported:
+        diag_kind = "codex_diagnose_with_plugin_root"
+        diag_result = run_tunnel(["codex", "diagnose", "--plugin-root", PLUGIN_ROOT, *args, "--json"])
+    else:
+        diag_kind, diag_result = fallback_diagnose(args)
+
+    admin_payload = payload_from(admin_result) or {}
+    status_payload = payload_from(status_result) or {}
+    runtime_refs = [
+        env_ref("env:CONTROL_PLANE_API_KEY"),
+        env_ref("env:OPENAI_API_KEY"),
+        env_ref("env:OPENAI_TUNNEL_KEY_PROD"),
+    ]
+    output = {
+        "command": "self-check",
+        "selected_binary_path": TUNNEL_CLIENT_BIN,
+        "binary_version": version_result.get("stdout") or version_result.get("stderr", ""),
+        "plugin_root": PLUGIN_ROOT,
+        "plugin_version": plugin_version(),
+        "app_router_compatibility": {
+            "diagnose_plugin_root_supported": supported,
+            "unsupported_flag": "" if supported else UNSUPPORTED_FLAG,
+            "probe": command_result(help_result),
+            "fallback_used": "" if supported else diag_kind,
+        },
+        "codex_status": command_result(status_result),
+        "diagnose": command_result(diag_result),
+        "active_admin_profile": {
+            "name": admin_payload.get("active_profile", ""),
+            "path": admin_payload.get("path", ""),
+            "profiles_command": command_result(admin_result),
+        },
+        "runtime_key_references": runtime_refs,
+        "runtime_key_reference_present": any(item["present"] for item in runtime_refs),
+    }
+    if isinstance(status_payload, dict):
+        output["app_router_compatibility"]["app_server_supported"] = bool(
+            status_payload.get("app_server_supported")
+        )
+        output["app_router_compatibility"]["assistant_state"] = status_payload.get(
+            "assistant_state", ""
+        )
+    return output
+
+
+def diagnose(args):
+    supported, help_result = diagnose_support()
+    if supported:
+        result = run_tunnel(["codex", "diagnose", "--plugin-root", PLUGIN_ROOT, *args, "--json"])
+        payload = payload_from(result)
+        if payload is not None and result["exit_code"] == 0:
+            return payload
+        return {
+            "command": "diagnose",
+            "selected_binary_path": TUNNEL_CLIENT_BIN,
+            "plugin_root": PLUGIN_ROOT,
+            "app_router_compatibility": {
+                "diagnose_plugin_root_supported": True,
+                "unsupported_flag": "",
+            },
+            "diagnose": command_result(result),
+        }
+
+    fallback_kind, fallback = fallback_diagnose(args)
+    return {
+        "command": "diagnose",
+        "selected_binary_path": TUNNEL_CLIENT_BIN,
+        "plugin_root": PLUGIN_ROOT,
+        "app_router_compatibility": {
+            "diagnose_plugin_root_supported": False,
+            "unsupported_flag": UNSUPPORTED_FLAG,
+            "attempted_command": ["codex", "diagnose", "--plugin-root", PLUGIN_ROOT, *args, "--json"],
+            "fallback_used": fallback_kind,
+            "probe": command_result(help_result),
+        },
+        "fallback": command_result(fallback),
+    }
+
+
+if COMPAT_COMMAND == "self-check":
+    result = self_check(ARGS)
+elif COMPAT_COMMAND == "diagnose":
+    result = diagnose(ARGS)
+else:
+    result = {"error": "unsupported compatibility command", "command": COMPAT_COMMAND}
+
+print(json.dumps(result, indent=2, sort_keys=True))
+PY
+}
+
+route_command() {
+  case "$1" in
+    admin-profiles)
+      shift
+      set -- admin-profiles "$@"
+      ;;
+    diagnose)
+      shift
+      if command_supports_diagnose_plugin_root; then
+        set -- codex diagnose --plugin-root "$plugin_root" "$@"
+      else
+        run_python_compat_json diagnose "$@"
+      fi
+      ;;
+    self-check)
+      shift
+      run_python_compat_json self-check "$@"
+      ;;
+    create|connect|list|status|stop|disconnect|cleanup)
+      command=$1
+      shift
+      set -- runtimes "$command" "$@"
+      ;;
+    rm|remove)
+      shift
+      set -- runtimes rm "$@"
+      ;;
+    *)
+      echo "unsupported tunnel_mcp command; use create, connect, list, status, stop, disconnect, rm, cleanup, diagnose, self-check, or admin-profiles" >&2
+      exit 2
+      ;;
+  esac
+  append_default_json "$@"
+}
+
+append_default_json() {
+  has_json=0
+  for arg in "$@"; do
+    if [ "$arg" = "--json" ]; then
+      has_json=1
+      break
+    fi
+  done
+
+  if [ "$has_json" -eq 0 ]; then
+    set -- "$@" --json
+  fi
+
+  run_tunnel_client "$@"
+}
+
+print_missing_binary_error() {
+  printf 'error: tunnel-client was not found.\n\n' >&2
+  printf 'Discovery methods tried:\n%s\n\n' "$attempts" >&2
+  printf '%s\n' \
+    'Next steps:' \
+    '- Download a release binary from https://github.com/openai/tunnel-client/releases/latest' \
+    '- Or clone and build from source from https://github.com/openai/tunnel-client:' \
+    '  git clone https://github.com/openai/tunnel-client.git' \
+    '  cd tunnel-client' \
+    '  go build -o bin/tunnel-client ./cmd/client' \
+    '  # Windows: go build -o bin/tunnel-client.exe ./cmd/client' \
+    '- Then point the plugin at the binary with one of:' \
+    '  - set TUNNEL_CLIENT_BIN to the full path to tunnel-client' \
+    '  - rerun with --tunnel-client-bin /path/to/tunnel-client' \
+    '- Or reinstall the plugin with --tunnel-client-bin /path/to/tunnel-client' \
+    '' \
+    'Executable naming guidance:' \
+    '- macOS/Linux: tunnel-client' \
+    '- Windows: tunnel-client.exe' \
+    '' \
+    'This plugin does not auto-download, auto-clone, or auto-run remote tunnel-client binaries.' \
+    'If the user explicitly asks Codex to set up tunnel-client, Codex may clone and build it from the public repo commands above.' >&2
+}
+
+run_tunnel_client() {
+  if [ -z "$tunnel_client_bin" ]; then
+    print_missing_binary_error
+    exit 2
+  fi
+  exec "$tunnel_client_bin" "$@"
+}
+
+resolve_tunnel_client_bin "$@"
+
+if [ "${1:-}" = "--tunnel-client-bin" ]; then
+  shift 2
+fi
+
+if [ $# -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  print_help
+  exit 0
+fi
+
+route_command "$@"

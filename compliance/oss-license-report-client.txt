@@ -1,0 +1,57 @@
+License report for tunnel-client release flavor: client
+Platforms: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64
+Tests included: false
+License summary (all licenses currently in use; additions require legal approval and #release-approval sign-off):
+  Apache-2.0
+  BSD-3-Clause
+  MIT
+
+DEPENDENCY|TYPE|VERSION|LICENSES|LICENSE_FILE|PLATFORMS
+github.com/bahlo/generic-list-go|transitive|v0.2.0|BSD-3-Clause|github.com/bahlo/generic-list-go@v0.2.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/beorn7/perks/quantile|transitive|v1.0.1|MIT|github.com/beorn7/perks@v1.0.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/buger/jsonparser|transitive|v1.1.2|MIT|github.com/buger/jsonparser@v1.1.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/cespare/xxhash/v2|transitive|v2.3.0|MIT|github.com/cespare/xxhash/v2@v2.3.0/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/felixge/httpsnoop|transitive|v1.0.4|MIT|github.com/felixge/httpsnoop@v1.0.4/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/go-logr/logr|transitive|v1.4.3|Apache-2.0|github.com/go-logr/logr@v1.4.3/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/go-logr/stdr|transitive|v1.2.2|Apache-2.0|github.com/go-logr/stdr@v1.2.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/google/jsonschema-go/jsonschema|transitive|v0.4.2|MIT|github.com/google/jsonschema-go@v0.4.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/google/uuid|direct|v1.6.0|BSD-3-Clause|github.com/google/uuid@v1.6.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/grafana/regexp|transitive|v0.0.0-20240518133315-a468a5bfb3bc|BSD-3-Clause|github.com/grafana/regexp@v0.0.0-20240518133315-a468a5bfb3bc/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/inconshreveable/mousetrap|transitive|v1.1.0|Apache-2.0|github.com/inconshreveable/mousetrap@v1.1.0/LICENSE|windows/amd64,windows/arm64
+github.com/invopop/jsonschema|direct|v0.13.0|MIT|github.com/invopop/jsonschema@v0.13.0/COPYING|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/jpillora/backoff|direct|v1.0.0|MIT|github.com/jpillora/backoff@v1.0.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/mailru/easyjson|transitive|v0.7.7|MIT|github.com/mailru/easyjson@v0.7.7/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/modelcontextprotocol/go-sdk|direct|v1.4.1|Apache-2.0, MIT|github.com/modelcontextprotocol/go-sdk@v1.4.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/munnerz/goautoneg|transitive|v0.0.0-20191010083416-a7dc8b61c822|BSD-3-Clause|github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/panjf2000/ants/v2|direct|v2.11.3|MIT|github.com/panjf2000/ants/v2@v2.11.3/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil|transitive|v1.23.2|BSD-3-Clause|github.com/prometheus/client_golang@v1.23.2/internal/github.com/golang/gddo/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/client_golang/prometheus|transitive|v1.23.2|Apache-2.0|github.com/prometheus/client_golang@v1.23.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/client_model/go|transitive|v0.6.2|Apache-2.0|github.com/prometheus/client_model@v0.6.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/common|transitive|v0.66.1|Apache-2.0|github.com/prometheus/common@v0.66.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/otlptranslator|transitive|v0.0.2|Apache-2.0|github.com/prometheus/otlptranslator@v0.0.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/prometheus/procfs|transitive|v0.17.0|Apache-2.0|github.com/prometheus/procfs@v0.17.0/LICENSE|linux/amd64,linux/arm64
+github.com/segmentio/asm|transitive|v1.1.3|MIT|github.com/segmentio/asm@v1.1.3/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/segmentio/encoding|transitive|v0.5.4|MIT|github.com/segmentio/encoding@v0.5.4/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/spf13/cobra|direct|v1.9.1|Apache-2.0|github.com/spf13/cobra@v1.9.1/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/spf13/pflag|direct|v1.0.6|BSD-3-Clause|github.com/spf13/pflag@v1.0.6/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/wk8/go-ordered-map/v2|transitive|v2.1.8|Apache-2.0|github.com/wk8/go-ordered-map/v2@v2.1.8/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+github.com/yosida95/uritemplate/v3|transitive|v3.0.2|BSD-3-Clause|github.com/yosida95/uritemplate/v3@v3.0.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/auto/sdk|transitive|v1.2.1|Apache-2.0|go.opentelemetry.io/auto/sdk@v1.2.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp|direct|v0.63.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.63.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/exporters/prometheus|direct|v0.60.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/exporters/prometheus@v0.60.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/metric|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/metric@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/sdk|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/sdk@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/sdk/metric|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/sdk/metric@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/trace|transitive|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/trace@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.uber.org/dig|transitive|v1.19.0|MIT|go.uber.org/dig@v1.19.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.uber.org/fx|direct|v1.23.0|MIT|go.uber.org/fx@v1.23.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.uber.org/multierr|transitive|v1.11.0|MIT|go.uber.org/multierr@v1.11.0/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.uber.org/zap|transitive|v1.27.0|MIT|go.uber.org/zap@v1.27.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.yaml.in/yaml/v2|transitive|v2.4.2|Apache-2.0|go.yaml.in/yaml/v2@v2.4.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/net/publicsuffix|transitive|v0.43.0|BSD-3-Clause|golang.org/x/net@v0.43.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/oauth2|transitive|v0.34.0|BSD-3-Clause|golang.org/x/oauth2@v0.34.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/sync|direct|v0.17.0|BSD-3-Clause|golang.org/x/sync@v0.17.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/sys|direct|v0.41.0|BSD-3-Clause|golang.org/x/sys@v0.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+google.golang.org/protobuf|transitive|v1.36.8|BSD-3-Clause|google.golang.org/protobuf@v1.36.8/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+gopkg.in/yaml.v3|direct|v3.0.1|MIT|gopkg.in/yaml.v3@v3.0.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64

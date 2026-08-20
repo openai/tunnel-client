@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 240" role="img" aria-labelledby="title desc">
+  <title id="title">Local UI divider</title>
+  <desc id="desc">Abstract divider with dashboard cards, a chart, and a log stream.</desc>
+  <rect width="1200" height="240" rx="34" fill="#edf5f4"/>
+  <g transform="translate(88 42)">
+    <rect width="238" height="154" rx="28" fill="#173753"/>
+    <rect x="24" y="22" width="88" height="12" rx="6" fill="#ffffff" opacity="0.18"/>
+    <rect x="24" y="54" width="190" height="26" rx="13" fill="#0d8b84"/>
+    <rect x="24" y="94" width="64" height="42" rx="14" fill="#f2b443"/>
+    <rect x="100" y="94" width="114" height="10" rx="5" fill="#ffffff" opacity="0.18"/>
+    <rect x="100" y="114" width="86" height="10" rx="5" fill="#ffffff" opacity="0.18"/>
+  </g>
+  <g transform="translate(400 58)">
+    <rect width="304" height="126" rx="26" fill="#fffdf8" stroke="#12304a" stroke-opacity="0.12"/>
+    <path d="M28 96L86 68L136 84L196 32L250 46L276 20" fill="none" stroke="#0d8b84" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M28 104H276" stroke="#12304a" stroke-opacity="0.12" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="196" cy="32" r="10" fill="#f2b443"/>
+  </g>
+  <g transform="translate(766 36)">
+    <rect width="336" height="168" rx="28" fill="#fffdf8" stroke="#12304a" stroke-opacity="0.12"/>
+    <rect x="22" y="22" width="118" height="12" rx="6" fill="#12304a" opacity="0.14"/>
+    <rect x="22" y="54" width="224" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="22" y="82" width="284" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="22" y="110" width="240" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="22" y="138" width="180" height="12" rx="6" fill="#ff8a75" opacity="0.76"/>
+  </g>
+</svg>

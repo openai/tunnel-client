@@ -1,0 +1,12 @@
+{
+  "name": "@openai/tunnel-client-mcp-tunnel-proxy-typescript-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bazel test //api/tunnel-client/examples/typescript-mcp-tunnel-client-proxy:mcp_tunnel_client_proxy_example_test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "5.7.3"
+  }
+}

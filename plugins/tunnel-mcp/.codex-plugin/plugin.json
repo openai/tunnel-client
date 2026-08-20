@@ -1,0 +1,44 @@
+{
+  "name": "tunnel-mcp",
+  "version": "0.1.3",
+  "description": "Create, connect, list, and inspect secure MCP tunnels from Codex using tunnel-client.",
+  "author": {
+    "name": "OpenAI",
+    "email": "support@openai.com",
+    "url": "https://openai.com/"
+  },
+  "homepage": "https://github.com/openai/tunnel-client",
+  "repository": "https://github.com/openai/tunnel-client",
+  "license": "Apache-2.0",
+  "keywords": [
+    "codex",
+    "mcp",
+    "tunnel-client",
+    "tunnel-service"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Tunnel MCP",
+    "shortDescription": "Manage tunnel-client MCP tunnels from a source checkout or installed bundle.",
+    "longDescription": "Use tunnel-client from Codex to create, connect, list, and inspect secure MCP tunnels, with the bundled plugin skills available directly from this repository checkout or from an installed export.",
+    "developerName": "OpenAI",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write",
+      "Shell"
+    ],
+    "websiteURL": "https://github.com/openai/tunnel-client",
+    "privacyPolicyURL": "https://openai.com/policies/privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/terms-of-use/",
+    "defaultPrompt": [
+      "Summarize what tunnel-client is doing in this checkout.",
+      "Show me how to install the Tunnel MCP plugin from this repo.",
+      "Create or reuse a tunnel-client runtime and check its status."
+    ],
+    "brandColor": "#10A37F",
+    "logo": "./assets/tunnel-mcp-logo.png"
+  }
+}

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract secure tunnel cover illustration</title>
+  <desc id="desc">A private server, operator cards, and a curved secure path rendered in teal, navy, amber, and coral.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#12304a"/>
+      <stop offset="55%" stop-color="#0f7e7b"/>
+      <stop offset="100%" stop-color="#f2b443"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffd27d"/>
+      <stop offset="50%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#80efe7"/>
+    </linearGradient>
+    <filter id="blur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="900" rx="48" fill="url(#bg)"/>
+  <circle cx="190" cy="160" r="96" fill="#ffd27d" opacity="0.18" filter="url(#blur)"/>
+  <circle cx="1020" cy="170" r="120" fill="#ffffff" opacity="0.12" filter="url(#blur)"/>
+  <circle cx="930" cy="710" r="120" fill="#ff8a75" opacity="0.12" filter="url(#blur)"/>
+
+  <path d="M252 540C356 336 592 260 846 298C959 314 1041 356 1100 432" fill="none" stroke="url(#ring)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M254 540C430 644 670 660 906 596" fill="none" stroke="#ffffff" stroke-opacity="0.32" stroke-width="7" stroke-dasharray="12 16" stroke-linecap="round"/>
+
+  <g transform="translate(115 506)">
+    <rect width="220" height="164" rx="28" fill="#fff7e7" opacity="0.96"/>
+    <rect x="24" y="28" width="86" height="12" rx="6" fill="#12304a" opacity="0.25"/>
+    <rect x="24" y="54" width="122" height="44" rx="16" fill="#0d8b84"/>
+    <rect x="24" y="112" width="168" height="14" rx="7" fill="#12304a" opacity="0.14"/>
+    <rect x="24" y="136" width="120" height="10" rx="5" fill="#12304a" opacity="0.1"/>
+    <circle cx="178" cy="76" r="20" fill="#f2b443"/>
+  </g>
+
+  <g transform="translate(404 212)">
+    <rect width="246" height="176" rx="30" fill="#ffffff" opacity="0.92"/>
+    <rect x="24" y="26" width="110" height="14" rx="7" fill="#12304a" opacity="0.14"/>
+    <rect x="24" y="60" width="198" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="24" y="86" width="198" height="12" rx="6" fill="#12304a" opacity="0.08"/>
+    <rect x="24" y="120" width="90" height="32" rx="16" fill="#ff8a75"/>
+    <rect x="126" y="120" width="96" height="32" rx="16" fill="#0d8b84"/>
+  </g>
+
+  <g transform="translate(825 500)">
+    <rect width="220" height="180" rx="28" fill="#173753" opacity="0.92"/>
+    <rect x="28" y="28" width="112" height="12" rx="6" fill="#ffffff" opacity="0.16"/>
+    <rect x="28" y="58" width="70" height="70" rx="18" fill="#f2b443"/>
+    <rect x="110" y="58" width="84" height="18" rx="9" fill="#80efe7"/>
+    <rect x="110" y="90" width="64" height="18" rx="9" fill="#ffffff" opacity="0.28"/>
+    <rect x="28" y="142" width="166" height="10" rx="5" fill="#ffffff" opacity="0.16"/>
+  </g>
+
+  <g transform="translate(620 520)">
+    <circle cx="0" cy="0" r="24" fill="#f2b443"/>
+    <circle cx="140" cy="-18" r="18" fill="#80efe7"/>
+    <circle cx="282" cy="-4" r="14" fill="#ff8a75"/>
+    <path d="M24 0H122" stroke="#ffffff" stroke-opacity="0.34" stroke-width="6" stroke-dasharray="10 12" stroke-linecap="round"/>
+    <path d="M158-18H252" stroke="#ffffff" stroke-opacity="0.34" stroke-width="6" stroke-dasharray="10 12" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,51 @@
+tunnel-client doctor checks your selected config before the long-lived daemon starts.
+
+Recommended flow:
+  tunnel-client doctor --profile <name>
+  tunnel-client doctor --profile <name> --explain
+  tunnel-client doctor --profile <name> --json
+
+Canonical setup URLs:
+  Tunnels management: https://platform.openai.com/settings/organization/tunnels
+  Organization roles: https://platform.openai.com/settings/organization/people/roles
+  Organization groups: https://platform.openai.com/settings/organization/people/groups
+  Runtime API keys: https://platform.openai.com/settings/organization/api-keys
+  Admin API keys: https://platform.openai.com/settings/organization/admin-keys
+  ChatGPT connector settings: https://chatgpt.com/#settings/Connectors
+
+Which value comes from where:
+  - `CONTROL_PLANE_TUNNEL_ID`: create or inspect it in Tunnels management, or with
+    `tunnel-client admin tunnels create|list|get ...` when you have `OPENAI_ADMIN_KEY`.
+  - `CONTROL_PLANE_API_KEY`: create it in Runtime API keys; this is the key doctor
+    expects for the daemon path.
+  - `OPENAI_ADMIN_KEY`: only for tunnel CRUD. Do not swap it in for the runtime key.
+
+Use doctor to confirm:
+  - what product surface you are about to start: the tunnel daemon plus /healthz, /readyz, and /ui
+  - which config source was selected
+  - whether the profile/config file loads
+  - whether the tunnel id is valid
+  - whether the control-plane API key reference resolves
+  - whether the main MCP target is configured
+  - whether the exact MCP + OAuth/PRMD contract needed for ready is present:
+    - GET /.well-known/oauth-protected-resource/mcp
+    - GET /.well-known/oauth-authorization-server (from authorization_servers[0])
+  - where the health endpoint and UI will be exposed
+
+ChatGPT connector note:
+  Create or verify the connector in ChatGPT settings only while tunnel-client is running.
+  Keep tunnel-client up for connector discovery and every MCP call from ChatGPT.
+
+Auth model to keep straight:
+  - tunnel-client runtime uses CONTROL_PLANE_API_KEY / OPENAI_API_KEY
+  - the runtime-key principal needs Tunnels Read + Use for the target tunnel
+  - tunnel-client admin tunnels get <id> can use that runtime key
+  - `tunnel-client admin --json tunnels get <id>` returns `organization_ids` / `workspace_ids`;
+    reuse those live values for admin list/create/update/delete scope instead of guessing ids
+  - admin tunnels list/create/update/delete require OPENAI_ADMIN_KEY / --admin-key and Tunnels Manage
+
+Self-serve tunnel flow:
+  - create or inspect the tunnel in Tunnels management or with `tunnel-client admin tunnels create`
+  - export the returned tunnel id as `CONTROL_PLANE_TUNNEL_ID`
+  - create a separate runtime key from Runtime API keys and export it as `CONTROL_PLANE_API_KEY`
+  - rerun `tunnel-client doctor --profile <name> --explain`

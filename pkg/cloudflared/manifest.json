@@ -1,0 +1,21 @@
+{
+  "version": "2026.7.2",
+  "release_url": "https://github.com/cloudflare/cloudflared/releases/tag/2026.7.2",
+  "release_commit": "8679787525edc8575b2948a7c4a50b6292c6d426",
+  "module_path": "github.com/cloudflare/cloudflared",
+  "package_path": "github.com/cloudflare/cloudflared/cmd/cloudflared",
+  "module_version": "v0.0.0-20260715110107-8679787525ed",
+  "module_sum": "h1:ETvjMMv3sjWuilIWK/0upuYaZI2IX+xK3alCiDmXB+g=",
+  "go_mod_sum": "h1:4bn354lJpAv1wqGJhWWHQNjGzo/WFCkQ6uaLTUYmeqI=",
+  "build_time": "2026-07-15T13:30:00Z",
+  "security_patch_owner": "tunnel-client maintainers",
+  "security_update_policy": "Review every upstream cloudflared release and security advisory. Bump this manifest, verify the pinned Go module checksum through a proxy-only GOPROXY, rebuild every supported distribution, and rerun the cloudflared lifecycle and package tests for routine or emergency updates.",
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+    "windows/amd64",
+    "windows/arm64"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@openai/tunnel-client-adminui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "node ./scripts/build.mjs",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --reporter=dot"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/svelte": "^5.2.8",
+    "@types/node": "^22.10.5",
+    "@sveltejs/vite-plugin-svelte": "^3.0.2",
+    "jsdom": "^26.1.0",
+    "svelte": "^4.2.19",
+    "typescript": "5.7.3",
+    "vite": "5.4.3",
+    "vitest": "^3.2.4"
+  }
+}

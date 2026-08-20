@@ -1,0 +1,1562 @@
+name: release
+
+on:
+  # Manual runs are validation-only. Publishing remains restricted to pushed
+  # release tags so a projected public workflow can be exercised from a branch.
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"  # release tags must be v<semver>
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.2"
+  NODE_VERSION: "22.23.2"
+  PNPM_VERSION: "11.19.0"
+  GOPROXY: https://proxy.golang.org
+  MODULE_PATH: github.com/openai/tunnel-client
+  BINARY_NAME: tunnel-client
+  RUNTIME_BINARY_NAME: tunnel-client-runtime
+  RUNTIME_CLOUDFLARED_BINARY_NAME: tunnel-client-runtime-cloudflared
+  PUBLIC_STORAGE_ACCOUNT: prod1pstatic
+  PUBLIC_STORAGE_CONTAINER: persistent
+  PUBLIC_BUCKET_PREFIX: tunnel-client
+  PUBLIC_BASE_URL_ROOT: https://persistent.oaistatic.com
+  AZURE_TENANT_ID: a48cca56-e6da-484e-a814-9c849652bcb3
+  AZURE_CLIENT_ID: 14c0c62b-2f5a-4a7f-aaca-bfbc980645fa
+  AZURE_SUBSCRIPTION_ID: c24a3833-f66c-4c0b-8263-91c5cc408ff9
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject manual tag runs
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' }}
+        run: |
+          echo "manual release workflow runs are validation-only; choose a branch ref" >&2
+          exit 1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Enable pnpm
+        run: |
+          corepack enable pnpm
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+      - name: Validate release tag
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          ./scripts/release_tag.sh parse "${GITHUB_REF_NAME}"
+          ./scripts/release_tag.sh check-source-version "${GITHUB_REF_NAME}"
+      - name: Test full client
+        run: |
+          go env
+          go mod download
+          make test
+      - name: Test runtime artifacts
+        run: |
+          make test-runtime
+      - name: runtime_dependency_boundary_test
+        run: ./scripts/check_runtime_boundary.sh --flavor runtime
+      - name: runtime_cloudflared_dependency_boundary_test
+        run: ./scripts/check_runtime_boundary.sh --flavor runtime-cloudflared
+      - name: runtime_binary_markers_test
+        run: ./scripts/check_runtime_binary_markers.sh --flavor runtime
+      - name: runtime_cloudflared_binary_markers_test
+        run: ./scripts/check_runtime_binary_markers.sh --flavor runtime-cloudflared
+      - name: Test release tag tooling
+        run: bash ./scripts/release_tag_test.sh
+      - name: Test Homebrew formula tooling
+        run: bash ./scripts/generate_homebrew_formula_test.sh
+      - name: Test Homebrew publishing tooling
+        run: bash ./scripts/publish_homebrew_formula_test.sh
+      - name: Test latest stable Homebrew publication wrapper
+        run: bash ./scripts/publish_latest_homebrew_formula_test.sh
+      - name: Validate bundled cloudflared manifest
+        run: |
+          set -euo pipefail
+          ./scripts/build_cloudflared.sh --describe --goos linux --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos linux --goarch arm64
+          ./scripts/build_cloudflared.sh --describe --goos darwin --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos darwin --goarch arm64
+          ./scripts/build_cloudflared.sh --describe --goos windows --goarch amd64
+          ./scripts/build_cloudflared.sh --describe --goos windows --goarch arm64
+      - name: runtime_license_compliance_test and runtime_cloudflared_license_compliance_test
+        run: |
+          make verify-license-reports
+      - name: Verify mirrored SBOM baseline manifest
+        run: |
+          make verify-sbom-baselines
+      - name: client_sbom_release_test, runtime_sbom_release_test, runtime_cloudflared_sbom_release_test
+        run: |
+          set -euo pipefail
+          make sbom
+          make sbom-runtime
+          make sbom-runtime-cloudflared
+          platform="$(go env GOOS)_$(go env GOARCH)"
+          ./scripts/verify_release_sbom.sh \
+            --flavor client \
+            --staged-dir "dist/stage/client/${platform}" \
+            --sbom "dist/sbom/tunnel-client-${platform//_/-}.spdx.json"
+          ./scripts/verify_release_sbom.sh \
+            --flavor runtime \
+            --staged-dir "dist/stage/runtime/${platform}" \
+            --sbom "dist/sbom/tunnel-client-runtime-${platform//_/-}.spdx.json"
+          ./scripts/verify_release_sbom.sh \
+            --flavor runtime-cloudflared \
+            --staged-dir "dist/stage/runtime-cloudflared/${platform}" \
+            --sbom "dist/sbom/tunnel-client-runtime-cloudflared-${platform//_/-}.spdx.json"
+          for document in dist/sbom/*.spdx.json; do
+            jq -e '.spdxVersion == "SPDX-2.3"' "${document}" >/dev/null
+          done
+      - name: runtime_source_export_rebuild_test and runtime_cloudflared_source_export_rebuild_test
+        run: |
+          set -euo pipefail
+          rm -rf dist/source
+          ./scripts/build_runtime_source_export.sh \
+            --flavor runtime \
+            --version v0.0.0-dev \
+            --output-dir dist/source
+          ./scripts/build_runtime_source_export.sh \
+            --flavor runtime-cloudflared \
+            --version v0.0.0-dev \
+            --output-dir dist/source
+          ./scripts/verify_runtime_source_export.sh \
+            --flavor runtime \
+            --archive dist/source/tunnel-client-runtime-source-v0.0.0-dev.tar.gz
+          ./scripts/verify_runtime_source_export.sh \
+            --flavor runtime-cloudflared \
+            --archive dist/source/tunnel-client-runtime-cloudflared-source-v0.0.0-dev.tar.gz
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+          - goos: windows
+            goarch: arm64
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build and stage release artifacts; runtime_zip_contents_test and runtime_cloudflared_zip_contents_test
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/public dist/release-metadata dist/package-input/client dist/package-input/runtime dist/package-input/runtime-cloudflared
+
+          CLIENT_BIN_NAME=${{ env.BINARY_NAME }}${{ matrix.ext }}
+          RUNTIME_BIN_NAME=${{ env.RUNTIME_BINARY_NAME }}${{ matrix.ext }}
+          RUNTIME_CLOUDFLARED_BIN_NAME=${{ env.RUNTIME_CLOUDFLARED_BINARY_NAME }}${{ matrix.ext }}
+          GO_VERSION_VALUE="$(go env GOVERSION)"
+          GOFLAGS="-trimpath -buildvcs=false"
+          LDFLAGS_BASE="-s -w -X ${{ env.MODULE_PATH }}/pkg/version.GitSHA=${GITHUB_SHA} -X ${{ env.MODULE_PATH }}/pkg/version.GoVersion=${GO_VERSION_VALUE} -X '${{ env.MODULE_PATH }}/pkg/version.BuildFlags=-trimpath -buildvcs=false'"
+          ASSET_TAG="${GITHUB_SHA::12}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            eval "$(./scripts/release_tag.sh parse "${TAG}")"
+            LDFLAGS_BASE="${LDFLAGS_BASE} -X ${{ env.MODULE_PATH }}/pkg/version.semanticVersion=${release_version}"
+            ASSET_TAG="${release_tag}"
+          fi
+
+          CLIENT_RAW_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          RUNTIME_RAW_NAME=${{ env.RUNTIME_BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          RUNTIME_CLOUDFLARED_RAW_NAME=${{ env.RUNTIME_CLOUDFLARED_BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          CLOUDFLARED_RAW_NAME=cloudflared-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+
+          record_payload_metadata() {
+            local flavor="$1"
+            local staged_dir="$2"
+            local sbom_path="$3"
+            local license_name="$4"
+            local manifest_path="$5"
+            local output_path="dist/release-metadata/${flavor}-${{ matrix.goos }}-${{ matrix.goarch }}.json"
+            python3 - \
+              "${flavor}" \
+              "${staged_dir}" \
+              "${sbom_path}" \
+              "${license_name}" \
+              "${manifest_path}" \
+              "${output_path}" \
+              "${ASSET_TAG}" \
+              "${GITHUB_SHA}" \
+              "${GO_VERSION_VALUE}" \
+              "${{ matrix.goos }}" \
+              "${{ matrix.goarch }}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          (
+              flavor,
+              staged_arg,
+              sbom_arg,
+              license_name,
+              manifest_arg,
+              output_arg,
+              semantic_version,
+              commit_sha,
+              go_version,
+              goos,
+              goarch,
+          ) = sys.argv[1:]
+          staged_dir = pathlib.Path(staged_arg)
+          sbom_path = pathlib.Path(sbom_arg)
+          output_path = pathlib.Path(output_arg)
+
+          def digest(path: pathlib.Path) -> str:
+              value = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          files = [
+              {
+                  "path": path.relative_to(staged_dir).as_posix(),
+                  "sha256": digest(path),
+              }
+              for path in sorted(staged_dir.rglob("*"))
+              if path.is_file()
+          ]
+          if not files:
+              raise SystemExit("pre-SBOM payload is empty")
+          canonical_files = json.dumps(files, separators=(",", ":"), sort_keys=True).encode()
+          payload = {
+              "schemaVersion": 1,
+              "flavor": flavor,
+              "semanticVersion": semantic_version,
+              "commitSHA": commit_sha,
+              "goVersion": go_version,
+              "goos": goos,
+              "goarch": goarch,
+              "cgoEnabled": "0",
+              "buildFlags": ["-trimpath", "-buildvcs=false"],
+              "preSbomPayload": {
+                  "algorithm": "sha256-canonical-file-manifest-v1",
+                  "sha256": hashlib.sha256(canonical_files).hexdigest(),
+                  "files": files,
+              },
+              "licenseReport": {
+                  "name": license_name,
+                  "sha256": digest(staged_dir / license_name),
+              },
+              "releaseSbom": {
+                  "name": sbom_path.name,
+                  "sha256": digest(sbom_path),
+              },
+          }
+          if manifest_arg:
+              manifest_path = pathlib.Path(manifest_arg)
+              payload["cloudflaredManifest"] = {
+                  "name": "cloudflared-manifest.json",
+                  "sha256": digest(manifest_path),
+              }
+          output_path.write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          }
+
+          go build ${GOFLAGS} \
+            -ldflags "${LDFLAGS_BASE} -X ${{ env.MODULE_PATH }}/pkg/version.Flavor=full" \
+            -o "dist/package-input/client/${CLIENT_RAW_NAME}" \
+            ./cmd/client
+          go build ${GOFLAGS} \
+            -ldflags "${LDFLAGS_BASE} -X ${{ env.MODULE_PATH }}/pkg/version.Flavor=runtime" \
+            -o "dist/package-input/runtime/${RUNTIME_RAW_NAME}" \
+            ./cmd/client-runtime
+          go build ${GOFLAGS} \
+            -ldflags "${LDFLAGS_BASE} -X ${{ env.MODULE_PATH }}/pkg/version.Flavor=runtime-cloudflared" \
+            -o "dist/package-input/runtime-cloudflared/${RUNTIME_CLOUDFLARED_RAW_NAME}" \
+            ./cmd/client-runtime-cloudflared
+          ./scripts/build_cloudflared.sh \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --manifest pkg/cloudflared/manifest.json \
+            --output "dist/package-input/client/${CLOUDFLARED_RAW_NAME}"
+          ./scripts/build_cloudflared.sh \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --manifest pkg/cloudflared/runtime/manifest.json \
+            --output "dist/package-input/runtime-cloudflared/${CLOUDFLARED_RAW_NAME}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
+            expected_client_version="${release_version}+${GITHUB_SHA} (git sha: ${GITHUB_SHA})"
+            actual_client_version="$("dist/package-input/client/${CLIENT_RAW_NAME}" --version)"
+            [[ "${actual_client_version}" == "${expected_client_version}" ]] || {
+              echo "release binary version mismatch" >&2
+              printf 'expected: %s\nactual:   %s\n' "${expected_client_version}" "${actual_client_version}" >&2
+              exit 1
+            }
+
+            expected_runtime_version="${release_version} git sha: ${GITHUB_SHA} go: ${GO_VERSION_VALUE} build flags: -trimpath -buildvcs=false flavor=runtime"
+            actual_runtime_version="$("dist/package-input/runtime/${RUNTIME_RAW_NAME}" --version)"
+            [[ "${actual_runtime_version}" == "${expected_runtime_version}" ]] || {
+              echo "runtime release binary version mismatch" >&2
+              printf 'expected: %s\nactual:   %s\n' "${expected_runtime_version}" "${actual_runtime_version}" >&2
+              exit 1
+            }
+
+            expected_runtime_cloudflared_version="${release_version} git sha: ${GITHUB_SHA} go: ${GO_VERSION_VALUE} build flags: -trimpath -buildvcs=false flavor=runtime-cloudflared"
+            actual_runtime_cloudflared_version="$("dist/package-input/runtime-cloudflared/${RUNTIME_CLOUDFLARED_RAW_NAME}" --version)"
+            [[ "${actual_runtime_cloudflared_version}" == "${expected_runtime_cloudflared_version}" ]] || {
+              echo "runtime-cloudflared release binary version mismatch" >&2
+              printf 'expected: %s\nactual:   %s\n' "${expected_runtime_cloudflared_version}" "${actual_runtime_cloudflared_version}" >&2
+              exit 1
+            }
+          fi
+
+          if [[ "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
+            expected_cloudflared_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/manifest.json"))["version"])')"
+            actual_cloudflared_version="$("dist/package-input/client/${CLOUDFLARED_RAW_NAME}" --version)"
+            if [[ "${actual_cloudflared_version}" != *"${expected_cloudflared_version}"* ]]; then
+              echo "bundled cloudflared version mismatch" >&2
+              printf 'expected substring: %s\nactual:             %s\n' "${expected_cloudflared_version}" "${actual_cloudflared_version}" >&2
+              exit 1
+            fi
+            expected_runtime_companion_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/runtime/manifest.json"))["version"])')"
+            actual_runtime_companion_version="$("dist/package-input/runtime-cloudflared/${CLOUDFLARED_RAW_NAME}" --version)"
+            if [[ "${actual_runtime_companion_version}" != *"${expected_runtime_companion_version}"* ]]; then
+              echo "runtime companion cloudflared version mismatch" >&2
+              printf 'expected substring: %s\nactual:             %s\n' "${expected_runtime_companion_version}" "${actual_runtime_companion_version}" >&2
+              exit 1
+            fi
+          fi
+          if [[ "${{ matrix.goos }}" == "windows" && "${{ matrix.goarch }}" == "arm64" ]]; then
+            expected_cloudflared_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/manifest.json"))["version"])')"
+            if ! grep -a -Fq "${expected_cloudflared_version}" "dist/package-input/client/${CLOUDFLARED_RAW_NAME}"; then
+              echo "proxy-built cloudflared does not embed the pinned version" >&2
+              exit 1
+            fi
+            expected_runtime_companion_version="$(python3 -c 'import json; print(json.load(open("pkg/cloudflared/runtime/manifest.json"))["version"])')"
+            if ! grep -a -Fq "${expected_runtime_companion_version}" "dist/package-input/runtime-cloudflared/${CLOUDFLARED_RAW_NAME}"; then
+              echo "runtime companion cloudflared does not embed the pinned version" >&2
+              exit 1
+            fi
+          fi
+
+          CLIENT_ASSET_NAME=${{ env.BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}
+          CLIENT_LICENSE_NAME=${CLIENT_ASSET_NAME}-licenses.txt
+          CLIENT_SBOM_NAME=${CLIENT_ASSET_NAME}.spdx.json
+          client_stage="$(mktemp -d)"
+          cp "dist/package-input/client/${CLIENT_RAW_NAME}" "${client_stage}/${CLIENT_BIN_NAME}"
+          cp "dist/package-input/client/${CLOUDFLARED_RAW_NAME}" "${client_stage}/cloudflared${{ matrix.ext }}"
+          cp pkg/cloudflared/manifest.json "${client_stage}/cloudflared-manifest.json"
+          cp LICENSE NOTICE "${client_stage}/"
+          ./scripts/build_artifact_license_report.sh \
+            --flavor client \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --output "dist/public/${CLIENT_LICENSE_NAME}"
+          cp "dist/public/${CLIENT_LICENSE_NAME}" "${client_stage}/${CLIENT_LICENSE_NAME}"
+          SBOM_SOURCE_VERSION="${ASSET_TAG}" ./scripts/generate_sbom.sh \
+            --flavor client \
+            --staged-dir "${client_stage}" \
+            --output "dist/public/${CLIENT_SBOM_NAME}"
+          ./scripts/package_release_archive.sh \
+            --flavor client \
+            --staged-dir "${client_stage}" \
+            --sbom "dist/public/${CLIENT_SBOM_NAME}" \
+            --archive "dist/public/${CLIENT_ASSET_NAME}.zip"
+          record_payload_metadata \
+            client \
+            "${client_stage}" \
+            "dist/public/${CLIENT_SBOM_NAME}" \
+            "${CLIENT_LICENSE_NAME}" \
+            pkg/cloudflared/manifest.json
+          rm -rf "${client_stage}"
+
+          RUNTIME_ASSET_NAME=${{ env.RUNTIME_BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}
+          RUNTIME_LICENSE_NAME=${RUNTIME_ASSET_NAME}-licenses.txt
+          RUNTIME_SBOM_NAME=${RUNTIME_ASSET_NAME}.spdx.json
+          runtime_stage="$(mktemp -d)"
+          cp "dist/package-input/runtime/${RUNTIME_RAW_NAME}" "${runtime_stage}/${RUNTIME_BIN_NAME}"
+          cp LICENSE NOTICE "${runtime_stage}/"
+          ./scripts/build_artifact_license_report.sh \
+            --flavor runtime \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --output "dist/public/${RUNTIME_LICENSE_NAME}"
+          cp "dist/public/${RUNTIME_LICENSE_NAME}" "${runtime_stage}/${RUNTIME_LICENSE_NAME}"
+          SBOM_SOURCE_VERSION="${ASSET_TAG}" ./scripts/generate_sbom.sh \
+            --flavor runtime \
+            --staged-dir "${runtime_stage}" \
+            --output "dist/public/${RUNTIME_SBOM_NAME}"
+          ./scripts/package_release_archive.sh \
+            --flavor runtime \
+            --staged-dir "${runtime_stage}" \
+            --sbom "dist/public/${RUNTIME_SBOM_NAME}" \
+            --archive "dist/public/${RUNTIME_ASSET_NAME}.zip"
+          record_payload_metadata \
+            runtime \
+            "${runtime_stage}" \
+            "dist/public/${RUNTIME_SBOM_NAME}" \
+            "${RUNTIME_LICENSE_NAME}" \
+            ""
+          rm -rf "${runtime_stage}"
+
+          RUNTIME_CLOUDFLARED_ASSET_NAME=${{ env.RUNTIME_CLOUDFLARED_BINARY_NAME }}-${ASSET_TAG}-${{ matrix.goos }}-${{ matrix.goarch }}
+          RUNTIME_CLOUDFLARED_LICENSE_NAME=${RUNTIME_CLOUDFLARED_ASSET_NAME}-licenses.txt
+          RUNTIME_CLOUDFLARED_SBOM_NAME=${RUNTIME_CLOUDFLARED_ASSET_NAME}.spdx.json
+          runtime_cloudflared_stage="$(mktemp -d)"
+          cp "dist/package-input/runtime-cloudflared/${RUNTIME_CLOUDFLARED_RAW_NAME}" "${runtime_cloudflared_stage}/${RUNTIME_CLOUDFLARED_BIN_NAME}"
+          cp "dist/package-input/runtime-cloudflared/${CLOUDFLARED_RAW_NAME}" "${runtime_cloudflared_stage}/cloudflared${{ matrix.ext }}"
+          cp pkg/cloudflared/runtime/manifest.json "${runtime_cloudflared_stage}/cloudflared-manifest.json"
+          cp LICENSE NOTICE "${runtime_cloudflared_stage}/"
+          ./scripts/build_artifact_license_report.sh \
+            --flavor runtime-cloudflared \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --output "dist/public/${RUNTIME_CLOUDFLARED_LICENSE_NAME}"
+          cp "dist/public/${RUNTIME_CLOUDFLARED_LICENSE_NAME}" "${runtime_cloudflared_stage}/${RUNTIME_CLOUDFLARED_LICENSE_NAME}"
+          SBOM_SOURCE_VERSION="${ASSET_TAG}" ./scripts/generate_sbom.sh \
+            --flavor runtime-cloudflared \
+            --staged-dir "${runtime_cloudflared_stage}" \
+            --output "dist/public/${RUNTIME_CLOUDFLARED_SBOM_NAME}"
+          ./scripts/package_release_archive.sh \
+            --flavor runtime-cloudflared \
+            --staged-dir "${runtime_cloudflared_stage}" \
+            --sbom "dist/public/${RUNTIME_CLOUDFLARED_SBOM_NAME}" \
+            --archive "dist/public/${RUNTIME_CLOUDFLARED_ASSET_NAME}.zip"
+          record_payload_metadata \
+            runtime-cloudflared \
+            "${runtime_cloudflared_stage}" \
+            "dist/public/${RUNTIME_CLOUDFLARED_SBOM_NAME}" \
+            "${RUNTIME_CLOUDFLARED_LICENSE_NAME}" \
+            pkg/cloudflared/runtime/manifest.json
+          rm -rf "${runtime_cloudflared_stage}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/public/**
+            dist/release-metadata/**
+            dist/package-input/client/**
+          if-no-files-found: error
+
+  source-export:
+    name: Build runtime source exports
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build and verify runtime source exports
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          SOURCE_VERSION=v0.0.0-dev
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            eval "$(./scripts/release_tag.sh parse "${TAG}")"
+            SOURCE_VERSION="${release_tag}"
+          fi
+          mkdir -p dist/source
+          ./scripts/build_runtime_source_export.sh \
+            --flavor runtime \
+            --version "${SOURCE_VERSION}" \
+            --output-dir dist/source
+          ./scripts/build_runtime_source_export.sh \
+            --flavor runtime-cloudflared \
+            --version "${SOURCE_VERSION}" \
+            --output-dir dist/source
+          ./scripts/verify_runtime_source_export.sh \
+            --flavor runtime \
+            --archive "dist/source/tunnel-client-runtime-source-${SOURCE_VERSION}.tar.gz"
+          ./scripts/verify_runtime_source_export.sh \
+            --flavor runtime-cloudflared \
+            --archive "dist/source/tunnel-client-runtime-cloudflared-source-${SOURCE_VERSION}.tar.gz"
+      - name: Build verified cloudflared source archive
+        run: |
+          set -euo pipefail
+          mkdir -p dist/source
+          manifest=pkg/cloudflared/runtime/manifest.json
+          read -r module_path module_version module_sum go_mod_sum < <(
+            python3 - "${manifest}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              manifest = json.load(source)
+          print(
+              manifest["module_path"],
+              manifest["module_version"],
+              manifest["module_sum"],
+              manifest["go_mod_sum"],
+          )
+          PY
+          )
+          module_json="$(mktemp)"
+          env GOWORK=off GOPROXY="${GOPROXY}" go mod download -json "${module_path}@${module_version}" > "${module_json}"
+          module_dir="$(
+            python3 - "${module_json}" "${module_path}" "${module_version}" "${module_sum}" "${go_mod_sum}" <<'PY'
+          import json
+          import sys
+
+          module_json, want_path, want_version, want_sum, want_go_mod_sum = sys.argv[1:]
+          with open(module_json, encoding="utf-8") as source:
+              module = json.load(source)
+          if module.get("Path") != want_path:
+              raise SystemExit("cloudflared module path mismatch")
+          if module.get("Version") != want_version:
+              raise SystemExit("cloudflared module version mismatch")
+          if module.get("Sum") != want_sum:
+              raise SystemExit("cloudflared module checksum mismatch")
+          if module.get("GoModSum") != want_go_mod_sum:
+              raise SystemExit("cloudflared go.mod checksum mismatch")
+          print(module["Dir"])
+          PY
+          )"
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          archive="dist/source/cloudflared-${module_version}-source.tar.gz"
+          tar_path="$(mktemp)"
+          tar \
+            --sort=name \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --mtime="@${source_date_epoch}" \
+            -C "${module_dir}" \
+            -cf "${tar_path}" \
+            .
+          gzip -n -c "${tar_path}" > "${archive}"
+          rm -f "${tar_path}" "${module_json}"
+      - name: Upload source exports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-source-exports
+          path: dist/source/*.tar.gz
+          if-no-files-found: error
+
+  release-sbom-projection-validation:
+    name: Validate projected release SBOMs
+    if: ${{ github.ref_type != 'tag' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: dist
+      - name: Generate validation checksums
+        working-directory: dist/public
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.zip *.spdx.json *-licenses.txt )
+          ((${#files[@]} > 0))
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${files[@]}" > SHA256SUMS.txt
+          else
+            shasum -a 256 "${files[@]}" > SHA256SUMS.txt
+          fi
+      - name: Verify all projected downloadable release SBOMs
+        working-directory: dist/public
+        run: |
+          set -euo pipefail
+          asset_tag="${GITHUB_SHA::12}"
+          platforms=(
+            linux-amd64
+            linux-arm64
+            darwin-amd64
+            darwin-arm64
+            windows-amd64
+            windows-arm64
+          )
+          for platform in "${platforms[@]}"; do
+            for spec in \
+              "client:tunnel-client" \
+              "runtime:tunnel-client-runtime" \
+              "runtime-cloudflared:tunnel-client-runtime-cloudflared"; do
+              flavor="${spec%%:*}"
+              prefix="${spec#*:}"
+              stem="${prefix}-${asset_tag}-${platform}"
+              "${GITHUB_WORKSPACE}/scripts/verify_release_archive.sh" \
+                --flavor "${flavor}" \
+                --archive "${stem}.zip" \
+                --sbom "${stem}.spdx.json" \
+                --checksums SHA256SUMS.txt
+            done
+          done
+      - name: Upload validation checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sbom-validation-checksums
+          path: dist/public/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    needs:
+      - build
+      - source-export
+      - container
+      - runtime-container
+    runs-on: macos-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Derive release metadata
+        id: release_meta
+        run: |
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done < <(./scripts/release_tag.sh parse "${GITHUB_REF_NAME}")
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: dist
+      - name: Download runtime source exports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-source-exports
+          path: dist/public
+      - name: Download runtime container metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: runtime-container-metadata-*
+          merge-multiple: true
+          path: dist/container-metadata
+
+      - name: Build combined distribution packages
+        run: |
+          ./scripts/build_distribution_package.sh \
+            --tag "${GITHUB_REF_NAME}" \
+            --binary-dir dist/package-input/client \
+            --output-dir dist/public
+
+      - name: Generate runtime scan manifests
+        env:
+          PUBLIC_BASE_URL: ${{ steps.release_meta.outputs.public_base_url }}
+        run: |
+          python3 - "${GITHUB_REF_NAME}" "${PUBLIC_BASE_URL}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          import tarfile
+
+          release_tag, public_base_url = sys.argv[1:]
+          public_dir = pathlib.Path("dist/public")
+          payload_metadata_dir = pathlib.Path("dist/release-metadata")
+          container_metadata_dir = pathlib.Path("dist/container-metadata")
+
+          def digest(path: pathlib.Path) -> str:
+              value = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          def artifacts(patterns):
+              selected = []
+              for pattern in patterns:
+                  selected.extend(public_dir.glob(pattern))
+              files = sorted({path for path in selected if path.is_file()}, key=lambda path: path.name)
+              if not files:
+                  raise SystemExit("scan manifest has no release artifacts")
+              return [
+                  {
+                      "name": path.name,
+                      "url": f"{public_base_url}/{path.name}",
+                      "sha256": digest(path),
+                  }
+                  for path in files
+              ]
+
+          def public_artifact(name: str) -> dict[str, str]:
+              path = public_dir / name
+              if not path.is_file():
+                  raise SystemExit(f"release artifact is missing: {name}")
+              return {
+                  "name": name,
+                  "url": f"{public_base_url}/{name}",
+                  "sha256": digest(path),
+              }
+
+          def payload_metadata(flavor: str) -> list[dict]:
+              metadata_files = sorted(payload_metadata_dir.glob("*.json"))
+              records = []
+              for metadata_file in metadata_files:
+                  record = json.loads(metadata_file.read_text(encoding="utf-8"))
+                  if record.get("flavor") != flavor:
+                      continue
+                  goos = record.get("goos")
+                  goarch = record.get("goarch")
+                  if not isinstance(goos, str) or not isinstance(goarch, str):
+                      raise SystemExit(f"payload metadata platform is missing: {metadata_file}")
+                  zip_name = f"tunnel-client-{flavor}-{release_tag}-{goos}-{goarch}.zip"
+                  record["zip"] = public_artifact(zip_name)
+                  for field in ("licenseReport", "releaseSbom"):
+                      evidence = record.get(field)
+                      if not isinstance(evidence, dict) or not isinstance(evidence.get("name"), str):
+                          raise SystemExit(f"payload metadata {field} is missing: {metadata_file}")
+                      artifact = public_artifact(evidence["name"])
+                      if artifact["sha256"] != evidence.get("sha256"):
+                          raise SystemExit(f"payload metadata {field} digest mismatch: {metadata_file}")
+                      evidence["url"] = artifact["url"]
+                  records.append(record)
+              if len(records) != 6:
+                  raise SystemExit(
+                      f"expected six payload metadata files for {flavor}, got {len(records)}"
+                  )
+              return sorted(records, key=lambda record: (record["goos"], record["goarch"]))
+
+          def container_metadata(flavor: str) -> dict:
+              path = container_metadata_dir / f"{flavor}.json"
+              if not path.is_file():
+                  raise SystemExit(f"runtime container metadata is missing: {path}")
+              metadata = json.loads(path.read_text(encoding="utf-8"))
+              if metadata.get("flavor") != flavor:
+                  raise SystemExit(f"runtime container metadata flavor mismatch: {path}")
+              digest_value = metadata.get("digest")
+              if not isinstance(digest_value, str) or not digest_value.startswith("sha256:"):
+                  raise SystemExit(f"runtime container digest is missing: {path}")
+              return metadata
+
+          def source_boundary(archive_name):
+              archive_path = public_dir / archive_name
+              if not archive_path.is_file():
+                  raise SystemExit(f"source boundary archive is missing: {archive_name}")
+              with tarfile.open(archive_path, "r:gz") as archive:
+                  members = [
+                      member
+                      for member in archive.getmembers()
+                      if member.name.endswith("/SOURCE_EXPORT_METADATA/manifest.json")
+                  ]
+                  if len(members) != 1:
+                      raise SystemExit(f"source boundary manifest is missing: {archive_name}")
+                  source = archive.extractfile(members[0])
+                  if source is None:
+                      raise SystemExit(f"source boundary manifest is unreadable: {archive_name}")
+                  boundary = json.load(source)
+              package_sets = boundary.get("dependencyPackages")
+              excluded = boundary.get("excludedDirectoryAssertions")
+              if not isinstance(package_sets, dict) or not isinstance(excluded, list):
+                  raise SystemExit(f"source boundary manifest is invalid: {archive_name}")
+              included = sorted(
+                  {
+                      package
+                      for packages in package_sets.values()
+                      for package in packages
+                  }
+              )
+              if not included:
+                  raise SystemExit(f"source boundary package list is empty: {archive_name}")
+              return included, sorted(excluded)
+
+          def excluded_packages(flavor: str) -> list[str]:
+              common = [
+                  "cmd/client",
+                  "pkg/adminui",
+                  "pkg/app",
+                  "pkg/codexappserver",
+                  "pkg/codexplugin",
+                  "pkg/config",
+                  "pkg/harpoon",
+                  "pkg/health",
+                  "pkg/localproxy",
+                  "pkg/proxyhealth",
+                  "plugins",
+              ]
+              if flavor == "runtime":
+                  return sorted(common + ["pkg/cloudflared"])
+              return sorted(common + ["pkg/cloudflared", "pkg/cloudflared/configgen"])
+
+          runtime_relevant_finding_groups = [
+              {
+                  "category": "runtime-relevant-medium",
+                  "affectedPaths": [
+                      "pkg/oauth",
+                      "pkg/runtimeconfig",
+                      "pkg/mcpclient",
+                      "pkg/runtimeharpoon",
+                  ],
+                  "requiredProof": [
+                      "runtime E2E",
+                      "dependency boundary",
+                      "binary markers",
+                      "source export",
+                      "release SPDX",
+                  ],
+                  "disposition": "runtime-relevant",
+              },
+              {
+                  "category": "excluded-support-medium-and-low",
+                  "affectedPaths": [
+                      "pkg/codexplugin",
+                      "pkg/localproxy",
+                      "plugins",
+                      "pkg/adminui",
+                  ],
+                  "requiredProof": [
+                      "dependency boundary",
+                      "binary markers",
+                      "image contents",
+                      "source export",
+                      "release SPDX",
+                  ],
+                  "disposition": "excluded-by-artifact-proof",
+              },
+          ]
+          runtime_source = f"tunnel-client-runtime-source-{release_tag}.tar.gz"
+          runtime_cloudflared_source = (
+              f"tunnel-client-runtime-cloudflared-source-{release_tag}.tar.gz"
+          )
+          runtime_included, runtime_excluded = source_boundary(runtime_source)
+          runtime_cloudflared_included, runtime_cloudflared_excluded = source_boundary(
+              runtime_cloudflared_source
+          )
+          release_sidecars = {
+              "client": artifacts([f"tunnel-client-{release_tag}-*.spdx.json"]),
+              "runtime": artifacts([f"tunnel-client-runtime-{release_tag}-*.spdx.json"]),
+              "runtime-cloudflared": artifacts(
+                  [f"tunnel-client-runtime-cloudflared-{release_tag}-*.spdx.json"]
+              ),
+          }
+          manifests = [
+              (
+                  "runtime",
+                  f"tunnel-client-runtime-{release_tag}-scan-manifest.json",
+                  [
+                      f"tunnel-client-runtime-{release_tag}-*.zip",
+                      f"tunnel-client-runtime-{release_tag}-*.spdx.json",
+                      f"tunnel-client-runtime-{release_tag}-*-licenses.txt",
+                      runtime_source,
+                  ],
+                  runtime_included,
+                  runtime_excluded,
+              ),
+              (
+                  "runtime-cloudflared",
+                  f"tunnel-client-runtime-cloudflared-{release_tag}-scan-manifest.json",
+                  [
+                      f"tunnel-client-runtime-cloudflared-{release_tag}-*.zip",
+                      f"tunnel-client-runtime-cloudflared-{release_tag}-*.spdx.json",
+                      f"tunnel-client-runtime-cloudflared-{release_tag}-*-licenses.txt",
+                      runtime_cloudflared_source,
+                      "cloudflared-*-source.tar.gz",
+                  ],
+                  runtime_cloudflared_included,
+                  runtime_cloudflared_excluded,
+              ),
+          ]
+          for flavor, name, patterns, included, excluded in manifests:
+              platform_artifacts = payload_metadata(flavor)
+              image = container_metadata(flavor)
+              cloudflared_digests = sorted(
+                  {
+                      record["cloudflaredManifest"]["sha256"]
+                      for record in platform_artifacts
+                      if isinstance(record.get("cloudflaredManifest"), dict)
+                  }
+              )
+              if flavor == "runtime-cloudflared" and len(cloudflared_digests) != 1:
+                  raise SystemExit("runtime-cloudflared manifest digest is missing or inconsistent")
+              payload = {
+                  "schemaVersion": 1,
+                  "releaseTag": release_tag,
+                  "flavor": flavor,
+                  "artifacts": artifacts(patterns),
+                  "releaseSidecars": release_sidecars,
+                  "platformArtifacts": platform_artifacts,
+                  "ociImage": image,
+                  "cloudflaredManifestSHA256": cloudflared_digests[0] if cloudflared_digests else None,
+                  "includedPackages": included,
+                  "excludedPackages": excluded_packages(flavor),
+                  "excludedDirectoryAssertions": excluded,
+                  "requiredScanInputs": [
+                      "exact platform ZIP or OCI image digest",
+                      "matching release-specific SPDX and license report",
+                      "matching first-party runtime source archive",
+                  ] + (
+                      ["verified pinned upstream cloudflared source archive"]
+                      if flavor == "runtime-cloudflared"
+                      else []
+                  ),
+                  "scannerInstructions": "Fail closed: scan the exact release ZIP or OCI image digest, matching SPDX and license evidence, and every source archive named in this manifest after verifying each SHA256.",
+                  "findingGroups": runtime_relevant_finding_groups,
+              }
+              (public_dir / name).write_text(
+                  json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+          PY
+
+      - name: Generate SHA256 checksums
+        working-directory: dist/public
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.zip *.tar.gz *.spdx.json *-licenses.txt *-scan-manifest.json )
+          ((${#files[@]} > 0))
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${files[@]}" > SHA256SUMS.txt
+          else
+            shasum -a 256 "${files[@]}" > SHA256SUMS.txt
+          fi
+
+      - name: Verify downloadable release SBOMs
+        working-directory: dist/public
+        run: |
+          set -euo pipefail
+          platforms=(
+            linux-amd64
+            linux-arm64
+            darwin-amd64
+            darwin-arm64
+            windows-amd64
+            windows-arm64
+          )
+          for platform in "${platforms[@]}"; do
+            for spec in \
+              "client:tunnel-client" \
+              "runtime:tunnel-client-runtime" \
+              "runtime-cloudflared:tunnel-client-runtime-cloudflared"; do
+              flavor="${spec%%:*}"
+              prefix="${spec#*:}"
+              stem="${prefix}-${{ github.ref_name }}-${platform}"
+              "${GITHUB_WORKSPACE}/scripts/verify_release_archive.sh" \
+                --flavor "${flavor}" \
+                --archive "${stem}.zip" \
+                --sbom "${stem}.spdx.json" \
+                --checksums SHA256SUMS.txt
+            done
+          done
+
+      - name: Generate public URLs
+        working-directory: dist/public
+        env:
+          PUBLIC_BASE_URL: ${{ steps.release_meta.outputs.public_base_url }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          {
+            for file in *.zip *.tar.gz *.spdx.json *-licenses.txt *-scan-manifest.json SHA256SUMS.txt; do
+              printf '%s/%s\n' "${PUBLIC_BASE_URL}" "${file}"
+            done
+          } > PUBLIC_URLS.txt
+
+      - name: Verify release artifact contract
+        working-directory: dist/public
+        env:
+          PUBLIC_BASE_URL: ${{ steps.release_meta.outputs.public_base_url }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          platforms=(
+            linux-amd64
+            linux-arm64
+            darwin-amd64
+            darwin-arm64
+            windows-amd64
+            windows-arm64
+          )
+          for flavor in tunnel-client tunnel-client-runtime tunnel-client-runtime-cloudflared; do
+            for platform in "${platforms[@]}"; do
+              stem="${flavor}-${GITHUB_REF_NAME}-${platform}"
+              test -f "${stem}.zip"
+              test -f "${stem}.spdx.json"
+              test -f "${stem}-licenses.txt"
+              jq -e '.spdxVersion == "SPDX-2.3"' "${stem}.spdx.json" >/dev/null
+              grep -F "  ${stem}.zip" SHA256SUMS.txt >/dev/null
+              grep -F "  ${stem}.spdx.json" SHA256SUMS.txt >/dev/null
+              grep -F "  ${stem}-licenses.txt" SHA256SUMS.txt >/dev/null
+              grep -Fx "${PUBLIC_BASE_URL}/${stem}.zip" PUBLIC_URLS.txt >/dev/null
+              grep -Fx "${PUBLIC_BASE_URL}/${stem}.spdx.json" PUBLIC_URLS.txt >/dev/null
+              grep -Fx "${PUBLIC_BASE_URL}/${stem}-licenses.txt" PUBLIC_URLS.txt >/dev/null
+              members="$(unzip -Z1 "${stem}.zip")"
+              grep -Fx LICENSE <<<"${members}" >/dev/null
+              grep -Fx NOTICE <<<"${members}" >/dev/null
+              grep -Fx "${stem}.spdx.json" <<<"${members}" >/dev/null
+              grep -Fx "${stem}-licenses.txt" <<<"${members}" >/dev/null
+              if [[ "${flavor}" == "tunnel-client-runtime" ]]; then
+                if grep -Eq '(^|/)cloudflared(\.exe)?$|cloudflared-manifest\.json$' <<<"${members}"; then
+                  echo "normal runtime ZIP unexpectedly contains cloudflared" >&2
+                  exit 1
+                fi
+              else
+                grep -Eq '(^|/)cloudflared(\.exe)?$' <<<"${members}" >/dev/null
+                grep -Fx cloudflared-manifest.json <<<"${members}" >/dev/null
+              fi
+            done
+          done
+
+          runtime_manifest="tunnel-client-runtime-${GITHUB_REF_NAME}-scan-manifest.json"
+          runtime_cloudflared_manifest="tunnel-client-runtime-cloudflared-${GITHUB_REF_NAME}-scan-manifest.json"
+          for manifest in "${runtime_manifest}" "${runtime_cloudflared_manifest}"; do
+            test -f "${manifest}"
+            jq -e '
+              .schemaVersion == 1 and
+              (.artifacts | length > 0) and
+              (.releaseSidecars.client | length == 6) and
+              (.releaseSidecars.runtime | length == 6) and
+              (.releaseSidecars["runtime-cloudflared"] | length == 6) and
+              (.platformArtifacts | length == 6) and
+              (.ociImage.digest | test("^sha256:[0-9a-f]{64}$")) and
+              (.ociImage.buildkitSbomAttestation == true) and
+              (.ociImage.provenanceAttestation == true)
+            ' "${manifest}" >/dev/null
+            grep -F "  ${manifest}" SHA256SUMS.txt >/dev/null
+            grep -Fx "${PUBLIC_BASE_URL}/${manifest}" PUBLIC_URLS.txt >/dev/null
+          done
+          jq -e '.cloudflaredManifestSHA256 == null' "${runtime_manifest}" >/dev/null
+          jq -e '.cloudflaredManifestSHA256 | test("^[0-9a-f]{64}$")' "${runtime_cloudflared_manifest}" >/dev/null
+
+          runtime_source="tunnel-client-runtime-source-${GITHUB_REF_NAME}.tar.gz"
+          runtime_cloudflared_source="tunnel-client-runtime-cloudflared-source-${GITHUB_REF_NAME}.tar.gz"
+          cloudflared_sources=( cloudflared-*-source.tar.gz )
+          [[ "${#cloudflared_sources[@]}" -eq 1 ]] || {
+            echo "expected exactly one verified cloudflared source archive" >&2
+            exit 1
+          }
+          for source_archive in \
+            "${runtime_source}" \
+            "${runtime_cloudflared_source}" \
+            "${cloudflared_sources[0]}"; do
+            test -f "${source_archive}"
+            grep -F "  ${source_archive}" SHA256SUMS.txt >/dev/null
+            grep -Fx "${PUBLIC_BASE_URL}/${source_archive}" PUBLIC_URLS.txt >/dev/null
+          done
+
+          assert_manifest_artifact() {
+            local manifest="$1"
+            local artifact="$2"
+            local url="${PUBLIC_BASE_URL}/${artifact}"
+            jq -e --arg artifact "${artifact}" --arg url "${url}" '
+              .artifacts
+              | any(
+                  .name == $artifact and
+                  .url == $url and
+                  (.sha256 | test("^[0-9a-f]{64}$"))
+                )
+            ' "${manifest}" >/dev/null
+          }
+          assert_release_sidecar() {
+            local manifest="$1"
+            local flavor="$2"
+            local artifact="$3"
+            local url="${PUBLIC_BASE_URL}/${artifact}"
+            jq -e --arg flavor "${flavor}" --arg artifact "${artifact}" --arg url "${url}" '
+              .releaseSidecars[$flavor]
+              | any(
+                  .name == $artifact and
+                  .url == $url and
+                  (.sha256 | test("^[0-9a-f]{64}$"))
+                )
+            ' "${manifest}" >/dev/null
+          }
+          for platform in "${platforms[@]}"; do
+            for suffix in .zip .spdx.json -licenses.txt; do
+              assert_manifest_artifact \
+                "${runtime_manifest}" \
+                "tunnel-client-runtime-${GITHUB_REF_NAME}-${platform}${suffix}"
+              assert_manifest_artifact \
+                "${runtime_cloudflared_manifest}" \
+                "tunnel-client-runtime-cloudflared-${GITHUB_REF_NAME}-${platform}${suffix}"
+            done
+            for manifest in "${runtime_manifest}" "${runtime_cloudflared_manifest}"; do
+              assert_release_sidecar \
+                "${manifest}" \
+                client \
+                "tunnel-client-${GITHUB_REF_NAME}-${platform}.spdx.json"
+              assert_release_sidecar \
+                "${manifest}" \
+                runtime \
+                "tunnel-client-runtime-${GITHUB_REF_NAME}-${platform}.spdx.json"
+              assert_release_sidecar \
+                "${manifest}" \
+                runtime-cloudflared \
+                "tunnel-client-runtime-cloudflared-${GITHUB_REF_NAME}-${platform}.spdx.json"
+            done
+          done
+          assert_platform_metadata() {
+            local manifest="$1"
+            local prefix="$2"
+            local platform="$3"
+            local goos="${platform%-*}"
+            local goarch="${platform#*-}"
+            local stem="${prefix}-${GITHUB_REF_NAME}-${platform}"
+            jq -e \
+              --arg goos "${goos}" \
+              --arg goarch "${goarch}" \
+              --arg zip "${stem}.zip" \
+              --arg sbom "${stem}.spdx.json" \
+              --arg license "${stem}-licenses.txt" '
+              .platformArtifacts
+              | any(
+                  .goos == $goos and
+                  .goarch == $goarch and
+                  .zip.name == $zip and
+                  .releaseSbom.name == $sbom and
+                  .licenseReport.name == $license and
+                  (.preSbomPayload.sha256 | test("^[0-9a-f]{64}$")) and
+                  (.commitSHA | test("^[0-9a-f]{40}$")) and
+                  .buildFlags == ["-trimpath", "-buildvcs=false"]
+                )
+            ' "${manifest}" >/dev/null
+          }
+          for platform in "${platforms[@]}"; do
+            assert_platform_metadata "${runtime_manifest}" tunnel-client-runtime "${platform}"
+            assert_platform_metadata "${runtime_cloudflared_manifest}" tunnel-client-runtime-cloudflared "${platform}"
+          done
+          assert_manifest_artifact "${runtime_manifest}" "${runtime_source}"
+          assert_manifest_artifact "${runtime_cloudflared_manifest}" "${runtime_cloudflared_source}"
+          assert_manifest_artifact "${runtime_cloudflared_manifest}" "${cloudflared_sources[0]}"
+
+      - name: Attest release artifact provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/public/*
+
+      - name: Verify Azure CLI on macOS
+        run: |
+          set -euo pipefail
+          command -v az
+          az version
+
+      - name: Azure login for public artifact upload
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Upload public artifacts
+        run: |
+          az storage blob upload-batch \
+            --subscription "${AZURE_SUBSCRIPTION_ID}" \
+            --account-name "${PUBLIC_STORAGE_ACCOUNT}" \
+            --destination "${PUBLIC_STORAGE_CONTAINER}" \
+            --destination-path "${{ steps.release_meta.outputs.public_blob_path }}" \
+            --source dist/public \
+            --auth-mode login \
+            --overwrite true
+
+      - name: Verify public artifact URLs
+        working-directory: dist/public
+        run: |
+          while IFS= read -r url; do
+            for attempt in 1 2 3 4 5; do
+              if curl -fsSI "${url}" >/dev/null; then
+                break
+              fi
+              if [[ "${attempt}" -eq 5 ]]; then
+                echo "failed to verify ${url}" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          done < PUBLIC_URLS.txt
+
+      # Optional signing:
+      # - name: Import GPG key
+      #   if: ${{ secrets.GPG_PRIVATE_KEY && secrets.GPG_PASSPHRASE }}
+      #   run: |
+      #     echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+      #   env:
+      #     GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      # - name: Sign checksums
+      #   if: ${{ secrets.GPG_PRIVATE_KEY && secrets.GPG_PASSPHRASE }}
+      #   working-directory: dist
+      #   env:
+      #     PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      #   run: |
+      #     echo "$PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+      #       --armor --detach-sign --output SHA256SUMS.txt.asc SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ steps.release_meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            dist/public/*.zip
+            dist/public/*.tar.gz
+            dist/public/*.spdx.json
+            dist/public/*-licenses.txt
+            dist/public/*-scan-manifest.json
+            dist/public/SHA256SUMS.txt
+            dist/public/PUBLIC_URLS.txt
+
+  container-validation:
+    name: Validate container
+    needs: test
+    if: ${{ github.ref_type != 'tag' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Validate multi-architecture image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: validation/tunnel-client:${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=tunnel-client-container
+          cache-to: type=gha,mode=max,scope=tunnel-client-container
+          provenance: false
+          sbom: true
+
+  runtime-container-validation:
+    name: Validate ${{ matrix.title }} container
+    needs: test
+    if: ${{ github.ref_type != 'tag' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: runtime
+            title: runtime
+            target: runtime
+            binary: tunnel-client-runtime
+            cache_scope: tunnel-client-runtime-container
+            contents_test: runtime_image_contents_test
+          - flavor: runtime-cloudflared
+            title: runtime-cloudflared
+            target: runtime-cloudflared
+            binary: tunnel-client-runtime-cloudflared
+            cache_scope: tunnel-client-runtime-cloudflared-container
+            contents_test: runtime_cloudflared_image_contents_test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: ${{ matrix.contents_test }}
+        run: |
+          set -euo pipefail
+          smoke_image="runtime-smoke:${{ matrix.flavor }}"
+          docker build \
+            --file Dockerfile.runtime \
+            --target "${{ matrix.target }}" \
+            --build-arg GIT_SHA="${GITHUB_SHA}" \
+            --build-arg GO_VERSION="go${{ env.GO_VERSION }}" \
+            --build-arg GOPROXY="${GOPROXY}" \
+            -t "${smoke_image}" \
+            .
+          ./scripts/runtime_container_compatibility_test.sh \
+            --flavor "${{ matrix.flavor }}" \
+            --image "${smoke_image}"
+      - name: Validate multi-architecture runtime image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile.runtime
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: validation/${{ matrix.binary }}:${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GO_VERSION=go${{ env.GO_VERSION }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+          provenance: false
+          sbom: true
+
+  container:
+    name: Publish container
+    needs:
+      - test
+    if: ${{ always() && github.event_name == 'push' && github.ref_type == 'tag' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Derive release metadata
+        if: ${{ github.ref_type == 'tag' }}
+        id: release_meta
+        run: |
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done < <(./scripts/release_tag.sh parse "${GITHUB_REF_NAME}")
+          ./scripts/release_tag.sh check-source-version "${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_NAME}" == *"+"* ]]; then
+            echo "Docker image tags do not support semver build metadata: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.ref_type == 'tag' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract container metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.release_meta.outputs.prerelease == 'false' }}
+            type=sha,format=long,prefix=sha-
+            type=raw,value=latest,enable=${{ steps.release_meta.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=tunnel-client
+            org.opencontainers.image.description=Customer-run client for Secure MCP Tunnel
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - name: Build and push multi-architecture image
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=tunnel-client-container
+          cache-to: type=gha,mode=max,scope=tunnel-client-container
+          provenance: false
+          sbom: true
+      - name: Attest container provenance
+        if: ${{ github.ref_type == 'tag' }}
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+  runtime-container:
+    name: Publish ${{ matrix.title }} container
+    needs:
+      - test
+    if: ${{ always() && github.event_name == 'push' && github.ref_type == 'tag' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: runtime
+            title: runtime
+            target: runtime
+            binary: tunnel-client-runtime
+            image_name: openai/tunnel-client-runtime
+            cache_scope: tunnel-client-runtime-container
+            contents_test: runtime_image_contents_test
+          - flavor: runtime-cloudflared
+            title: runtime-cloudflared
+            target: runtime-cloudflared
+            binary: tunnel-client-runtime-cloudflared
+            image_name: openai/tunnel-client-runtime-cloudflared
+            cache_scope: tunnel-client-runtime-cloudflared-container
+            contents_test: runtime_cloudflared_image_contents_test
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ matrix.image_name }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Derive release metadata
+        if: ${{ github.ref_type == 'tag' }}
+        id: release_meta
+        run: |
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done < <(./scripts/release_tag.sh parse "${GITHUB_REF_NAME}")
+          ./scripts/release_tag.sh check-source-version "${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_NAME}" == *"+"* ]]; then
+            echo "Docker image tags do not support semver build metadata: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.ref_type == 'tag' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract runtime container metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.release_meta.outputs.prerelease == 'false' }}
+            type=sha,format=long,prefix=sha-
+            type=raw,value=latest,enable=${{ steps.release_meta.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.binary }}
+            org.opencontainers.image.description=Customer execution artifact for Secure MCP Tunnel
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - name: ${{ matrix.contents_test }}
+        run: |
+          set -euo pipefail
+          smoke_image="runtime-smoke:${{ matrix.flavor }}"
+          docker build \
+            --file Dockerfile.runtime \
+            --target "${{ matrix.target }}" \
+            --build-arg GIT_SHA="${GITHUB_SHA}" \
+            --build-arg GO_VERSION="go${{ env.GO_VERSION }}" \
+            --build-arg GOPROXY="${GOPROXY}" \
+            -t "${smoke_image}" \
+            .
+          ./scripts/runtime_container_compatibility_test.sh \
+            --flavor "${{ matrix.flavor }}" \
+            --image "${smoke_image}"
+      - name: Build and push multi-architecture runtime image
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile.runtime
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GO_VERSION=go${{ env.GO_VERSION }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+          provenance: false
+          sbom: true
+      - name: Attest runtime container provenance
+        if: ${{ github.ref_type == 'tag' }}
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+      - name: Record runtime container digest
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/container-metadata
+          python3 - \
+            "${{ matrix.flavor }}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" \
+            "${{ steps.push.outputs.digest }}" \
+            "${GITHUB_SHA}" \
+            "go${{ env.GO_VERSION }}" \
+            "dist/container-metadata/${{ matrix.flavor }}.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          flavor, reference, digest, commit_sha, go_version, output_arg = sys.argv[1:]
+          if not digest.startswith("sha256:"):
+              raise SystemExit("runtime container digest is missing")
+          payload = {
+              "schemaVersion": 1,
+              "flavor": flavor,
+              "reference": reference,
+              "digest": digest,
+              "platforms": ["linux/amd64", "linux/arm64"],
+              "commitSHA": commit_sha,
+              "goVersion": go_version,
+              "buildkitSbomAttestation": True,
+              "provenanceAttestation": True,
+          }
+          pathlib.Path(output_arg).write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Upload runtime container metadata
+        if: ${{ github.ref_type == 'tag' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-container-metadata-${{ matrix.flavor }}
+          path: dist/container-metadata/*.json
+          if-no-files-found: error

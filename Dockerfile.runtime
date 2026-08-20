@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1.7
+
+# Pinned multi-platform manifest digests keep runtime image inputs stable.
+ARG BASE_BUILDER_IMAGE=golang:1.26.2-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1
+ARG BASE_IMAGE=alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+ARG GIT_SHA=dev
+ARG GO_VERSION=unknown
+ARG GOPROXY=https://proxy.golang.org
+
+FROM --platform=${BUILDPLATFORM} ${BASE_BUILDER_IMAGE} AS builder-base
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY}
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+RUN mkdir -p /out
+
+# Source is bind-mounted read-only for compilation. No UI, plugin, docs, test,
+# or development assets are copied into a runtime image layer.
+FROM builder-base AS runtime-builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG GIT_SHA
+ARG GO_VERSION
+RUN --mount=type=bind,source=.,target=/workspace,ro \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd /workspace && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -mod=readonly \
+      -trimpath \
+      -buildvcs=false \
+      -ldflags "-X github.com/openai/tunnel-client/pkg/version.GitSHA=${GIT_SHA} -X github.com/openai/tunnel-client/pkg/version.GoVersion=${GO_VERSION} -X 'github.com/openai/tunnel-client/pkg/version.BuildFlags=-trimpath -buildvcs=false' -X github.com/openai/tunnel-client/pkg/version.Flavor=runtime" \
+      -o /out/tunnel-client-runtime \
+      ./cmd/client-runtime
+
+FROM builder-base AS runtime-cloudflared-builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG GIT_SHA
+ARG GO_VERSION
+RUN --mount=type=bind,source=.,target=/workspace,ro \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd /workspace && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -mod=readonly \
+      -trimpath \
+      -buildvcs=false \
+      -ldflags "-X github.com/openai/tunnel-client/pkg/version.GitSHA=${GIT_SHA} -X github.com/openai/tunnel-client/pkg/version.GoVersion=${GO_VERSION} -X 'github.com/openai/tunnel-client/pkg/version.BuildFlags=-trimpath -buildvcs=false' -X github.com/openai/tunnel-client/pkg/version.Flavor=runtime-cloudflared" \
+      -o /out/tunnel-client-runtime-cloudflared \
+      ./cmd/client-runtime-cloudflared
+
+FROM builder-base AS cloudflared-builder
+ARG TARGETOS
+ARG TARGETARCH
+RUN apk add --no-cache bash python3
+COPY pkg/cloudflared/runtime/manifest.json /build/pkg/cloudflared/runtime/manifest.json
+COPY scripts/build_cloudflared.sh /build/scripts/build_cloudflared.sh
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    bash /build/scripts/build_cloudflared.sh \
+      --goos "${TARGETOS}" \
+      --goarch "${TARGETARCH}" \
+      --manifest /build/pkg/cloudflared/runtime/manifest.json \
+      --output /out/cloudflared
+
+FROM ${BASE_IMAGE} AS runtime-base
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+USER 65532:65532
+
+FROM runtime-base AS runtime
+COPY --from=runtime-builder --chown=65532:65532 /out/tunnel-client-runtime /usr/bin/tunnel-client-runtime
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tunnel-client-runtime", "run"]
+
+FROM runtime-base AS runtime-cloudflared
+COPY --from=runtime-cloudflared-builder --chown=65532:65532 /out/tunnel-client-runtime-cloudflared /usr/bin/tunnel-client-runtime-cloudflared
+COPY --from=cloudflared-builder --chown=65532:65532 /out/cloudflared /usr/bin/cloudflared
+COPY --from=cloudflared-builder --chown=65532:65532 /build/pkg/cloudflared/runtime/manifest.json /usr/share/tunnel-client/cloudflared-manifest.json
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tunnel-client-runtime-cloudflared", "run"]

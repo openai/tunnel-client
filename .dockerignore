@@ -1,0 +1,6 @@
+.git
+.gitignore
+bin
+adminui/dist
+adminui/node_modules
+pkg/adminui/assets

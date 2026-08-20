@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: __NAME__-profile
+data:
+  profile.yaml: |
+    config_version: 1
+    control_plane:
+      base_url: http://127.0.0.1:1
+      tunnel_id: tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      api_key: file:/run/secrets/control-plane-api-key
+    mcp:
+      server_urls:
+        - channel: main
+          url: http://127.0.0.1:1
+    health:
+      listen_addr: 0.0.0.0:8080
+    admin_ui:
+      open_browser: false
+    log:
+      level: error
+      format: struct-text
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: __NAME__-secret
+type: Opaque
+stringData:
+  control-plane-api-key: test-only-control-plane-api-key
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__-default
+  labels:
+    app.kubernetes.io/name: __NAME__
+    app.kubernetes.io/component: default-entrypoint
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: runtime
+      image: __IMAGE__
+      imagePullPolicy: Never
+      args: ["--config", "/etc/tunnel-client/profile.yaml"]
+      ports:
+        - name: health
+          containerPort: 8080
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: health
+        periodSeconds: 1
+        timeoutSeconds: 1
+        failureThreshold: 30
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: profile
+          mountPath: /etc/tunnel-client
+          readOnly: true
+        - name: secret
+          mountPath: /run/secrets
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: profile
+      configMap:
+        name: __NAME__-profile
+        defaultMode: 0444
+    - name: secret
+      secret:
+        secretName: __NAME__-secret
+        defaultMode: 0444
+    - name: tmp
+      emptyDir:
+        sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__-override
+  labels:
+    app.kubernetes.io/name: __NAME__
+    app.kubernetes.io/component: command-override
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: runtime
+      image: __IMAGE__
+      imagePullPolicy: Never
+      command: ["/usr/bin/__BINARY__"]
+      args: ["run", "--config", "/etc/tunnel-client/profile.yaml"]
+      ports:
+        - name: health
+          containerPort: 8080
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: health
+        periodSeconds: 1
+        timeoutSeconds: 1
+        failureThreshold: 30
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: profile
+          mountPath: /etc/tunnel-client
+          readOnly: true
+        - name: secret
+          mountPath: /run/secrets
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: profile
+      configMap:
+        name: __NAME__-profile
+        defaultMode: 0444
+    - name: secret
+      secret:
+        secretName: __NAME__-secret
+        defaultMode: 0444
+    - name: tmp
+      emptyDir:
+        sizeLimit: 16Mi
