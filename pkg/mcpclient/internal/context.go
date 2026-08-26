@@ -63,6 +63,17 @@ func (c *HeaderCarrier) ApplyRequestHeaders(dst http.Header) {
 	}
 }
 
+// RemoveRequestHeaders removes every stored request header from an outgoing
+// request so redirects cannot carry them outside their intended origin.
+func (c *HeaderCarrier) RemoveRequestHeaders(dst http.Header) {
+	if c == nil || len(c.request) == 0 {
+		return
+	}
+	for k := range c.request {
+		dst.Del(k)
+	}
+}
+
 // StoreResponse records the HTTP status code and a defensive copy of the
 // response headers so they can be returned to the caller once the request
 // completes.

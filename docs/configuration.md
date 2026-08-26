@@ -428,6 +428,8 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   - Legacy form: `--mcp.server-url=https://main.example.com/mcp` (defaults to `main`)
   - Channel-qualified form:
     `--mcp.server-url="channel=foo,url=https://foo.example.com/mcp,unix-socket=<path|env:VAR>,http-proxy=<url|env:VAR>,client-cert=<path|env:VAR>,client-key=<path|env:VAR>"`
+  - Cross-origin redirects are still followed, but connector-forwarded
+    request headers are removed.
   - Unix socket dial (optional): set `unix-socket=<path|env:VAR>` on a
     channel-qualified entry, or `unix_socket:` in YAML, to dial the logical
     HTTP(S) MCP URL over a local Unix-domain socket instead of TCP.

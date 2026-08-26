@@ -297,6 +297,99 @@ func TestChannelTransportFactoryConnectorAuthorizationOverridesStaticHeader(t *t
 	}
 }
 
+func TestChannelHTTPClientScopesForwardedHeadersAcrossRedirects(t *testing.T) {
+	t.Parallel()
+
+	untrustedOriginHeaders := make(chan http.Header, 1)
+	untrustedOriginServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		untrustedOriginHeaders <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(untrustedOriginServer.Close)
+
+	sameOriginHeaders := make(chan http.Header, 1)
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/same-origin-redirect":
+			http.Redirect(w, r, "/same-origin-target", http.StatusTemporaryRedirect)
+		case "/same-origin-target":
+			sameOriginHeaders <- r.Header.Clone()
+			w.WriteHeader(http.StatusNoContent)
+		case "/cross-origin-redirect":
+			http.Redirect(w, r, untrustedOriginServer.URL+"/target", http.StatusTemporaryRedirect)
+		default:
+			t.Fatalf("unexpected MCP request path %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(mcpServer.Close)
+
+	serverURL := mustParseURLFactoryTest(t, mcpServer.URL+"/mcp")
+	factory := newTestChannelTransportFactory(
+		t,
+		serverURL,
+		&config.LoggingConfig{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	binding := config.MCPChannelBinding{
+		Channel:       types.DefaultChannel,
+		TransportKind: config.MCPTransportHTTPStreamable,
+		ServerURL:     serverURL,
+	}
+	client, err := factory.HTTPClientForBinding(binding)
+	if err != nil {
+		t.Fatalf("HTTPClientForBinding failed: %v", err)
+	}
+
+	forwardedHeaders := http.Header{
+		"Authorization": {"Bearer connector-token"},
+		"X-Api-Key":     {"connector-api-key"},
+		HeaderSessionID: {"session-id"},
+	}
+
+	for _, testCase := range []struct {
+		name        string
+		path        string
+		seenHeaders <-chan http.Header
+		wantHeaders bool
+	}{
+		{
+			name:        "same origin",
+			path:        "/same-origin-redirect",
+			seenHeaders: sameOriginHeaders,
+			wantHeaders: true,
+		},
+		{
+			name:        "cross origin",
+			path:        "/cross-origin-redirect",
+			seenHeaders: untrustedOriginHeaders,
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, carrier, err := internal.ContextWithHeaders(context.Background(), forwardedHeaders)
+			if err != nil {
+				t.Fatalf("ContextWithHeaders failed: %v", err)
+			}
+			mustDoRequest(t, client, http.MethodPost, mcpServer.URL+testCase.path, ctx)
+
+			got := mustReceiveHeaders(t, testCase.seenHeaders)
+			for header, values := range forwardedHeaders {
+				want := ""
+				if testCase.wantHeaders {
+					want = values[0]
+				}
+				if value := got.Get(header); value != want {
+					t.Fatalf("redirected %s = %q, want %q", header, value, want)
+				}
+			}
+			status, _ := carrier.ResponseStatusAndHeaders()
+			if status != http.StatusNoContent {
+				t.Fatalf("captured response status = %d, want %d", status, http.StatusNoContent)
+			}
+		})
+	}
+}
+
 func requireHeaderValue(t *testing.T, ch <-chan string, want string) {
 	t.Helper()
 	select {

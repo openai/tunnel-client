@@ -579,7 +579,7 @@ func buildMcpHTTPTransport(logger *slog.Logger, loggingCfg *runtimeconfig.Loggin
 		slog.String("transport", "forwarding_rt"),
 	)
 	base = tclog.NewRoundTripper(base, forwardingLogger, loggingCfg, tclog.ComponentMcpClient)
-	base = internal.NewForwardingRoundTripper(base)
+	base = internal.NewForwardingRoundTripper(base, serverURL)
 	return internal.NewStaticHeadersRoundTripper(base, serverURL, extraHeaders, discoveryExtraHeaders), nil
 }
 

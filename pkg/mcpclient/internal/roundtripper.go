@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 const maxCapturedResponseBodyBytes = 100 * 1024
@@ -17,17 +18,19 @@ type replayReadCloser struct {
 // ForwardingRoundTripper decorates the base RoundTripper so it can read request
 // headers from the context and capture the response headers for later use.
 type ForwardingRoundTripper struct {
-	base http.RoundTripper
+	base         http.RoundTripper
+	serverOrigin string
 }
 
-// NewForwardingRoundTripper constructs a RoundTripper that forwards headers to
-// the underlying transport. When base is nil, http.DefaultTransport is used.
-func NewForwardingRoundTripper(base http.RoundTripper) http.RoundTripper {
+// NewForwardingRoundTripper constructs a RoundTripper that forwards headers only
+// to the configured MCP server origin.
+func NewForwardingRoundTripper(base http.RoundTripper, serverURL *url.URL) http.RoundTripper {
 	if base == nil {
 		panic("nil base RoundTripper")
 	}
 	return &ForwardingRoundTripper{
-		base: base,
+		base:         base,
+		serverOrigin: originKey(serverURL),
 	}
 }
 
@@ -40,7 +43,12 @@ func (f *ForwardingRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	carrier := CarrierFromContext(req.Context())
 	if carrier != nil {
-		carrier.ApplyRequestHeaders(req.Header)
+		requestOrigin := originKey(req.URL)
+		if requestOrigin != "" && requestOrigin == f.serverOrigin {
+			carrier.ApplyRequestHeaders(req.Header)
+		} else {
+			carrier.RemoveRequestHeaders(req.Header)
+		}
 	}
 	resp, err := f.base.RoundTrip(req)
 	if err != nil {

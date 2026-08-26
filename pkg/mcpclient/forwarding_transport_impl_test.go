@@ -202,7 +202,7 @@ func TestForwardingConnectionPreservesHTTPMCPErrorEndToEnd(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	httpClient := &http.Client{Transport: internal.NewForwardingRoundTripper(http.DefaultTransport)}
+	httpClient := &http.Client{Transport: internal.NewForwardingRoundTripper(http.DefaultTransport, mustParseURL(t, server.URL))}
 	transport := NewForwardingTransport(&mcp.StreamableClientTransport{
 		Endpoint:   server.URL,
 		HTTPClient: httpClient,
@@ -504,7 +504,7 @@ func TestForwardingTransportTerminateStreamableSessionCancelsDelete(t *testing.T
 	streamable := &mcp.StreamableClientTransport{
 		Endpoint: "https://mcp.example.test/rpc",
 		HTTPClient: &http.Client{
-			Transport: internal.NewForwardingRoundTripper(blockingRoundTripper),
+			Transport: internal.NewForwardingRoundTripper(blockingRoundTripper, mustParseURL(t, "https://mcp.example.test/rpc")),
 		},
 	}
 	transport := NewForwardingTransport(&mcp.LoggingTransport{

@@ -92,7 +92,7 @@ func TestStaticHeadersRoundTripperLetsForwardedHeadersWin(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader("")),
 			Request:    req,
 		}, nil
-	}))
+	}), serverURL)
 	rt := NewStaticHeadersRoundTripper(base, serverURL, map[string]string{"X-Internal-Auth": "static"}, nil)
 
 	ctx, _, err := ContextWithHeaders(context.Background(), http.Header{"X-Internal-Auth": {"forwarded"}})

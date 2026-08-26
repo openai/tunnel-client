@@ -541,7 +541,7 @@ func TestConnectStartupProbePreservesCapturedTransportError(t *testing.T) {
 			}
 			rt := internal.NewForwardingRoundTripper(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return nil, transportErr
-			}))
+			}), req.URL)
 			if _, roundTripErr := rt.RoundTrip(req); !errors.Is(roundTripErr, transportErr) {
 				t.Fatalf("round trip error = %v, want %v", roundTripErr, transportErr)
 			}

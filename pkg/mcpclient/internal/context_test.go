@@ -30,6 +30,7 @@ func TestForwardingRoundTripperInjectsAndCapturesHeaders(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader("")),
 			}, nil
 		}),
+		mustParseURL(t, "http://example.com"),
 	)
 
 	ctx, carrier, err := ContextWithHeaders(context.Background(), wantRequest)

@@ -90,7 +90,7 @@ func TestForwardingRoundTripperRoundTrip(t *testing.T) {
 					}
 				}
 				return tc.baseResponse, tc.baseError
-			}))
+			}), req.URL)
 
 			resp, err := rt.RoundTrip(req)
 			if tc.baseError != nil {
@@ -119,6 +119,35 @@ func TestForwardingRoundTripperRoundTrip(t *testing.T) {
 	}
 }
 
+func TestForwardingRoundTripperTreatsDefaultPortAsSameOrigin(t *testing.T) {
+	t.Parallel()
+
+	ctx, _, err := ContextWithHeaders(context.Background(), http.Header{"X-Test": {"forward-me"}})
+	if err != nil {
+		t.Fatalf("ContextWithHeaders: %v", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com:443/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	rt := NewForwardingRoundTripper(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.Header.Get("X-Test"); got != "forward-me" {
+			t.Fatalf("X-Test = %q, want forwarded value", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+		}, nil
+	}), mustParseURL(t, "https://example.com/mcp"))
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	_ = resp.Body.Close()
+}
+
 func TestNewForwardingRoundTripperPanicsOnNil(t *testing.T) {
 	defer func() {
 		if recover() == nil {
@@ -126,7 +155,7 @@ func TestNewForwardingRoundTripperPanicsOnNil(t *testing.T) {
 		}
 	}()
 
-	_ = NewForwardingRoundTripper(nil)
+	_ = NewForwardingRoundTripper(nil, nil)
 }
 
 func TestForwardingRoundTripperCapturesAndReplaysNonSuccessBody(t *testing.T) {
@@ -169,7 +198,7 @@ func TestForwardingRoundTripperCapturesAndReplaysNonSuccessBody(t *testing.T) {
 					Header:     http.Header{"Content-Type": {"application/json"}},
 					Body:       originalBody,
 				}, nil
-			}))
+			}), req.URL)
 			resp, err := rt.RoundTrip(req)
 			if err != nil {
 				t.Fatalf("RoundTrip: %v", err)
@@ -224,7 +253,7 @@ func TestForwardingRoundTripperCapturesBodyReadErrorWithoutLosingPrefix(t *testi
 	}
 	rt := NewForwardingRoundTripper(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{}, Body: originalBody}, nil
-	}))
+	}), req.URL)
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
@@ -261,7 +290,7 @@ func TestForwardingRoundTripperDoesNotCaptureSuccessBody(t *testing.T) {
 			Header:     http.Header{"Content-Type": {"application/json"}},
 			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0"}`)),
 		}, nil
-	}))
+	}), req.URL)
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
@@ -278,7 +307,7 @@ func TestForwardingRoundTripperRoundTripRejectsNilRequest(t *testing.T) {
 	rt := NewForwardingRoundTripper(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		t.Fatal("base round tripper should not be called for nil request")
 		return nil, nil
-	}))
+	}), nil)
 
 	resp, err := rt.RoundTrip(nil)
 	if err == nil {
@@ -309,7 +338,7 @@ func TestForwardingRoundTripperRoundTripToleratesNilResponseWithoutError(t *test
 	rt := NewForwardingRoundTripper(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		baseCalled = true
 		return nil, nil
-	}))
+	}), req.URL)
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {

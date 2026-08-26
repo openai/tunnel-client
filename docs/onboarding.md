@@ -205,7 +205,7 @@ For the full surface (flags, defaults, advanced knobs), see [`configuration.md`]
 ### OAuth-protected MCP (supported)
 
 - `Authorization` headers are forwarded through the OpenAI tunnel service to
-  your MCP server.
+  your configured MCP server origin.
 - Custom MCP request headers configured on the app are forwarded through the
   OpenAI tunnel service after sanitization, except fixed proxy/hop-by-hop headers
   (including every header named by `Connection`), internal auth headers, and

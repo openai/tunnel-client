@@ -87,6 +87,9 @@ func originKey(u *url.URL) string {
 	if scheme == "" || host == "" {
 		return ""
 	}
+	if (scheme == "http" && u.Port() == "80") || (scheme == "https" && u.Port() == "443") {
+		host = strings.TrimSuffix(host, ":"+u.Port())
+	}
 	return scheme + "://" + host
 }
 
