@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -17,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -388,6 +390,333 @@ func TestChannelHTTPClientScopesForwardedHeadersAcrossRedirects(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRuntimeMCPHTTPClientRejectsCrossOriginRedirects(t *testing.T) {
+	t.Parallel()
+
+	for _, statusCode := range []int{
+		http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect,
+	} {
+		statusCode := statusCode
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			t.Parallel()
+
+			var sinkCalls atomic.Int32
+			sink := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				sinkCalls.Add(1)
+			}))
+			t.Cleanup(sink.Close)
+
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Location", sink.URL+"/capture")
+				w.WriteHeader(statusCode)
+			}))
+			t.Cleanup(origin.Close)
+
+			configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+			client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
+			ctx, _, err := internal.ContextWithHeaders(context.Background(), http.Header{
+				"Authorization":       {"Bearer redirect-proof-secret"},
+				"Proxy-Authorization": {"Basic redirect-proof-secret"},
+				"Cookie":              {"session=redirect-proof-secret"},
+				HeaderSessionID:       {"session-redirect-proof"},
+				"X-Connector-Canary":  {"redirect-proof-secret"},
+			})
+			if err != nil {
+				t.Fatalf("ContextWithHeaders failed: %v", err)
+			}
+			req, err := http.NewRequestWithContext(
+				ctx,
+				http.MethodPost,
+				configuredURL.String(),
+				strings.NewReader(`{"jsonrpc":"2.0","method":"redirect-proof"}`),
+			)
+			if err != nil {
+				t.Fatalf("NewRequestWithContext failed: %v", err)
+			}
+
+			resp, err := client.Do(req)
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if !errors.Is(err, errCrossOriginRuntimeMCPRedirect) {
+				t.Fatalf("runtime request error = %v, want cross-origin redirect rejection", err)
+			}
+			if got := sinkCalls.Load(); got != 0 {
+				t.Fatalf("cross-origin redirect sink calls = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestRuntimeMCPHTTPClientAllowsSameOriginRedirect(t *testing.T) {
+	t.Parallel()
+
+	type observedRequest struct {
+		method string
+		header http.Header
+		body   string
+	}
+	seen := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			w.Header().Set("Location", "/mcp")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		case "/mcp":
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read redirected body: %v", err)
+				return
+			}
+			seen <- observedRequest{
+				method: r.Method,
+				header: r.Header.Clone(),
+				body:   string(body),
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	configuredURL := mustParseURLFactoryTest(t, server.URL+"/mcp")
+	client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
+	ctx, _, err := internal.ContextWithHeaders(context.Background(), http.Header{
+		"Authorization":      {"Bearer same-origin-secret"},
+		"X-Connector-Canary": {"same-origin"},
+	})
+	if err != nil {
+		t.Fatalf("ContextWithHeaders failed: %v", err)
+	}
+	const wantBody = `{"jsonrpc":"2.0","method":"same-origin"}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/redirect", strings.NewReader(wantBody))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext failed: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("same-origin redirect failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("same-origin redirect status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+
+	got := <-seen
+	if got.method != http.MethodPost {
+		t.Fatalf("redirected method = %s, want POST", got.method)
+	}
+	if got.body != wantBody {
+		t.Fatalf("redirected body = %q, want %q", got.body, wantBody)
+	}
+	if got.header.Get("Authorization") != "Bearer same-origin-secret" {
+		t.Fatalf("redirected Authorization = %q, want forwarded credential", got.header.Get("Authorization"))
+	}
+	if got.header.Get("X-Connector-Canary") != "same-origin" {
+		t.Fatalf("redirected connector canary = %q, want same-origin", got.header.Get("X-Connector-Canary"))
+	}
+}
+
+func TestRuntimeMCPHTTPClientRevalidatesEveryRedirectHop(t *testing.T) {
+	t.Parallel()
+
+	var sinkCalls atomic.Int32
+	sink := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		sinkCalls.Add(1)
+	}))
+	t.Cleanup(sink.Close)
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/first":
+			w.Header().Set("Location", "/second")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		case "/second":
+			w.Header().Set("Location", sink.URL+"/capture")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(origin.Close)
+
+	configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+	client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
+	req, err := http.NewRequest(http.MethodGet, strings.Replace(configuredURL.String(), "/mcp", "/first", 1), nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := client.Do(req)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, errCrossOriginRuntimeMCPRedirect) {
+		t.Fatalf("multi-hop runtime request error = %v, want cross-origin redirect rejection", err)
+	}
+	if got := sinkCalls.Load(); got != 0 {
+		t.Fatalf("multi-hop cross-origin redirect sink calls = %d, want 0", got)
+	}
+}
+
+func TestRuntimeMCPHTTPClientRejectsCrossOriginSessionTerminationRedirect(t *testing.T) {
+	t.Parallel()
+
+	for _, statusCode := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		statusCode := statusCode
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			t.Parallel()
+
+			var sinkCalls atomic.Int32
+			sink := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				sinkCalls.Add(1)
+			}))
+			t.Cleanup(sink.Close)
+
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodDelete {
+					t.Errorf("termination method = %s, want DELETE", r.Method)
+				}
+				w.Header().Set("Location", sink.URL+"/capture")
+				w.WriteHeader(statusCode)
+			}))
+			t.Cleanup(origin.Close)
+
+			configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+			client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
+			streamable := &mcp.StreamableClientTransport{
+				Endpoint:   configuredURL.String(),
+				HTTPClient: client,
+			}
+			terminator := NewForwardingTransport(streamable).(SessionTerminatingTransport)
+			status, headers, err := terminator.TerminateSession(context.Background(), http.Header{
+				"Authorization": {"Bearer termination-secret"},
+				HeaderSessionID: {"session-termination"},
+			})
+			if !errors.Is(err, errCrossOriginRuntimeMCPRedirect) {
+				t.Fatalf("TerminateSession error = %v, want cross-origin redirect rejection", err)
+			}
+			if status != 0 || headers != nil {
+				t.Fatalf("TerminateSession response = (%d, %v), want (0, nil)", status, headers)
+			}
+			if got := sinkCalls.Load(); got != 0 {
+				t.Fatalf("termination cross-origin redirect sink calls = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestRuntimeMCPHTTPClientRejectsCrossOriginRedirectBeforeConfiguredProxy(t *testing.T) {
+	t.Parallel()
+
+	var proxyCalls atomic.Int32
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if proxyCalls.Add(1) == 1 {
+			w.Header().Set("Location", "http://169.254.169.254/latest/meta-data")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(proxyServer.Close)
+
+	configuredURL := mustParseURLFactoryTest(t, "http://mcp.example.test/mcp")
+	proxyURL := mustParseURLFactoryTest(t, proxyServer.URL)
+	client := newRuntimeHTTPClientFactoryTest(t, configuredURL, proxyURL)
+	req, err := http.NewRequest(http.MethodPost, configuredURL.String(), strings.NewReader(`{"jsonrpc":"2.0"}`))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := client.Do(req)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, errCrossOriginRuntimeMCPRedirect) {
+		t.Fatalf("proxied runtime request error = %v, want cross-origin redirect rejection", err)
+	}
+	if got := proxyCalls.Load(); got != 1 {
+		t.Fatalf("proxy calls = %d, want only the configured-origin request", got)
+	}
+}
+
+func TestSameURLOriginCanonicalizesRuntimeMCPOrigin(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		left  string
+		right string
+		want  bool
+	}{
+		{name: "hostname case and default port", left: "HTTP://MCP.Example.Test/mcp", right: "http://mcp.example.test:80/redirect", want: true},
+		{name: "hostname trailing dot remains distinct", left: "http://mcp.example.test./mcp", right: "http://mcp.example.test:80/redirect", want: false},
+		{name: "hostname matching trailing dots", left: "http://MCP.Example.Test./mcp", right: "http://mcp.example.test.:80/redirect", want: true},
+		{name: "https explicit default port", left: "https://mcp.example.test/mcp", right: "https://mcp.example.test:443/redirect", want: true},
+		{name: "different scheme", left: "http://mcp.example.test/mcp", right: "https://mcp.example.test/mcp", want: false},
+		{name: "different port", left: "https://mcp.example.test:8443/mcp", right: "https://mcp.example.test:443/mcp", want: false},
+		{name: "ipv4 default port", left: "http://127.0.0.1/mcp", right: "http://127.0.0.1:80/redirect", want: true},
+		{name: "ipv6 canonical spelling", left: "http://[2001:db8::1]/mcp", right: "http://[2001:0db8:0:0:0:0:0:1]:80/redirect", want: true},
+		{name: "ipv6 zone case remains distinct", left: "http://[fe80::1%25ETH0]/mcp", right: "http://[fe80::1%25eth0]:80/redirect", want: false},
+		{name: "ipv6 zone canonical address spelling", left: "http://[FE80:0:0:0:0:0:0:1%25ETH0]/mcp", right: "http://[fe80::1%25ETH0]:80/redirect", want: true},
+		{name: "dns alias does not widen origin", left: "http://mcp.example.test/mcp", right: "http://alias.example.test/mcp", want: false},
+		{name: "loopback destination", left: "https://mcp.example.test/mcp", right: "http://127.0.0.1/mcp", want: false},
+		{name: "private destination", left: "https://mcp.example.test/mcp", right: "http://10.0.0.1/mcp", want: false},
+		{name: "link local metadata destination", left: "https://mcp.example.test/mcp", right: "http://169.254.169.254/latest/meta-data", want: false},
+		{name: "ipv6 link local destination", left: "https://mcp.example.test/mcp", right: "http://[fe80::1]/mcp", want: false},
+	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			left := mustParseURLFactoryTest(t, tc.left)
+			right := mustParseURLFactoryTest(t, tc.right)
+			if got := sameURLOrigin(left, right); got != tc.want {
+				t.Fatalf("sameURLOrigin(%q, %q) = %t, want %t", tc.left, tc.right, got, tc.want)
+			}
+		})
+	}
+}
+
+func newRuntimeHTTPClientFactoryTest(t *testing.T, serverURL *url.URL, proxyURL *url.URL) *http.Client {
+	t.Helper()
+	binding := config.MCPChannelBinding{
+		Channel:       types.DefaultChannel,
+		TransportKind: config.MCPTransportHTTPStreamable,
+		ServerURL:     serverURL,
+		HTTPProxy:     proxyURL,
+	}
+	factory, err := newChannelTransportFactory(channelTransportFactoryParams{
+		Config:             &config.MCPConfig{ChannelBindings: []config.MCPChannelBinding{binding}},
+		Logging:            &config.LoggingConfig{},
+		Logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		MeterProvider:      sdkmetric.NewMeterProvider(),
+		TransportProviders: []TransportProvider{newStreamableTransportProvider()},
+	})
+	if err != nil {
+		t.Fatalf("newChannelTransportFactory failed: %v", err)
+	}
+	transport, err := factory.Build(binding)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	streamable, ok := unwrapStreamableClientTransport(transport)
+	if !ok || streamable.HTTPClient == nil {
+		t.Fatalf("Build transport = %T, want streamable transport with HTTP client", transport)
+	}
+	return streamable.HTTPClient
+}
+
+func localhostURLFactoryTest(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed := mustParseURLFactoryTest(t, raw)
+	parsed.Host = net.JoinHostPort("localhost", parsed.Port())
+	return parsed
 }
 
 func requireHeaderValue(t *testing.T, ch <-chan string, want string) {

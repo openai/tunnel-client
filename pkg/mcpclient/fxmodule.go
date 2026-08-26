@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -603,7 +605,52 @@ func sameURLOrigin(left *url.URL, right *url.URL) bool {
 	if left == nil || right == nil {
 		return false
 	}
-	return strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
+	leftHost := normalizedURLHostname(left)
+	rightHost := normalizedURLHostname(right)
+	if left.Scheme == "" || right.Scheme == "" || leftHost == "" || rightHost == "" {
+		return false
+	}
+	return strings.EqualFold(left.Scheme, right.Scheme) &&
+		leftHost == rightHost &&
+		effectiveURLPort(left) == effectiveURLPort(right)
+}
+
+// normalizedURLHostname defines the hostname portion of the runtime MCP origin
+// without consulting DNS. The redirect policy must compare the URL authority
+// before dialing, so DNS resolution cannot widen the configured boundary.
+func normalizedURLHostname(raw *url.URL) string {
+	if raw == nil {
+		return ""
+	}
+	// Preserve DNS trailing dots and IPv6 zone spelling: both can change where
+	// the next request is dialed. DNS label case alone is origin-insensitive.
+	host := strings.TrimSpace(raw.Hostname())
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.String()
+	}
+	return strings.ToLower(host)
+}
+
+// effectiveURLPort makes implicit HTTP(S) ports compare equal to their
+// explicit spellings while keeping non-standard ports distinct.
+func effectiveURLPort(raw *url.URL) string {
+	if raw == nil {
+		return ""
+	}
+	if port := raw.Port(); port != "" {
+		if parsedPort, err := strconv.Atoi(port); err == nil {
+			return strconv.Itoa(parsedPort)
+		}
+		return port
+	}
+	switch strings.ToLower(raw.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 func transportTargetLabel(kind runtimeconfig.MCPTransportKind, serverURL *url.URL) string {

@@ -1,6 +1,7 @@
 package mcpclient
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -54,6 +55,8 @@ type channelTransportFactoryParams struct {
 	TransportProviders []TransportProvider `group:"mcp_transport_providers"`
 }
 
+var errCrossOriginRuntimeMCPRedirect = errors.New("mcpclient: redirect blocked: destination must use the configured MCP origin")
+
 func newChannelTransportFactory(p channelTransportFactoryParams) (*ChannelTransportFactory, error) {
 	if p.Config == nil || p.Logging == nil || p.Logger == nil || p.MeterProvider == nil {
 		return nil, fmt.Errorf("mcpclient: channel transport factory requires config, logging, logger, and meter provider")
@@ -72,7 +75,10 @@ func newChannelTransportFactory(p channelTransportFactoryParams) (*ChannelTransp
 	return factory, nil
 }
 
-// HTTPClientForBinding returns the HTTP client used for streamable MCP transports for a binding.
+// HTTPClientForBinding returns the shared HTTP client for a binding. OAuth
+// discovery uses this client directly so it can keep its own redirect policy.
+// Runtime streamable MCP transports use a shallow copy with the stricter
+// configured-origin redirect boundary installed by runtimeHTTPClientForBinding.
 func (f *ChannelTransportFactory) HTTPClientForBinding(binding runtimeconfig.MCPChannelBinding) (*http.Client, error) {
 	if f == nil {
 		return nil, fmt.Errorf("mcpclient: channel transport factory is nil")
@@ -89,6 +95,53 @@ func (f *ChannelTransportFactory) HTTPClientForBinding(binding runtimeconfig.MCP
 		return nil, fmt.Errorf("mcpclient: invalid channel name")
 	}
 	return f.httpClientForKey(channelName.String(), binding.ServerURL, binding.UnixSocketPath, binding.HTTPProxy, binding.ClientCertificate)
+}
+
+// runtimeHTTPClientForBinding returns the HTTP client used by streamable MCP
+// runtime traffic. Redirects are checked before the next RoundTrip so a
+// cross-origin 3xx response cannot re-send request headers, methods, or bodies
+// through the forwarding transport.
+func (f *ChannelTransportFactory) runtimeHTTPClientForBinding(binding runtimeconfig.MCPChannelBinding) (*http.Client, error) {
+	client, err := f.HTTPClientForBinding(binding)
+	if err != nil {
+		return nil, err
+	}
+	transportKind := binding.TransportKind
+	if transportKind == "" {
+		transportKind = runtimeconfig.MCPTransportHTTPStreamable
+	}
+	if transportKind != runtimeconfig.MCPTransportHTTPStreamable {
+		return client, nil
+	}
+	if binding.ServerURL == nil {
+		return nil, fmt.Errorf("mcpclient: server URL is required for %s transport", transportKind)
+	}
+	return withRuntimeMCPRedirectPolicy(client, binding.ServerURL), nil
+}
+
+// withRuntimeMCPRedirectPolicy returns a shallow copy so the runtime MCP
+// redirect boundary does not alter the shared client used by OAuth discovery.
+// The configured origin is checked on every hop, while same-origin redirects
+// retain the standard library's default ten-hop limit.
+func withRuntimeMCPRedirectPolicy(client *http.Client, configuredOrigin *url.URL) *http.Client {
+	if client == nil {
+		return nil
+	}
+	cloned := *client
+	priorPolicy := client.CheckRedirect
+	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req == nil || !sameURLOrigin(req.URL, configuredOrigin) {
+			return errCrossOriginRuntimeMCPRedirect
+		}
+		if priorPolicy != nil {
+			return priorPolicy(req, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("mcpclient: stopped after %d redirects", len(via))
+		}
+		return nil
+	}
+	return &cloned
 }
 
 // Build returns a cached transport for the requested binding. Concurrent first
@@ -127,7 +180,7 @@ func (f *ChannelTransportFactory) Build(binding runtimeconfig.MCPChannelBinding)
 		if err != nil {
 			return nil, err
 		}
-		httpClient, err := f.HTTPClientForBinding(binding)
+		httpClient, err := f.runtimeHTTPClientForBinding(binding)
 		if err != nil {
 			return nil, err
 		}
