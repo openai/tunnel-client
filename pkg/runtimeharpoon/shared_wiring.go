@@ -1,9 +1,12 @@
 package runtimeharpoon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -201,13 +204,87 @@ func RegisterAdditionalTransport(p AdditionalTransportParams) error {
 		},
 	})
 	streamServer := p.Server.MCPServer()
-	var handler http.Handler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+	statefulHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return streamServer
 	}, nil)
+	statelessHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return streamServer
+	}, &mcp.StreamableHTTPOptions{
+		// Harpoon's tools do not depend on MCP session state. Keep the optional
+		// loopback Streamable HTTP surface aligned with the tunneled Harpoon
+		// channel so 2026-07-28 self-contained requests can use it directly.
+		Stateless: true,
+	})
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		legacy, err := isLegacyHarpoonStreamableRequest(req)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		if legacy {
+			statefulHandler.ServeHTTP(w, req)
+			return
+		}
+		statelessHandler.ServeHTTP(w, req)
+	})
 	handler = httpguard.WithShutdownContext(handler, streamCtx)
 	p.GuardedMux.Handle("/harpoon/mcp", handler)
 	p.Logger.Info("harpoon streamable transport enabled", slog.String("path", "/harpoon/mcp"), slog.String(tclog.FieldComponent, tclog.ComponentHarpoon))
 	return nil
+}
+
+// isLegacyHarpoonStreamableRequest preserves the pre-v1.7 HTTP session surface
+// while allowing new self-contained requests to use the SDK's stateless mode.
+// A session ID, GET, or DELETE is necessarily legacy. An initialize POST must
+// also stay stateful so its subsequent standalone SSE GET and DELETE can find
+// the session that it created.
+func isLegacyHarpoonStreamableRequest(req *http.Request) (bool, error) {
+	if req.Method != http.MethodPost || req.Header.Get("Mcp-Session-Id") != "" {
+		return true, nil
+	}
+
+	// Match the SDK handlers' default Streamable HTTP limit while classifying;
+	// this prevents the compatibility shim from buffering a body the selected
+	// handler would reject anyway.
+	body, readErr := io.ReadAll(io.LimitReader(req.Body, mcp.DefaultMaxRequestBodyBytes+1))
+	closeErr := req.Body.Close()
+	if readErr != nil {
+		return false, readErr
+	}
+	if len(body) > mcp.DefaultMaxRequestBodyBytes {
+		return false, &http.MaxBytesError{Limit: mcp.DefaultMaxRequestBodyBytes}
+	}
+	if closeErr != nil {
+		return false, closeErr
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+
+	type methodEnvelope struct {
+		Method string `json:"method"`
+	}
+	var request methodEnvelope
+	if err := json.Unmarshal(body, &request); err == nil {
+		return isLegacyHarpoonStreamableMethod(request.Method), nil
+	}
+
+	var batch []methodEnvelope
+	if err := json.Unmarshal(body, &batch); err == nil {
+		for _, request := range batch {
+			if isLegacyHarpoonStreamableMethod(request.Method) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func isLegacyHarpoonStreamableMethod(method string) bool {
+	return method == "initialize" || method == "notifications/initialized"
 }
 
 // NewGuardedMux creates the loopback-only Harpoon HTTP transport mux.

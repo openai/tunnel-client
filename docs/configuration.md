@@ -358,8 +358,9 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
     conflicting values and invalid wire values are rejected before startup.
   - Reserved control-plane headers (`Authorization`, `Accept`, `User-Agent`,
     `X-Tunnel-Client-Name`, `X-Tunnel-Client-Version`,
-    `X-Tunnel-Client-Instance-Id`, and `X-Tunnel-MCP-Server-Info`) are managed
-    by the client and cannot be overridden by extra headers.
+    `X-Tunnel-Client-Wire-Protocol-Version`, `X-Tunnel-Client-Instance-Id`,
+    and `X-Tunnel-MCP-Server-Info`) are managed by the client and cannot be
+    overridden by extra headers.
 
 ## TLS trust (custom CA bundle)
 
@@ -623,8 +624,11 @@ registered. If there are no targets, `harpoon` commands return
   - Flag: `--harpoon.additional-transport=http-streamable`
   - Env: `HARPOON_ADDITIONAL_TRANSPORTS` (semicolon- or newline-delimited list)
   - Behavior: exposes the Harpoon MCP server over the admin/health HTTP server
-    at `GET/POST /harpoon/mcp` (loopback-only unless `--allow-remote-ui` is
-    set).
+    at `POST /harpoon/mcp` (loopback-only unless `--allow-remote-ui` is set).
+    MCP 2026-07-28 self-contained POST requests are sessionless. Legacy
+    `initialize` / `notifications/initialized` POST flows remain stateful,
+    including standalone SSE `GET` and session-termination `DELETE` requests
+    carrying their `Mcp-Session-Id`.
 - **Capture payloads (debug only)**
   - Flag: `--harpoon.capture-payloads`
   - Env: `HARPOON_CAPTURE_PAYLOADS`

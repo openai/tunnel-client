@@ -18,6 +18,7 @@ import (
 
 	"github.com/openai/tunnel-client/pkg/tlsconfig"
 	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/pkg/version"
 )
 
 // LogFormat enumerates the supported logging formats.
@@ -1362,7 +1363,7 @@ func validateControlPlaneExtraHeaders(source string, headers map[string]string) 
 
 func isReservedControlPlaneHeader(key string) bool {
 	switch httpHeaderKey := strings.ToLower(strings.TrimSpace(key)); httpHeaderKey {
-	case "authorization", "accept", "user-agent", "x-tunnel-client-name", "x-tunnel-client-version", "x-tunnel-mcp-server-info":
+	case "authorization", "accept", "user-agent", "x-tunnel-client-name", "x-tunnel-client-version", strings.ToLower(version.WireProtocolHeaderName), "x-tunnel-mcp-server-info":
 		return true
 	default:
 		return false

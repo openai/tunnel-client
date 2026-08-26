@@ -62,7 +62,12 @@ func (t *forwardingTransport) TerminateSession(ctx context.Context, headers http
 	if err != nil {
 		return 0, nil, err
 	}
-	if streamable, ok := unwrapStreamableClientTransport(t.base); ok && hasResponseDeadlineEnforcement(ctx) {
+	if streamable, ok := unwrapStreamableClientTransport(t.base); ok &&
+		(hasResponseDeadlineEnforcement(ctx) || SessionIDFromHeaders(headers) != nil) {
+		// go-sdk v1.7 does not send DELETE from Connection.Close unless that
+		// specific SDK connection observed the session ID itself. Tunnel
+		// session-termination commands carry a session ID established by an
+		// earlier, independent command, so issue the DELETE directly here.
 		return terminateStreamableSession(ctxWithHeaders, streamable, headers)
 	}
 
@@ -90,9 +95,10 @@ func unwrapStreamableClientTransport(transport mcp.Transport) (*mcp.StreamableCl
 }
 
 // terminateStreamableSession issues the protocol DELETE directly so the
-// command context remains attached to the network request. The SDK connection
-// Close method uses a detached lifecycle context, which cannot enforce a
-// per-command response deadline.
+// command context remains attached to the network request and externally
+// established session IDs are not lost on a fresh SDK connection. The SDK
+// connection Close method uses a detached lifecycle context and only knows
+// session IDs observed by that specific connection.
 func terminateStreamableSession(ctx context.Context, transport *mcp.StreamableClientTransport, headers http.Header) (int, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, transport.Endpoint, nil)
 	if err != nil {

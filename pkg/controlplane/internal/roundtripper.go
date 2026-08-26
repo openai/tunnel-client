@@ -103,6 +103,7 @@ func (c *controlPlaneRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set(headerTunnelClientName, version.ClientName)
 	req.Header.Set(headerTunnelClientVersion, version.Version)
+	req.Header.Set(version.WireProtocolHeaderName, version.WireProtocolVersion)
 	req.Header.Set(clientinstance.HeaderName, clientinstance.ID())
 	if c.mcpServerInfo != nil {
 		mcpServerInfo, err := c.mcpServerInfo()
@@ -151,7 +152,7 @@ func isProtectedControlPlaneHeader(key string) bool {
 		return true
 	}
 	switch http.CanonicalHeaderKey(key) {
-	case "Authorization", "Accept", "User-Agent", headerTunnelClientName, headerTunnelClientVersion, clientinstance.HeaderName:
+	case "Authorization", "Accept", "User-Agent", headerTunnelClientName, headerTunnelClientVersion, version.WireProtocolHeaderName, clientinstance.HeaderName:
 		return true
 	default:
 		return false

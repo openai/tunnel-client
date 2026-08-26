@@ -172,16 +172,18 @@ func buildMCPServerInfoHeader(mcpConfig *runtimeconfig.MCPConfig, harpoonEnabled
 
 	if harpoonEnabled {
 		// Harpoon is routable only while its registry contains a target, and its
-		// transport is always process-local in-memory state.
+		// transport accepts self-contained MCP requests while its target
+		// registry remains process-local in-memory state.
 		declarations = append(declarations, mcpserverinfo.Declaration{
 			Name:            types.ChannelHarpoon.String(),
+			Stateless:       true,
 			ProcessAffinity: true,
 		})
 	}
 	if len(declarations) == 0 {
 		return "", errors.New("controlplane: build MCP server info: at least one routable channel is required")
 	}
-	header, err := mcpserverinfo.BuildV1(declarations)
+	header, err := mcpserverinfo.Build(declarations)
 	if err != nil {
 		return "", fmt.Errorf("controlplane: build MCP server info: %w", err)
 	}

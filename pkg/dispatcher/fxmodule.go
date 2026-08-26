@@ -136,7 +136,11 @@ type harpoonChannelBindingParams struct {
 }
 
 func newHarpoonChannelBinding(p harpoonChannelBindingParams) dispatcherChannelBinding {
-	transport := mcpclient.NewSharedConnectionTransport(p.HarpoonTransport)
+	// Harpoon accepts 2026 self-contained requests directly, but legacy
+	// tunnel-service OAuth shims still create a new initialize/initialized MCP
+	// session for each call. Restart the shared in-memory SDK session on the
+	// next initialize so both client generations remain compatible.
+	transport := mcpclient.NewInitializeRestartingSharedConnectionTransport(p.HarpoonTransport)
 	return dispatcherChannelBinding{
 		Channel:                    types.ChannelHarpoon,
 		Priority:                   0,

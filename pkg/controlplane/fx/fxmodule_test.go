@@ -43,7 +43,7 @@ func TestBuildMCPServerInfoHeaderAdvertisesEffectiveBindings(t *testing.T) {
 					Command:       "/private/stdio-command",
 				}},
 			},
-			want: `{"version":1,"channels":[{"name":"main","proc_affinity":true},{"name":"harpoon","proc_affinity":true}]}`,
+			want: `{"version":2,"channels":[{"name":"main","proc_affinity":true},{"name":"harpoon","stateless":true,"proc_affinity":true}]}`,
 		},
 		{
 			name: "remote streamable HTTP main without Harpoon",
@@ -65,7 +65,7 @@ func TestBuildMCPServerInfoHeaderAdvertisesEffectiveBindings(t *testing.T) {
 					TransportKind: config.MCPTransportHTTPStreamable,
 				}},
 			},
-			want: `{"version":1,"channels":[{"name":"main"},{"name":"harpoon","proc_affinity":true}]}`,
+			want: `{"version":2,"channels":[{"name":"main"},{"name":"harpoon","stateless":true,"proc_affinity":true}]}`,
 		},
 		{
 			name: "legacy in-memory main without Harpoon",
@@ -121,7 +121,7 @@ func TestMCPServerInfoHeaderProviderTracksHarpoonEnablement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provider with Harpoon returned error: %v", err)
 	}
-	if want := `{"version":1,"channels":[{"name":"main"},{"name":"harpoon","proc_affinity":true}]}`; got != want {
+	if want := `{"version":2,"channels":[{"name":"main"},{"name":"harpoon","stateless":true,"proc_affinity":true}]}`; got != want {
 		t.Fatalf("provider with Harpoon = %s, want %s", got, want)
 	}
 }
@@ -132,7 +132,7 @@ func TestBuildMCPServerInfoHeaderHarpoonOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildMCPServerInfoHeader returned error: %v", err)
 	}
-	if want := `{"version":1,"channels":[{"name":"harpoon","proc_affinity":true}]}`; got != want {
+	if want := `{"version":2,"channels":[{"name":"harpoon","stateless":true,"proc_affinity":true}]}`; got != want {
 		t.Fatalf("header = %s, want %s", got, want)
 	}
 }

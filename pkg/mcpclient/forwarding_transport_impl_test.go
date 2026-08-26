@@ -578,17 +578,17 @@ func TestForwardingTransportTerminateStreamableSessionReturnsHTTPResponse(t *tes
 	}
 }
 
-func TestForwardingTransportLegacyStreamableTerminationDoesNotBypassSDK(t *testing.T) {
+func TestForwardingTransportExternalStreamableSessionTerminationIssuesDelete(t *testing.T) {
 	t.Parallel()
 
-	requestSent := false
+	var gotRequest *http.Request
 	streamable := &mcp.StreamableClientTransport{
 		Endpoint: "https://mcp.example.test/rpc",
 		HTTPClient: &http.Client{Transport: terminationRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
-			requestSent = true
+			gotRequest = req
 			return &http.Response{
 				StatusCode: http.StatusNoContent,
-				Header:     http.Header{},
+				Header:     http.Header{"X-Terminated": {"true"}},
 				Body:       http.NoBody,
 				Request:    req,
 			}, nil
@@ -602,11 +602,11 @@ func TestForwardingTransportLegacyStreamableTerminationDoesNotBypassSDK(t *testi
 	if err != nil {
 		t.Fatalf("TerminateSession returned error: %v", err)
 	}
-	if statusCode != 0 || len(headers) != 0 {
-		t.Fatalf("legacy termination response = (%d, %v), want (0, empty)", statusCode, headers)
+	if statusCode != http.StatusNoContent || headers.Get("X-Terminated") != "true" {
+		t.Fatalf("termination response = (%d, %v), want (204, X-Terminated=true)", statusCode, headers)
 	}
-	if !requestSent {
-		t.Fatal("legacy SDK termination did not issue its cleanup request")
+	if gotRequest == nil || gotRequest.Method != http.MethodDelete || gotRequest.Header.Get(HeaderSessionID) != "legacy-session" {
+		t.Fatalf("unexpected termination request: %#v", gotRequest)
 	}
 }
 

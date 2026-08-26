@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -210,6 +211,139 @@ func TestHarpoonChannelInitializeThenToolsList(t *testing.T) {
 	if len(delivered) != 3 {
 		t.Fatalf("expected three delivered commands; got %d", len(delivered))
 	}
+}
+
+func TestHarpoonChannelAcceptsSelfContained20260728Requests(t *testing.T) {
+	t.Parallel()
+
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"ok\":true}"))
+	}))
+	defer targetServer.Close()
+
+	commands := []mocktunnelservice.CommandResponse{
+		newModernHarpoonCommand(t, "cmd-harpoon-discover-modern", "server/discover", nil, func(tb testing.TB, result map[string]any) {
+			if result["resultType"] != "complete" {
+				tb.Fatalf("server/discover resultType = %v, want complete", result["resultType"])
+			}
+			if !resultContains(t, result, "2026-07-28") {
+				tb.Fatalf("server/discover result = %v, want 2026-07-28 support", result)
+			}
+		}),
+		newModernHarpoonCommand(t, "cmd-harpoon-tools-list-modern", "tools/list", nil, func(tb testing.TB, result map[string]any) {
+			if result["resultType"] != "complete" {
+				tb.Fatalf("tools/list resultType = %v, want complete", result["resultType"])
+			}
+			if !resultContains(t, result, "list_targets") || !resultContains(t, result, "call_target") {
+				tb.Fatalf("tools/list result = %v, want Harpoon tools", result)
+			}
+		}),
+		newModernHarpoonCommand(t, "cmd-harpoon-tools-call-modern", "tools/call", map[string]any{
+			"name":      "list_targets",
+			"arguments": map[string]any{},
+		}, func(tb testing.TB, result map[string]any) {
+			if result["resultType"] != "complete" {
+				tb.Fatalf("tools/call resultType = %v, want complete", result["resultType"])
+			}
+			if !resultContains(t, result, "seed") {
+				tb.Fatalf("tools/call result = %v, want seed target", result)
+			}
+		}),
+	}
+
+	h := harnesspkg.NewHarness(
+		t,
+		harnesspkg.WithHarpoonInMemoryTransport(),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.Logging.Level = slog.LevelDebug
+			cfg.Harpoon.AllowPlaintextHTTP = true
+			cfg.Harpoon.Targets = []config.HarpoonTarget{{
+				Label:       "seed",
+				Description: "seed target for routable harpoon channel",
+				BaseURL:     mustParseURL(t, targetServer.URL),
+			}}
+		}),
+		harnesspkg.WithControlPlaneOptions(mocktunnelservice.WithCommandResponses(commands...)),
+	)
+
+	h.ExecuteScenarious(t)
+
+	if got := len(h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched)); got != len(commands) {
+		t.Fatalf("matched self-contained requests = %d, want %d", got, len(commands))
+	}
+	if got := len(h.ControlPlane.DeliveredCommands()); got != len(commands) {
+		t.Fatalf("delivered self-contained requests = %d, want %d", got, len(commands))
+	}
+}
+
+func newModernHarpoonCommand(
+	t *testing.T,
+	requestID string,
+	method string,
+	extraParams map[string]any,
+	assertResult func(testing.TB, map[string]any),
+) mocktunnelservice.CommandResponse {
+	t.Helper()
+
+	params := map[string]any{
+		"_meta": map[string]any{
+			"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+			"io.modelcontextprotocol/clientInfo":         map[string]any{"name": "harpoon-modern-e2e", "version": "0.0.1"},
+			"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		},
+	}
+	for key, value := range extraParams {
+		params[key] = value
+	}
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  method,
+		"params":  params,
+	})
+	if err != nil {
+		t.Fatalf("marshal modern Harpoon command: %v", err)
+	}
+
+	return mocktunnelservice.CommandResponse{
+		Command: newChannelCommand(requestID, "harpoon", json.RawMessage(payload), nil),
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
+			RequestID: requestID,
+			Assert: func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
+				if tb == nil {
+					tb = t
+				}
+				tb.Helper()
+				if resp.ResponseType != string(wiretypes.ResponsePayloadJSONRPC) || resp.ResponseCode != http.StatusOK {
+					tb.Fatalf("%s response = (%q, %d), want JSON-RPC 200", method, resp.ResponseType, resp.ResponseCode)
+				}
+				var response struct {
+					Result map[string]any  `json:"result"`
+					Error  json.RawMessage `json:"error"`
+				}
+				if err := json.Unmarshal(resp.JSONResponse, &response); err != nil {
+					tb.Fatalf("decode %s response: %v", method, err)
+				}
+				if len(response.Error) != 0 {
+					tb.Fatalf("%s returned JSON-RPC error: %s", method, response.Error)
+				}
+				if response.Result == nil {
+					tb.Fatalf("%s response missing result", method)
+				}
+				assertResult(tb, response.Result)
+			},
+		}},
+	}
+}
+
+func resultContains(t *testing.T, result map[string]any, want string) bool {
+	t.Helper()
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	return strings.Contains(string(encoded), want)
 }
 
 func newChannelCommand(

@@ -11,8 +11,9 @@ import (
 type sharedConnectionTransport struct {
 	base                          mcp.Transport
 	preserveOnContextCancellation bool
+	restartOnInitialize           bool
 	mu                            sync.Mutex
-	conn                          mcp.Connection
+	conn                          *sharedConnection
 }
 
 // NewSharedConnectionTransport returns a transport wrapper that reuses the
@@ -21,8 +22,25 @@ func NewSharedConnectionTransport(base mcp.Transport) mcp.Transport {
 	return newSharedConnectionTransport(base)
 }
 
+// NewInitializeRestartingSharedConnectionTransport returns a shared transport
+// that starts a fresh underlying connection whenever a later logical request
+// sends initialize.
+//
+// Tunnel-service's legacy Harpoon client opens a new MCP client session for
+// each OAuth shim call, while tunnel-client serializes those calls over one
+// in-memory transport. go-sdk v1.7 rejects a second initialize on an already
+// initialized server session, so Harpoon uses this narrow compatibility
+// wrapper to preserve the old initialize/initialized flow without changing
+// self-contained 2026 requests.
+//
+// Callers must serialize logical request lifecycles while using this wrapper;
+// Harpoon satisfies that requirement with its serialized forwarding transport.
+func NewInitializeRestartingSharedConnectionTransport(base mcp.Transport) mcp.Transport {
+	return newSharedConnectionTransportWithPolicies(base, false, true)
+}
+
 func newSharedConnectionTransport(base mcp.Transport) mcp.Transport {
-	return newSharedConnectionTransportWithContextCancellationPolicy(base, false)
+	return newSharedConnectionTransportWithPolicies(base, false, false)
 }
 
 // newContextCancellationPreservingSharedConnectionTransport keeps the shared
@@ -30,16 +48,17 @@ func newSharedConnectionTransport(base mcp.Transport) mcp.Transport {
 // uses this because all logical connections reuse the same child-process
 // stdin/stdout pipes.
 func newContextCancellationPreservingSharedConnectionTransport(base mcp.Transport) mcp.Transport {
-	return newSharedConnectionTransportWithContextCancellationPolicy(base, true)
+	return newSharedConnectionTransportWithPolicies(base, true, false)
 }
 
-func newSharedConnectionTransportWithContextCancellationPolicy(base mcp.Transport, preserveOnContextCancellation bool) mcp.Transport {
+func newSharedConnectionTransportWithPolicies(base mcp.Transport, preserveOnContextCancellation, restartOnInitialize bool) mcp.Transport {
 	if base == nil {
 		return nil
 	}
 	return &sharedConnectionTransport{
 		base:                          base,
 		preserveOnContextCancellation: preserveOnContextCancellation,
+		restartOnInitialize:           restartOnInitialize,
 	}
 }
 
@@ -58,17 +77,10 @@ func (t *sharedConnectionTransport) Connect(ctx context.Context) (mcp.Connection
 		t.mu.Unlock()
 		return nil, err
 	}
-	var sharedConn *sharedConnection
-	sharedConn = &sharedConnection{
+	sharedConn := &sharedConnection{
 		base:                          conn,
+		owner:                         t,
 		preserveOnContextCancellation: t.preserveOnContextCancellation,
-		onClose: func() {
-			t.mu.Lock()
-			defer t.mu.Unlock()
-			if t.conn == sharedConn {
-				t.conn = nil
-			}
-		},
 	}
 	t.conn = sharedConn
 	t.mu.Unlock()
@@ -77,8 +89,9 @@ func (t *sharedConnectionTransport) Connect(ctx context.Context) (mcp.Connection
 
 type sharedConnection struct {
 	base                          mcp.Connection
+	owner                         *sharedConnectionTransport
 	preserveOnContextCancellation bool
-	onClose                       func()
+	hasWritten                    bool
 }
 
 func (c *sharedConnection) preserveConnectionOnContextCancellation() bool {
@@ -86,32 +99,122 @@ func (c *sharedConnection) preserveConnectionOnContextCancellation() bool {
 }
 
 func (c *sharedConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
-	if c == nil || c.base == nil {
+	base := c.currentBase()
+	if base == nil {
 		return nil, nil
 	}
-	return c.base.Read(ctx)
+	return base.Read(ctx)
 }
 
 func (c *sharedConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
-	if c == nil || c.base == nil {
+	if c == nil {
 		return nil
 	}
-	return c.base.Write(ctx, msg)
+	if err := c.restartForInitialize(ctx, msg); err != nil {
+		return err
+	}
+	base := c.currentBase()
+	if base == nil {
+		return nil
+	}
+	err := base.Write(ctx, msg)
+	if err == nil {
+		c.markWritten()
+	}
+	return err
 }
 
 func (c *sharedConnection) Close() error {
-	if c == nil || c.base == nil {
+	if c == nil {
 		return nil
 	}
-	if c.onClose != nil {
-		c.onClose()
+	base := c.detach()
+	if base == nil {
+		return nil
 	}
-	return c.base.Close()
+	return base.Close()
 }
 
 func (c *sharedConnection) SessionID() string {
-	if c == nil || c.base == nil {
+	base := c.currentBase()
+	if base == nil {
 		return ""
 	}
-	return c.base.SessionID()
+	return base.SessionID()
+}
+
+func (c *sharedConnection) currentBase() mcp.Connection {
+	if c == nil {
+		return nil
+	}
+	if c.owner == nil {
+		return c.base
+	}
+	c.owner.mu.Lock()
+	defer c.owner.mu.Unlock()
+	return c.base
+}
+
+func (c *sharedConnection) markWritten() {
+	if c == nil {
+		return
+	}
+	if c.owner == nil {
+		c.hasWritten = true
+		return
+	}
+	c.owner.mu.Lock()
+	c.hasWritten = true
+	c.owner.mu.Unlock()
+}
+
+func (c *sharedConnection) restartForInitialize(ctx context.Context, msg jsonrpc.Message) error {
+	if c == nil || c.owner == nil || !c.owner.restartOnInitialize || !isInitializeRequest(msg) {
+		return nil
+	}
+
+	c.owner.mu.Lock()
+	if c.owner.conn != c || !c.hasWritten {
+		c.owner.mu.Unlock()
+		return nil
+	}
+	oldBase := c.base
+	newBase, err := c.owner.base.Connect(ctx)
+	if err != nil {
+		c.owner.mu.Unlock()
+		return err
+	}
+	c.base = newBase
+	c.hasWritten = false
+	c.owner.mu.Unlock()
+
+	if oldBase != nil {
+		_ = oldBase.Close()
+	}
+	return nil
+}
+
+func (c *sharedConnection) detach() mcp.Connection {
+	if c == nil {
+		return nil
+	}
+	if c.owner == nil {
+		base := c.base
+		c.base = nil
+		return base
+	}
+	c.owner.mu.Lock()
+	defer c.owner.mu.Unlock()
+	if c.owner.conn == c {
+		c.owner.conn = nil
+	}
+	base := c.base
+	c.base = nil
+	c.hasWritten = false
+	return base
+}
+
+func isInitializeRequest(msg jsonrpc.Message) bool {
+	request, ok := msg.(*jsonrpc.Request)
+	return ok && request != nil && request.Method == "initialize"
 }

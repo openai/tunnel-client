@@ -48,6 +48,29 @@ X-Tunnel-Client-Name: example-rust-client
 X-Tunnel-Client-Version: 1.2.3
 ```
 
+### Tunnel wire protocol version
+
+The official tunnel-client also sends an additive, protected wire-contract
+version on metadata, managed Cloudflare runtime, poll, and response requests:
+
+```http
+X-Tunnel-Client-Wire-Protocol-Version: 2026-08-25
+```
+
+This is distinct from the diagnostic `X-Tunnel-Client-Version` release string
+and from MCP's per-request `Mcp-Protocol-Version`. Wire versions use the same
+`YYYY-MM-DD` shape as MCP versions. A missing header means legacy/backfill
+semantics for an older tunnel-client; older tunnel-service versions ignore the
+new header. Unknown future values must not be treated as this version.
+
+The wire version says which additive tunnel-client/control-plane contract the
+client understands. It does not by itself advertise any channel behavior:
+tunnel-service must still inspect `X-Tunnel-MCP-Server-Info` and its
+per-channel `stateless` declaration before selecting self-contained Harpoon
+behavior. In particular, a client may send the current wire version while
+still emitting an unchanged v1 server-info value because none of its enabled
+channels advertises `stateless`.
+
 ### MCP server information
 
 On control-plane requests, clients may send the optional
@@ -57,7 +80,8 @@ metadata, managed Cloudflare runtime, poll, and response requests. The
 declarations reflect the channels enabled when each request is sent, so
 Harpoon appears only after at least one target is registered.
 
-The header value is compact JSON. Version 1 has this exact shape:
+The header value is compact JSON. Version 1 remains unchanged and has this
+exact shape:
 
 ```json
 {
@@ -79,26 +103,60 @@ Version 1 permits only these keys:
 | Channel | `proc_affinity` | no | When `true`, session work for that channel must stay on one tunnel-client process. |
 
 An omitted `proc_affinity` means `false`; clients serialize false by
-omitting the key rather than sending `"proc_affinity": false`. Channel names
-must be canonical and unique. A v1 header contains at most 32 channel
-declarations and at most 4096 UTF-8 bytes. Clients must reject duplicate,
-non-canonical, invalid, or over-limit declarations before sending them.
+omitting the key rather than sending `"proc_affinity": false`.
 
 The v1 object is deliberately narrow. It must not contain URLs, commands,
 transport details, headers, request or response payloads, secrets, targets, or
 customer IDs.
 
-Affinity declarations describe the effective channel binding:
+Version 2 adds the independent optional `stateless` capability:
 
-- A stdio-backed `main` channel uses `"proc_affinity": true`.
-- A remote Streamable HTTP `main` channel omits `proc_affinity`.
-- An enabled built-in in-memory `harpoon` channel uses
-  `"proc_affinity": true` because its session state is process-local.
-  Include it only while Harpoon has at least one registered target; never
-  include target details.
+```json
+{
+  "version": 2,
+  "channels": [
+    {"name": "harpoon", "stateless": true, "proc_affinity": true}
+  ]
+}
+```
+
+Version 2 permits only these keys:
+
+| Location | Key | Required | Meaning |
+| --- | --- | --- | --- |
+| Top level | `version` | yes | Integer protocol version; version 2 is the only v2 value. |
+| Top level | `channels` | yes | Array of MCP channel declarations. |
+| Channel | `name` | yes | Canonical channel name, such as `main` or `harpoon`. |
+| Channel | `stateless` | no | When `true`, the channel accepts MCP `2026-07-28` self-contained requests. |
+| Channel | `proc_affinity` | no | When `true`, routing still needs one tunnel-client process because protocol or application state is local. |
+
+`stateless` and `proc_affinity` are independent booleans. Either, neither, or
+both may be true; clients must not reject a declaration merely because both
+are true. An omitted value means `false`, and clients serialize false by
+omitting the key instead of sending `false`.
+
+Clients emit the narrowest version that represents their declarations: emit
+v1 when no channel advertises `stateless`, and emit v2 when at least one
+channel does. Both versions preserve the compact canonical key order shown
+above (`version`, `channels`; then `name`, `stateless`, `proc_affinity`),
+canonical unique channel names, at most 32 channel declarations, and at most
+4096 UTF-8 bytes. Clients must reject duplicate, non-canonical, invalid, or
+over-limit declarations before sending them.
+
+Capability declarations describe the effective channel binding:
+
+- A remote Streamable HTTP `main` channel advertises neither capability.
+- A legacy stdio- or in-memory-backed `main` channel uses
+  `"proc_affinity": true`.
+- An enabled built-in in-memory `harpoon` channel uses both
+  `"stateless": true` and `"proc_affinity": true`. Its MCP `2026-07-28`
+  requests are self-contained, but Harpoon target and catalog registration
+  remain replica-local. Include it only while Harpoon has at least one
+  registered target; never include target details.
 - Other configured channels use their canonical names and the same transport
-  rule: process-local stdio or in-memory work is true; remote Streamable HTTP
-  omits the key.
+  rule: process-local stdio or in-memory work uses `proc_affinity`; remote
+  Streamable HTTP advertises neither capability unless it independently
+  supports self-contained requests.
 
 For a remote Streamable HTTP main channel without enabled Harpoon, the value
 is:
@@ -116,21 +174,24 @@ For a remote Streamable HTTP main channel with enabled Harpoon, the value is:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "channels": [
     {"name": "main"},
-    {"name": "harpoon", "proc_affinity": true}
+    {"name": "harpoon", "stateless": true, "proc_affinity": true}
   ]
 }
 ```
 
 The header is additive metadata. Older tunnel-service versions ignore it, and
 its presence does not change current routing, queueing, Redis, shard-token,
-poll, or response behavior. Version 1 adds no transport field, session scope,
-session capability flag, affinity token, token echo, keyed FIFO lane, body
-field, command, or endpoint. This reader-first client protocol prerequisite
-does not provide service-side lazy-owner/FIFO behavior; that is a separate
-service implementation.
+poll, or response behavior. Version 2 advertises protocol sessionlessness; it
+does not make Harpoon or OAuth active-active while target and catalog
+registration remain local to one tunnel-client replica. A later registry-safe
+change can remove Harpoon's `proc_affinity` declaration. Neither version adds
+a transport field, affinity token, token echo, keyed FIFO lane, body field,
+command, or endpoint. This reader-first client protocol prerequisite does not
+provide service-side lazy-owner/FIFO behavior; that is a separate service
+implementation.
 
 Treat tunnel IDs, request IDs, and shard tokens as opaque strings. Do not parse
 them or infer routing from their contents.

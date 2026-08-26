@@ -48,6 +48,8 @@ func TestOpenAPIContractSurface(t *testing.T) {
 	assertOperationID(t, spec, "/v1/tunnels/{tunnel_id}/poll", "get", "pollTunnelCommands")
 	assertOperationID(t, spec, "/v1/tunnels/{tunnel_id}/response", "post", "postTunnelResponse")
 	const wantMCPServerInfoExample = `{"version":1,"channels":[{"name":"main","proc_affinity":true},{"name":"harpoon","proc_affinity":true}]}`
+	const wantModernHarpoonExample = `{"version":2,"channels":[{"name":"harpoon","stateless":true,"proc_affinity":true}]}`
+	const wantWireProtocolVersion = "2026-08-25"
 	for path, method := range map[string]string{
 		"/v1/tunnels/{tunnel_id}":                    "get",
 		"/v1/tunnels/{tunnel_id}/cloudflare/runtime": "get",
@@ -66,9 +68,25 @@ func TestOpenAPIContractSurface(t *testing.T) {
 			t.Fatalf("%s %s MCP server info maxLength = %v, want 4096", strings.ToUpper(method), path, schema["maxLength"])
 		}
 		examples := mustMap(t, header["examples"], path+".MCPServerInfo.examples")
-		example := mustMap(t, examples["stdio-and-harpoon"], path+".MCPServerInfo.examples.stdio-and-harpoon")
-		if got := mustString(t, example["value"], path+".MCPServerInfo.examples.stdio-and-harpoon.value"); got != wantMCPServerInfoExample {
+		example := mustMap(t, examples["legacy-stdio-and-harpoon"], path+".MCPServerInfo.examples.legacy-stdio-and-harpoon")
+		if got := mustString(t, example["value"], path+".MCPServerInfo.examples.legacy-stdio-and-harpoon.value"); got != wantMCPServerInfoExample {
 			t.Fatalf("%s %s MCP server info example = %q, want %q", strings.ToUpper(method), path, got, wantMCPServerInfoExample)
+		}
+		modernExample := mustMap(t, examples["modern-harpoon"], path+".MCPServerInfo.examples.modern-harpoon")
+		if got := mustString(t, modernExample["value"], path+".MCPServerInfo.examples.modern-harpoon.value"); got != wantModernHarpoonExample {
+			t.Fatalf("%s %s modern Harpoon example = %q, want %q", strings.ToUpper(method), path, got, wantModernHarpoonExample)
+		}
+
+		wireVersion := headerParameter(t, operation(t, spec, path, method), "X-Tunnel-Client-Wire-Protocol-Version")
+		if wireVersion["required"] == true {
+			t.Fatalf("%s %s tunnel wire protocol header must remain optional", strings.ToUpper(method), path)
+		}
+		wireVersionSchema := mustMap(t, wireVersion["schema"], path+".WireProtocolVersion.schema")
+		if got := mustString(t, wireVersionSchema["type"], path+".WireProtocolVersion.type"); got != "string" {
+			t.Fatalf("%s %s tunnel wire protocol type = %q, want string", strings.ToUpper(method), path, got)
+		}
+		if got := mustString(t, wireVersion["example"], path+".WireProtocolVersion.example"); got != wantWireProtocolVersion {
+			t.Fatalf("%s %s tunnel wire protocol example = %q, want %q", strings.ToUpper(method), path, got, wantWireProtocolVersion)
 		}
 	}
 	runtime := operation(t, spec, "/v1/tunnels/{tunnel_id}/cloudflare/runtime", "get")

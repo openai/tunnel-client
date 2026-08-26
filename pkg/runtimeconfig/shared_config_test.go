@@ -2705,8 +2705,10 @@ func TestBuildControlPlaneExtraHeadersRejectsReservedHeaders(t *testing.T) {
 		{name: "authorization from flag", flagValue: "Authorization: Bearer attacker"},
 		{name: "user agent from flag", flagValue: "User-Agent: custom-agent"},
 		{name: "client version from flag", flagValue: "X-Tunnel-Client-Version: dev"},
+		{name: "wire protocol version from flag", flagValue: "X-Tunnel-Client-Wire-Protocol-Version: legacy"},
 		{name: "MCP server info from flag", flagValue: "X-Tunnel-MCP-Server-Info: attacker"},
 		{name: "authorization from env", envValue: "authorization: Bearer attacker"},
+		{name: "wire protocol version from env", envValue: "x-tunnel-client-wire-protocol-version: legacy"},
 		{name: "MCP server info from env", envValue: "x-tunnel-mcp-server-info: attacker"},
 	}
 

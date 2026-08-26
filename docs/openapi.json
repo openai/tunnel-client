@@ -38,17 +38,31 @@
             "name": "X-Tunnel-MCP-Server-Info",
             "in": "header",
             "required": false,
-            "description": "Optional JSON-encoded v1 declaration of MCP channel process affinity. Version 1 allows only `version`, `channels`, channel `name`, and optional `proc_affinity`; omitted `proc_affinity` means false. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
+            "description": "Optional compact JSON declaration of MCP channel capabilities. Version 1 is unchanged and allows only `version`, `channels`, channel `name`, and optional `proc_affinity`. Version 2 adds optional `stateless`; `stateless` and `proc_affinity` are independent booleans, omitted values mean false, and false values are not serialized. Clients emit v1 when no stateless capability is advertised and v2 when stateless is present. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
             "schema": {
               "type": "string",
               "maxLength": 4096
             },
             "examples": {
-              "stdio-and-harpoon": {
-                "summary": "Process-affine stdio main plus built-in Harpoon",
+              "legacy-stdio-and-harpoon": {
+                "summary": "Legacy v1 process-affine stdio main plus built-in Harpoon",
                 "value": "{\"version\":1,\"channels\":[{\"name\":\"main\",\"proc_affinity\":true},{\"name\":\"harpoon\",\"proc_affinity\":true}]}"
+              },
+              "modern-harpoon": {
+                "summary": "Self-contained Harpoon requests with replica-local registration",
+                "value": "{\"version\":2,\"channels\":[{\"name\":\"harpoon\",\"stateless\":true,\"proc_affinity\":true}]}"
               }
             }
+          },
+          {
+            "name": "X-Tunnel-Client-Wire-Protocol-Version",
+            "in": "header",
+            "required": false,
+            "description": "Optional dated tunnel-client/control-plane wire-contract version. A missing header means legacy/backfill semantics; unknown future values must not be treated as the current version. This header is independent of per-channel MCP capabilities in X-Tunnel-MCP-Server-Info.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-08-25"
           },
           {
             "name": "X-Tunnel-Client-Name",
@@ -141,17 +155,31 @@
             "name": "X-Tunnel-MCP-Server-Info",
             "in": "header",
             "required": false,
-            "description": "Optional JSON-encoded v1 declaration of MCP channel process affinity. Version 1 allows only `version`, `channels`, channel `name`, and optional `proc_affinity`; omitted `proc_affinity` means false. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
+            "description": "Optional compact JSON declaration of MCP channel capabilities. Version 1 is unchanged and allows only `version`, `channels`, channel `name`, and optional `proc_affinity`. Version 2 adds optional `stateless`; `stateless` and `proc_affinity` are independent booleans, omitted values mean false, and false values are not serialized. Clients emit v1 when no stateless capability is advertised and v2 when stateless is present. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
             "schema": {
               "type": "string",
               "maxLength": 4096
             },
             "examples": {
-              "stdio-and-harpoon": {
-                "summary": "Process-affine stdio main plus built-in Harpoon",
+              "legacy-stdio-and-harpoon": {
+                "summary": "Legacy v1 process-affine stdio main plus built-in Harpoon",
                 "value": "{\"version\":1,\"channels\":[{\"name\":\"main\",\"proc_affinity\":true},{\"name\":\"harpoon\",\"proc_affinity\":true}]}"
+              },
+              "modern-harpoon": {
+                "summary": "Self-contained Harpoon requests with replica-local registration",
+                "value": "{\"version\":2,\"channels\":[{\"name\":\"harpoon\",\"stateless\":true,\"proc_affinity\":true}]}"
               }
             }
+          },
+          {
+            "name": "X-Tunnel-Client-Wire-Protocol-Version",
+            "in": "header",
+            "required": false,
+            "description": "Optional dated tunnel-client/control-plane wire-contract version. A missing header means legacy/backfill semantics; unknown future values must not be treated as the current version. This header is independent of per-channel MCP capabilities in X-Tunnel-MCP-Server-Info.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-08-25"
           },
           {
             "name": "X-Tunnel-Client-Name",
@@ -370,17 +398,31 @@
             "name": "X-Tunnel-MCP-Server-Info",
             "in": "header",
             "required": false,
-            "description": "Optional JSON-encoded v1 declaration of MCP channel process affinity. Version 1 allows only `version`, `channels`, channel `name`, and optional `proc_affinity`; omitted `proc_affinity` means false. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
+            "description": "Optional compact JSON declaration of MCP channel capabilities. Version 1 is unchanged and allows only `version`, `channels`, channel `name`, and optional `proc_affinity`. Version 2 adds optional `stateless`; `stateless` and `proc_affinity` are independent booleans, omitted values mean false, and false values are not serialized. Clients emit v1 when no stateless capability is advertised and v2 when stateless is present. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
             "schema": {
               "type": "string",
               "maxLength": 4096
             },
             "examples": {
-              "stdio-and-harpoon": {
-                "summary": "Process-affine stdio main plus built-in Harpoon",
+              "legacy-stdio-and-harpoon": {
+                "summary": "Legacy v1 process-affine stdio main plus built-in Harpoon",
                 "value": "{\"version\":1,\"channels\":[{\"name\":\"main\",\"proc_affinity\":true},{\"name\":\"harpoon\",\"proc_affinity\":true}]}"
+              },
+              "modern-harpoon": {
+                "summary": "Self-contained Harpoon requests with replica-local registration",
+                "value": "{\"version\":2,\"channels\":[{\"name\":\"harpoon\",\"stateless\":true,\"proc_affinity\":true}]}"
               }
             }
+          },
+          {
+            "name": "X-Tunnel-Client-Wire-Protocol-Version",
+            "in": "header",
+            "required": false,
+            "description": "Optional dated tunnel-client/control-plane wire-contract version. A missing header means legacy/backfill semantics; unknown future values must not be treated as the current version. This header is independent of per-channel MCP capabilities in X-Tunnel-MCP-Server-Info.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-08-25"
           },
           {
             "name": "X-Tunnel-Client-Name",
@@ -548,17 +590,31 @@
             "name": "X-Tunnel-MCP-Server-Info",
             "in": "header",
             "required": false,
-            "description": "Optional JSON-encoded v1 declaration of MCP channel process affinity. Version 1 allows only `version`, `channels`, channel `name`, and optional `proc_affinity`; omitted `proc_affinity` means false. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
+            "description": "Optional compact JSON declaration of MCP channel capabilities. Version 1 is unchanged and allows only `version`, `channels`, channel `name`, and optional `proc_affinity`. Version 2 adds optional `stateless`; `stateless` and `proc_affinity` are independent booleans, omitted values mean false, and false values are not serialized. Clients emit v1 when no stateless capability is advertised and v2 when stateless is present. Names are canonical and unique, with at most 32 channels and 4096 UTF-8 bytes. The value must not include URLs, commands, transport details, headers, payloads, secrets, targets, or customer IDs. This is additive metadata; older tunnel-service versions ignore it.",
             "schema": {
               "type": "string",
               "maxLength": 4096
             },
             "examples": {
-              "stdio-and-harpoon": {
-                "summary": "Process-affine stdio main plus built-in Harpoon",
+              "legacy-stdio-and-harpoon": {
+                "summary": "Legacy v1 process-affine stdio main plus built-in Harpoon",
                 "value": "{\"version\":1,\"channels\":[{\"name\":\"main\",\"proc_affinity\":true},{\"name\":\"harpoon\",\"proc_affinity\":true}]}"
+              },
+              "modern-harpoon": {
+                "summary": "Self-contained Harpoon requests with replica-local registration",
+                "value": "{\"version\":2,\"channels\":[{\"name\":\"harpoon\",\"stateless\":true,\"proc_affinity\":true}]}"
               }
             }
+          },
+          {
+            "name": "X-Tunnel-Client-Wire-Protocol-Version",
+            "in": "header",
+            "required": false,
+            "description": "Optional dated tunnel-client/control-plane wire-contract version. A missing header means legacy/backfill semantics; unknown future values must not be treated as the current version. This header is independent of per-channel MCP capabilities in X-Tunnel-MCP-Server-Info.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2026-08-25"
           },
           {
             "name": "X-Tunnel-Client-Name",

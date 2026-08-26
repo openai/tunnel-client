@@ -40,6 +40,65 @@ func TestNewSharedConnectionTransportNilBase(t *testing.T) {
 	t.Parallel()
 
 	require.Nil(t, NewSharedConnectionTransport(nil))
+	require.Nil(t, NewInitializeRestartingSharedConnectionTransport(nil))
+}
+
+func TestInitializeRestartingSharedConnectionTransportReconnectsForLaterInitialize(t *testing.T) {
+	t.Parallel()
+
+	var connections []*closeTrackingConn
+	base := &countingTransport{
+		connectFn: func() (mcp.Connection, error) {
+			conn := &closeTrackingConn{}
+			connections = append(connections, conn)
+			return conn, nil
+		},
+	}
+
+	shared := NewInitializeRestartingSharedConnectionTransport(base)
+	require.NotNil(t, shared)
+
+	conn, err := shared.Connect(context.Background())
+	require.NoError(t, err)
+
+	firstInitialize := &jsonrpc.Request{Method: "initialize"}
+	require.NoError(t, conn.Write(context.Background(), firstInitialize))
+	require.Equal(t, 1, base.connectCalls, "first initialize should use the initial connection")
+
+	require.NoError(t, conn.Write(context.Background(), &jsonrpc.Request{Method: "tools/list"}))
+	require.NoError(t, conn.Write(context.Background(), &jsonrpc.Request{Method: "initialize"}))
+
+	require.Equal(t, 2, base.connectCalls)
+	require.Len(t, connections, 2)
+	require.Equal(t, 1, connections[0].closed)
+	require.Equal(t, []string{"initialize", "tools/list"}, connections[0].writtenMethods())
+	require.Equal(t, []string{"initialize"}, connections[1].writtenMethods())
+}
+
+func TestSharedConnectionTransportDoesNotRestartForInitializeByDefault(t *testing.T) {
+	t.Parallel()
+
+	var connections []*closeTrackingConn
+	base := &countingTransport{
+		connectFn: func() (mcp.Connection, error) {
+			conn := &closeTrackingConn{}
+			connections = append(connections, conn)
+			return conn, nil
+		},
+	}
+
+	shared := NewSharedConnectionTransport(base)
+	require.NotNil(t, shared)
+
+	conn, err := shared.Connect(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, conn.Write(context.Background(), &jsonrpc.Request{Method: "initialize"}))
+	require.NoError(t, conn.Write(context.Background(), &jsonrpc.Request{Method: "initialize"}))
+
+	require.Equal(t, 1, base.connectCalls)
+	require.Len(t, connections, 1)
+	require.Zero(t, connections[0].closed)
+	require.Equal(t, []string{"initialize", "initialize"}, connections[0].writtenMethods())
 }
 
 func TestNewSharedConnectionTransportRetriesAfterFailure(t *testing.T) {
@@ -147,13 +206,15 @@ type closeTrackingConn struct {
 	closed   int
 	readErr  error
 	writeErr error
+	writes   []jsonrpc.Message
 }
 
 func (c *closeTrackingConn) Read(context.Context) (jsonrpc.Message, error) {
 	return nil, c.readErr
 }
 
-func (c *closeTrackingConn) Write(context.Context, jsonrpc.Message) error {
+func (c *closeTrackingConn) Write(_ context.Context, msg jsonrpc.Message) error {
+	c.writes = append(c.writes, msg)
 	return c.writeErr
 }
 
@@ -163,3 +224,15 @@ func (c *closeTrackingConn) Close() error {
 }
 
 func (c *closeTrackingConn) SessionID() string { return "" }
+
+func (c *closeTrackingConn) writtenMethods() []string {
+	methods := make([]string, 0, len(c.writes))
+	for _, msg := range c.writes {
+		request, ok := msg.(*jsonrpc.Request)
+		if !ok || request == nil {
+			continue
+		}
+		methods = append(methods, request.Method)
+	}
+	return methods
+}

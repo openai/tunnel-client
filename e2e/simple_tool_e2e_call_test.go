@@ -171,6 +171,8 @@ func TestControlPlaneRequestsSendClientMetadata(t *testing.T) {
 	const (
 		clientInstanceHeader = "X-Tunnel-Client-Instance-Id"
 		serverInfoHeader     = "X-Tunnel-MCP-Server-Info"
+		wireProtocolHeader   = "X-Tunnel-Client-Wire-Protocol-Version"
+		wireProtocolVersion  = "2026-08-25"
 	)
 
 	for _, testCase := range []struct {
@@ -185,7 +187,7 @@ func TestControlPlaneRequestsSendClientMetadata(t *testing.T) {
 		{
 			name:           "remote main with enabled Harpoon",
 			enableHarpoon:  true,
-			wantServerInfo: `{"version":1,"channels":[{"name":"main"},{"name":"harpoon","proc_affinity":true}]}`,
+			wantServerInfo: `{"version":2,"channels":[{"name":"main"},{"name":"harpoon","stateless":true,"proc_affinity":true}]}`,
 		},
 	} {
 		testCase := testCase
@@ -219,6 +221,9 @@ func TestControlPlaneRequestsSendClientMetadata(t *testing.T) {
 				}
 				if got := request.Headers.Get(serverInfoHeader); got != testCase.wantServerInfo {
 					t.Fatalf("control-plane %s %s sent %s=%q, want %q", request.Method, request.Path, serverInfoHeader, got, testCase.wantServerInfo)
+				}
+				if got := request.Headers.Get(wireProtocolHeader); got != wireProtocolVersion {
+					t.Fatalf("control-plane %s %s sent %s=%q, want %q", request.Method, request.Path, wireProtocolHeader, got, wireProtocolVersion)
 				}
 			}
 		})

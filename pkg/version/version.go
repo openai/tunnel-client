@@ -12,6 +12,15 @@ const (
 	ClientName              = "oai-tunnel-client"
 	fallbackSemanticVersion = "0.0.1"
 
+	// WireProtocolHeaderName carries the dated tunnel-client/control-plane wire
+	// contract supported by this binary. It is distinct from both the binary
+	// release version and MCP's per-request protocol version.
+	WireProtocolHeaderName = "X-Tunnel-Client-Wire-Protocol-Version"
+	// WireProtocolVersion is the current dated tunnel-client/control-plane wire
+	// contract. Missing headers identify legacy clients; future versions use
+	// the same YYYY-MM-DD shape as MCP protocol versions.
+	WireProtocolVersion = "2026-08-25"
+
 	// FlavorFull is the default build flavor for the existing complete client.
 	FlavorFull = "full"
 	// FlavorRuntime identifies the narrow runtime artifact without cloudflared.
