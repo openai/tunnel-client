@@ -79,6 +79,8 @@ jobs:
         run: bash ./scripts/publish_latest_homebrew_formula_test.sh
       - name: Test release provenance tooling
         run: bash ./scripts/release_provenance_test.sh
+      - name: Test release evidence tooling
+        run: python3 ./scripts/release_evidence_test.py
       - name: Validate bundled cloudflared manifest
         run: |
           set -euo pipefail
@@ -908,12 +910,39 @@ jobs:
               )
           PY
 
+      - name: Install pinned Grype
+        id: grype
+        run: echo "path=$(./scripts/install_grype.sh)" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate release vulnerability and enterprise evidence
+        env:
+          GRYPE_CHECK_FOR_APP_UPDATE: "false"
+          GRYPE_DB_AUTO_UPDATE: "false"
+          GRYPE_DB_CACHE_DIR: ${{ runner.temp }}/grype-db
+        run: |
+          set -euo pipefail
+          "${{ steps.grype.outputs.path }}" db update
+          python3 ./scripts/generate_release_evidence.py \
+            --release "${GITHUB_REF_NAME}" \
+            --source-digest "${GITHUB_SHA}" \
+            --artifact-dir dist/public \
+            --grype "${{ steps.grype.outputs.path }}"
+
       - name: Generate SHA256 checksums
         working-directory: dist/public
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=( *.zip *.tar.gz *.spdx.json *-licenses.txt *-scan-manifest.json )
+          files=(
+            *.zip
+            *.tar.gz
+            *.spdx.json
+            *-licenses.txt
+            *-scan-manifest.json
+            *-vulnerability-report.json
+            *.openvex.json
+            *-enterprise-evidence.json
+          )
           ((${#files[@]} > 0))
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "${files[@]}" > SHA256SUMS.txt
@@ -957,11 +986,27 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           {
-            for file in *.zip *.tar.gz *.spdx.json *-licenses.txt *-scan-manifest.json SHA256SUMS.txt; do
+            for file in \
+              *.zip \
+              *.tar.gz \
+              *.spdx.json \
+              *-licenses.txt \
+              *-scan-manifest.json \
+              *-vulnerability-report.json \
+              *.openvex.json \
+              *-enterprise-evidence.json \
+              SHA256SUMS.txt; do
               printf '%s/%s\n' "${PUBLIC_BASE_URL}" "${file}"
             done
             printf '%s/%s\n' "${PUBLIC_BASE_URL}" "tunnel-client-${GITHUB_REF_NAME}-provenance.sigstore.json"
           } > PUBLIC_URLS.txt
+
+      - name: Verify release evidence contract
+        run: |
+          ./scripts/verify_release_evidence.sh \
+            --artifact-dir dist/public \
+            --release "${GITHUB_REF_NAME}" \
+            --source-digest "${GITHUB_SHA}"
 
       - name: Verify release artifact contract
         working-directory: dist/public
@@ -1220,6 +1265,9 @@ jobs:
             dist/public/*.spdx.json
             dist/public/*-licenses.txt
             dist/public/*-scan-manifest.json
+            dist/public/*-vulnerability-report.json
+            dist/public/*.openvex.json
+            dist/public/*-enterprise-evidence.json
             dist/public/*-provenance.sigstore.json
             dist/public/SHA256SUMS.txt
             dist/public/PUBLIC_URLS.txt
@@ -1235,26 +1283,17 @@ jobs:
           bundle="tunnel-client-${GITHUB_REF_NAME}-provenance.sigstore.json"
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --dir "${tmp_dir}" \
-            --pattern "${stem}.zip" \
-            --pattern "${stem}.spdx.json" \
-            --pattern "${stem}-licenses.txt" \
-            --pattern SHA256SUMS.txt \
-            --pattern "${bundle}"
-          for file in "${stem}.zip" "${stem}.spdx.json" "${stem}-licenses.txt" SHA256SUMS.txt "${bundle}"; do
-            test -f "${tmp_dir}/${file}"
-          done
-          for subject in "${stem}.zip" "${stem}.spdx.json" "${stem}-licenses.txt" SHA256SUMS.txt; do
-            gh attestation verify "${tmp_dir}/${subject}" \
-              --bundle "${tmp_dir}/${bundle}" \
-              --repo openai/tunnel-client \
-              --signer-workflow openai/tunnel-client/.github/workflows/release.yml \
-              --source-ref "refs/tags/${GITHUB_REF_NAME}" \
-              --source-digest "${GITHUB_SHA}" \
-              --signer-digest "${GITHUB_SHA}" \
-              --predicate-type https://slsa.dev/provenance/v1 \
-              --deny-self-hosted-runners
-          done
+            --dir "${tmp_dir}"
+          test -f "${tmp_dir}/${bundle}"
+          ./scripts/verify_release_provenance.sh \
+            --bundle "${tmp_dir}/${bundle}" \
+            --artifact-dir "${tmp_dir}" \
+            --release "${GITHUB_REF_NAME}" \
+            --source-digest "${GITHUB_SHA}"
+          ./scripts/verify_release_evidence.sh \
+            --artifact-dir "${tmp_dir}" \
+            --release "${GITHUB_REF_NAME}" \
+            --source-digest "${GITHUB_SHA}"
           ./scripts/verify_release_archive.sh \
             --flavor runtime \
             --archive "${tmp_dir}/${stem}.zip" \
