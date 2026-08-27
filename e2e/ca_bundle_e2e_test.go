@@ -83,7 +83,10 @@ func newHTTPClient(t *testing.T, bundlePath string) *http.Client {
 	if err != nil {
 		t.Fatalf("build transport: %v", err)
 	}
-	return &http.Client{Transport: transport, Timeout: time.Second}
+	// Race-enabled standalone builds run this package alongside the rest of
+	// the public test suite. Keep a bounded failure guard, but leave enough
+	// headroom for a loaded CI worker to schedule the local TLS handshake.
+	return &http.Client{Transport: transport, Timeout: 5 * time.Second}
 }
 
 func loadConfigWithBundle(t *testing.T, bundlePath string) *config.Config {

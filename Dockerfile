@@ -92,11 +92,6 @@ WORKDIR /app
 COPY --from=builder /usr/local/bin/tunnel-client /usr/bin/tunnel-client
 COPY --from=cloudflared-builder /usr/local/bin/cloudflared /usr/bin/cloudflared
 
-FROM runtime-base AS unittest
-RUN printf '#!/bin/sh\nexec "$@"\n' > /entrypoint.sh \
-    && chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
-
 FROM runtime-base
 EXPOSE 8080
 

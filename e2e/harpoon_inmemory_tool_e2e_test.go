@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -163,13 +162,4 @@ func TestHarpoonInMemoryCallTargetToolCall(t *testing.T) {
 	if len(delivered) != 3 {
 		t.Fatalf("expected three delivered commands; got %d", len(delivered))
 	}
-}
-
-func mustParseURL(tb testing.TB, raw string) *url.URL {
-	tb.Helper()
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		tb.Fatalf("parse url %q: %v", raw, err)
-	}
-	return parsed
 }
