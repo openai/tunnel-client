@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
@@ -105,6 +106,122 @@ func TestAdditionalStreamableTransportPreservesLegacySDKInitializeFlow(t *testin
 	httpMethods := fallback.httpMethods()
 	require.Contains(t, httpMethods, http.MethodGet)
 	require.Contains(t, httpMethods, http.MethodDelete)
+}
+
+func TestLegacyProtocolForTestingRejectsDiscoverAndPreservesLegacySession(t *testing.T) {
+	t.Parallel()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "legacy-harpoon", Version: "test"}, nil)
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	serverSession, err := server.Connect(ctx, &legacyProtocolForTestingTransport{base: serverTransport}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, serverSession.Close())
+	})
+
+	recordingTransport := &recordingTransport{base: clientTransport}
+	client := mcp.NewClient(&mcp.Implementation{Name: "modern-test-client", Version: "test"}, nil)
+	clientSession, err := client.Connect(ctx, recordingTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, clientSession.Close())
+	})
+	require.NotNil(t, clientSession.InitializeResult())
+	require.Equal(t, "2025-11-25", clientSession.InitializeResult().ProtocolVersion)
+
+	_, err = clientSession.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{
+		"server/discover",
+		"initialize",
+		"notifications/initialized",
+		"tools/list",
+	}, recordingTransport.requestMethods())
+}
+
+func TestLegacyProtocolForTestingDoesNotLetSelfContainedRequestCreateSession(t *testing.T) {
+	t.Parallel()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "legacy-harpoon", Version: "test"}, nil)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	serverSession, err := server.Connect(ctx, &legacyProtocolForTestingTransport{base: serverTransport}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, serverSession.Close())
+	})
+
+	connection, err := clientTransport.Connect(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, connection.Close())
+	})
+
+	modernID, err := jsonrpc.MakeID("modern-tools")
+	require.NoError(t, err)
+	modernParams, err := json.Marshal(map[string]any{
+		"_meta": map[string]any{
+			mcp.MetaKeyProtocolVersion:    "2026-07-28",
+			mcp.MetaKeyClientInfo:         map[string]any{"name": "modern-test-client", "version": "test"},
+			mcp.MetaKeyClientCapabilities: map[string]any{},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, connection.Write(ctx, &jsonrpc.Request{
+		ID:     modernID,
+		Method: "tools/list",
+		Params: modernParams,
+	}))
+	modernResponse := readJSONRPCResponse(t, ctx, connection)
+	var protocolErr *jsonrpc.Error
+	require.ErrorAs(t, modernResponse.Error, &protocolErr)
+	require.EqualValues(t, jsonrpc.CodeInvalidRequest, protocolErr.Code)
+
+	legacyID, err := jsonrpc.MakeID("legacy-tools-before-initialize")
+	require.NoError(t, err)
+	require.NoError(t, connection.Write(ctx, &jsonrpc.Request{
+		ID:     legacyID,
+		Method: "tools/list",
+		Params: json.RawMessage(`{}`),
+	}))
+	legacyResponse := readJSONRPCResponse(t, ctx, connection)
+	require.Error(t, legacyResponse.Error, "a rejected modern request must not initialize the legacy session")
+
+	initializeID, err := jsonrpc.MakeID("legacy-initialize")
+	require.NoError(t, err)
+	initializeParams, err := json.Marshal(map[string]any{
+		"protocolVersion": "2025-11-25",
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "legacy-test-client", "version": "test"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, connection.Write(ctx, &jsonrpc.Request{
+		ID:     initializeID,
+		Method: "initialize",
+		Params: initializeParams,
+	}))
+	initializeResponse := readJSONRPCResponse(t, ctx, connection)
+	require.NoError(t, initializeResponse.Error)
+
+	require.NoError(t, connection.Write(ctx, &jsonrpc.Request{
+		Method: "notifications/initialized",
+		Params: json.RawMessage("{}"),
+	}))
+
+	postInitializeID, err := jsonrpc.MakeID("modern-tools-after-initialize")
+	require.NoError(t, err)
+	require.NoError(t, connection.Write(ctx, &jsonrpc.Request{
+		ID:     postInitializeID,
+		Method: "tools/list",
+		Params: modernParams,
+	}))
+	postInitializeResponse := readJSONRPCResponse(t, ctx, connection)
+	require.NoError(t, postInitializeResponse.Error, "an established legacy session should accept request metadata")
 }
 
 func newAdditionalStreamableTransportEndpoint(t *testing.T) string {
@@ -222,6 +339,66 @@ func readStreamableJSONRPCResponse(t *testing.T, resp *http.Response) []byte {
 	require.NoError(t, scanner.Err())
 	require.NotEmpty(t, data, "SSE response should contain a data event: %s", body)
 	return []byte(strings.Join(data, "\n"))
+}
+
+func readJSONRPCResponse(t *testing.T, ctx context.Context, connection mcp.Connection) *jsonrpc.Response {
+	t.Helper()
+	message, err := connection.Read(ctx)
+	require.NoError(t, err)
+	response, ok := message.(*jsonrpc.Response)
+	require.True(t, ok, "message = %T, want *jsonrpc.Response", message)
+	return response
+}
+
+type recordingTransport struct {
+	base mcp.Transport
+
+	mu      sync.Mutex
+	methods []string
+}
+
+func (t *recordingTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	connection, err := t.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &recordingConnection{base: connection, record: t.recordMethod}, nil
+}
+
+func (t *recordingTransport) recordMethod(method string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.methods = append(t.methods, method)
+}
+
+func (t *recordingTransport) requestMethods() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.methods...)
+}
+
+type recordingConnection struct {
+	base   mcp.Connection
+	record func(string)
+}
+
+func (c *recordingConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
+	return c.base.Read(ctx)
+}
+
+func (c *recordingConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	if request, ok := message.(*jsonrpc.Request); ok && c.record != nil {
+		c.record(request.Method)
+	}
+	return c.base.Write(ctx, message)
+}
+
+func (c *recordingConnection) Close() error {
+	return c.base.Close()
+}
+
+func (c *recordingConnection) SessionID() string {
+	return c.base.SessionID()
 }
 
 type additionalTransportTestLifecycle struct {

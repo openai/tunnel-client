@@ -2,6 +2,7 @@ package runtimeharpoon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -20,9 +21,10 @@ import (
 // request. Reusing the original InMemoryTransport after that close would reuse
 // its closed pipe forever.
 type restartableInMemoryTransport struct {
-	ctx    context.Context
-	server *mcp.Server
-	logger *slog.Logger
+	ctx                      context.Context
+	server                   *mcp.Server
+	logger                   *slog.Logger
+	legacyProtocolForTesting bool
 
 	mu              sync.Mutex
 	stopped         bool
@@ -31,13 +33,26 @@ type restartableInMemoryTransport struct {
 }
 
 func newRestartableInMemoryTransport(ctx context.Context, server *mcp.Server, logger *slog.Logger) mcp.Transport {
+	return newRestartableInMemoryTransportWithLegacyProtocolForTesting(ctx, server, logger, false)
+}
+
+// newRestartableInMemoryTransportWithLegacyProtocolForTesting keeps the
+// production transport unchanged unless the dedicated integration-test binary
+// explicitly asks for the old-client fixture.
+func newRestartableInMemoryTransportWithLegacyProtocolForTesting(
+	ctx context.Context,
+	server *mcp.Server,
+	logger *slog.Logger,
+	legacyProtocolForTesting bool,
+) mcp.Transport {
 	if ctx == nil || server == nil {
 		return nil
 	}
 	transport := &restartableInMemoryTransport{
-		ctx:    ctx,
-		server: server,
-		logger: logger,
+		ctx:                      ctx,
+		server:                   server,
+		logger:                   logger,
+		legacyProtocolForTesting: legacyProtocolForTesting,
 	}
 	// go-sdk intentionally detaches server request contexts from the context
 	// passed to Server.Connect. Reattach each request to its isolated session
@@ -72,8 +87,12 @@ func (t *restartableInMemoryTransport) Connect(ctx context.Context) (mcp.Connect
 	}
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	var serverSideTransport mcp.Transport = serverTransport
+	if t.legacyProtocolForTesting {
+		serverSideTransport = &legacyProtocolForTestingTransport{base: serverTransport}
+	}
 	sessionCtx, cancel := context.WithCancel(t.ctx)
-	session, err := t.server.Connect(sessionCtx, serverTransport, nil)
+	session, err := t.server.Connect(sessionCtx, serverSideTransport, nil)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -261,4 +280,152 @@ func (c *restartableInMemoryConnection) SessionID() string {
 		return ""
 	}
 	return c.base.SessionID()
+}
+
+// legacyProtocolForTestingTransport filters modern protocol requests before
+// go-sdk's ServerSession.handle can infer a session from request-scoped _meta.
+// Receiving middleware runs after that inference, so it cannot faithfully
+// emulate an old client that requires initialize first.
+type legacyProtocolForTestingTransport struct {
+	base mcp.Transport
+}
+
+func (t *legacyProtocolForTestingTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	if t == nil || t.base == nil {
+		return nil, nil
+	}
+	connection, err := t.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &legacyProtocolForTestingConnection{base: connection}, nil
+}
+
+type legacyProtocolForTestingConnection struct {
+	base mcp.Connection
+
+	mu                sync.Mutex
+	pendingInitialize jsonrpc.ID
+	hasPendingInit    bool
+	initialized       bool
+}
+
+func (c *legacyProtocolForTestingConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
+	if c == nil || c.base == nil {
+		return nil, nil
+	}
+	for {
+		message, err := c.base.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		request, ok := message.(*jsonrpc.Request)
+		if !ok {
+			return message, nil
+		}
+		protocolErr := legacyProtocolForTestingError(request, c.isInitialized())
+		if protocolErr == nil {
+			c.noteInitializeRequest(request)
+			return message, nil
+		}
+		if request.IsCall() {
+			if err := c.base.Write(ctx, &jsonrpc.Response{ID: request.ID, Error: protocolErr}); err != nil {
+				return nil, err
+			}
+		}
+	}
+}
+
+func (c *legacyProtocolForTestingConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	if c == nil || c.base == nil {
+		return nil
+	}
+	if err := c.base.Write(ctx, message); err != nil {
+		return err
+	}
+	c.noteInitializeResponse(message)
+	return nil
+}
+
+func (c *legacyProtocolForTestingConnection) Close() error {
+	if c == nil || c.base == nil {
+		return nil
+	}
+	return c.base.Close()
+}
+
+func (c *legacyProtocolForTestingConnection) SessionID() string {
+	if c == nil || c.base == nil {
+		return ""
+	}
+	return c.base.SessionID()
+}
+
+func (c *legacyProtocolForTestingConnection) isInitialized() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.initialized
+}
+
+func (c *legacyProtocolForTestingConnection) noteInitializeRequest(request *jsonrpc.Request) {
+	if c == nil || request == nil || request.Method != "initialize" || !request.IsCall() {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingInitialize = request.ID
+	c.hasPendingInit = true
+}
+
+func (c *legacyProtocolForTestingConnection) noteInitializeResponse(message jsonrpc.Message) {
+	if c == nil {
+		return
+	}
+	response, ok := message.(*jsonrpc.Response)
+	if !ok || response.Error != nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hasPendingInit || response.ID.Raw() != c.pendingInitialize.Raw() {
+		return
+	}
+	c.initialized = true
+	c.hasPendingInit = false
+}
+
+func legacyProtocolForTestingError(request *jsonrpc.Request, initialized bool) *jsonrpc.Error {
+	if request == nil {
+		return nil
+	}
+	if request.Method == "server/discover" {
+		return &jsonrpc.Error{
+			Code:    jsonrpc.CodeMethodNotFound,
+			Message: "method not found",
+		}
+	}
+	if !initialized && requestHasSelfContainedProtocolMetadata(request) {
+		return &jsonrpc.Error{
+			Code:    jsonrpc.CodeInvalidRequest,
+			Message: "session required",
+		}
+	}
+	return nil
+}
+
+func requestHasSelfContainedProtocolMetadata(request *jsonrpc.Request) bool {
+	if request == nil || len(request.Params) == 0 {
+		return false
+	}
+	var params struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return false
+	}
+	_, ok := params.Meta[mcp.MetaKeyProtocolVersion]
+	return ok
 }

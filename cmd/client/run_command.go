@@ -28,6 +28,11 @@ type runEmbeddedMCPStubOptions struct {
 	ServerVersion string
 }
 
+// testOnlyLegacyHarpoonProtocol is set only by the dedicated integration-test
+// binary. The normal tunnel-client binary leaves it false and has no runtime
+// flag or environment variable for this compatibility fixture.
+var testOnlyLegacyHarpoonProtocol = "false"
+
 type tunnelEventLogger struct {
 	*fxevent.SlogLogger
 	logger        *slog.Logger
@@ -133,13 +138,20 @@ func runTunnel(cmd *cobra.Command, lookupEnv func(string) (string, bool), embedd
 	}
 
 	var cloudflaredSupervisor *cloudflared.Supervisor
-	fxApp := app.New(cfg,
+	appOptions := []fx.Option{
 		fx.Provide(func() io.Writer { return cmd.OutOrStdout() }),
 		fx.Populate(&cloudflaredSupervisor),
 		fx.WithLogger(func(logger *slog.Logger, cfg *config.ControlPlaneConfig, metadataState *controlplane.MetadataState, mcpConfig *config.MCPConfig) fxevent.Logger {
 			return newTunnelEventLogger(logger, cfg, metadataState, mcpConfig)
 		}),
-	)
+	}
+	if testOnlyLegacyHarpoonProtocol == "true" {
+		appOptions = append(appOptions, fx.Provide(fx.Annotate(
+			func() bool { return true },
+			fx.ResultTags(`name:"legacy_harpoon_protocol_for_testing"`),
+		)))
+	}
+	fxApp := app.New(cfg, appOptions...)
 	var failureCh <-chan error
 	if cloudflaredSupervisor != nil {
 		failureCh = cloudflaredSupervisor.Failures()

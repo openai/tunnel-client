@@ -81,7 +81,7 @@ func TestBuildMCPServerInfoHeaderAdvertisesEffectiveBindings(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := buildMCPServerInfoHeader(&testCase.cfg, testCase.harpoonEnabled)
+			got, err := buildMCPServerInfoHeader(&testCase.cfg, testCase.harpoonEnabled, true)
 			if err != nil {
 				t.Fatalf("buildMCPServerInfoHeader returned error: %v", err)
 			}
@@ -103,6 +103,7 @@ func TestMCPServerInfoHeaderProviderTracksHarpoonEnablement(t *testing.T) {
 		&config.MCPConfig{TransportKind: config.MCPTransportHTTPStreamable},
 		nil,
 		func() bool { return enabled },
+		true,
 	)
 	if err != nil {
 		t.Fatalf("newMCPServerInfoHeaderProvider returned error: %v", err)
@@ -128,11 +129,27 @@ func TestMCPServerInfoHeaderProviderTracksHarpoonEnablement(t *testing.T) {
 
 func TestBuildMCPServerInfoHeaderHarpoonOnly(t *testing.T) {
 	t.Parallel()
-	got, err := buildMCPServerInfoHeader(&config.MCPConfig{AllowNoMain: true}, true)
+	got, err := buildMCPServerInfoHeader(&config.MCPConfig{AllowNoMain: true}, true, true)
 	if err != nil {
 		t.Fatalf("buildMCPServerInfoHeader returned error: %v", err)
 	}
 	if want := `{"version":2,"channels":[{"name":"harpoon","stateless":true,"proc_affinity":true}]}`; got != want {
+		t.Fatalf("header = %s, want %s", got, want)
+	}
+}
+
+func TestBuildMCPServerInfoHeaderLegacyHarpoonFixtureOmitsStateless(t *testing.T) {
+	t.Parallel()
+
+	got, err := buildMCPServerInfoHeader(
+		&config.MCPConfig{AllowNoMain: true},
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("buildMCPServerInfoHeader returned error: %v", err)
+	}
+	if want := `{"version":1,"channels":[{"name":"harpoon","proc_affinity":true}]}`; got != want {
 		t.Fatalf("header = %s, want %s", got, want)
 	}
 }
@@ -146,6 +163,7 @@ func TestMCPServerInfoHeaderProviderFiltersDisabledHarpoon(t *testing.T) {
 		}}},
 		&config.ControlPlaneConfig{PollChannelsConfigured: true, PollChannels: []types.Channel{types.DefaultChannel}},
 		func() bool { return true },
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provider: %v", err)
@@ -175,10 +193,10 @@ func TestMCPServerInfoHeaderProviderReservesFutureHarpoonChannel(t *testing.T) {
 	}
 	cfg := &config.MCPConfig{ChannelBindings: bindings}
 
-	if _, err := newMCPServerInfoHeaderProviderForPollChannels(cfg, nil, func() bool { return false }); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+	if _, err := newMCPServerInfoHeaderProviderForPollChannels(cfg, nil, func() bool { return false }, true); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
 		t.Fatalf("provider with possible Harpoon error = %v, want channel bound error", err)
 	}
-	if _, err := newMCPServerInfoHeaderProviderForPollChannels(cfg, nil, nil); err != nil {
+	if _, err := newMCPServerInfoHeaderProviderForPollChannels(cfg, nil, nil, true); err != nil {
 		t.Fatalf("provider without Harpoon registry returned error: %v", err)
 	}
 }
@@ -247,7 +265,7 @@ func TestBuildMCPServerInfoHeaderRejectsInvalidBindings(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := buildMCPServerInfoHeader(&testCase.cfg, testCase.harpoonEnabled)
+			_, err := buildMCPServerInfoHeader(&testCase.cfg, testCase.harpoonEnabled, true)
 			if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
 				t.Fatalf("error = %v, want substring %q", err, testCase.wantErr)
 			}

@@ -51,15 +51,16 @@ type ServiceFactory func(*Registry, *slog.Logger, []ServerOption) (MCPServerProv
 // SharedServiceParams contains the runtime-safe dependencies shared by the
 // runtime and full-client Harpoon graphs.
 type SharedServiceParams struct {
-	Lifecycle     fx.Lifecycle
-	Logger        *slog.Logger
-	MeterProvider *sdkmetric.MeterProvider
-	Config        *runtimeconfig.HarpoonConfig
-	Health        *runtimeconfig.HealthConfig
-	HealthSvc     runtimehealth.Service
-	TLSBundle     *tlsconfig.Bundle
-	Registrars    []TargetRegistrar
-	NewServer     ServiceFactory
+	Lifecycle                fx.Lifecycle
+	Logger                   *slog.Logger
+	MeterProvider            *sdkmetric.MeterProvider
+	Config                   *runtimeconfig.HarpoonConfig
+	Health                   *runtimeconfig.HealthConfig
+	HealthSvc                runtimehealth.Service
+	TLSBundle                *tlsconfig.Bundle
+	Registrars               []TargetRegistrar
+	NewServer                ServiceFactory
+	LegacyProtocolForTesting bool
 }
 
 // SharedServiceOutputs contains the common outputs produced for either
@@ -121,7 +122,12 @@ func NewSharedService(p SharedServiceParams) (SharedServiceOutputs, error) {
 
 	mcpServer := server.MCPServer()
 	ctx, cancel := context.WithCancel(context.Background())
-	clientTransport := newRestartableInMemoryTransport(ctx, mcpServer, p.Logger)
+	clientTransport := newRestartableInMemoryTransportWithLegacyProtocolForTesting(
+		ctx,
+		mcpServer,
+		p.Logger,
+		p.LegacyProtocolForTesting,
+	)
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			targets := registry.Targets()

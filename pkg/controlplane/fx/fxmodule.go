@@ -32,13 +32,14 @@ var Module = fx.Module(
 type fetcherParams struct {
 	fx.In
 
-	Config          *runtimeconfig.ControlPlaneConfig
-	MCPConfig       *runtimeconfig.MCPConfig
-	HarpoonRegistry runtimeharpoon.RegistryCounter `optional:"true"`
-	TLSBundle       *tlsconfig.Bundle
-	Logging         *runtimeconfig.LoggingConfig
-	Logger          *slog.Logger
-	MeterProvider   *sdkmetric.MeterProvider
+	Config                          *runtimeconfig.ControlPlaneConfig
+	MCPConfig                       *runtimeconfig.MCPConfig
+	HarpoonRegistry                 runtimeharpoon.RegistryCounter `optional:"true"`
+	TLSBundle                       *tlsconfig.Bundle
+	Logging                         *runtimeconfig.LoggingConfig
+	Logger                          *slog.Logger
+	MeterProvider                   *sdkmetric.MeterProvider
+	LegacyHarpoonProtocolForTesting bool `name:"legacy_harpoon_protocol_for_testing" optional:"true"`
 }
 
 type clientResult struct {
@@ -60,7 +61,12 @@ func newTunnelServiceClient(p fetcherParams) (clientResult, error) {
 			return p.HarpoonRegistry != nil && p.HarpoonRegistry.Count() > 0
 		}
 	}
-	mcpServerInfoHeader, err := newMCPServerInfoHeaderProviderForPollChannels(p.MCPConfig, p.Config, harpoonEnabled)
+	mcpServerInfoHeader, err := newMCPServerInfoHeaderProviderForPollChannels(
+		p.MCPConfig,
+		p.Config,
+		harpoonEnabled,
+		!p.LegacyHarpoonProtocolForTesting,
+	)
 	if err != nil {
 		return clientResult{}, err
 	}
@@ -89,11 +95,16 @@ func newTunnelServiceClient(p fetcherParams) (clientResult, error) {
 	}, nil
 }
 
-func newMCPServerInfoHeaderProviderForPollChannels(mcpConfig *runtimeconfig.MCPConfig, controlPlane *runtimeconfig.ControlPlaneConfig, harpoonEnabled func() bool) (func() (string, error), error) {
+func newMCPServerInfoHeaderProviderForPollChannels(
+	mcpConfig *runtimeconfig.MCPConfig,
+	controlPlane *runtimeconfig.ControlPlaneConfig,
+	harpoonEnabled func() bool,
+	harpoonStateless bool,
+) (func() (string, error), error) {
 	effectiveConfig := mcpConfigForPollChannels(mcpConfig, controlPlane)
 	harpoonAllowed := controlPlane == nil || !controlPlane.PollChannelsConfigured || containsPollChannel(controlPlane.PollChannels, types.ChannelHarpoon)
 	if len(effectiveConfig.ChannelBindings) > 0 {
-		if _, err := buildMCPServerInfoHeader(effectiveConfig, false); err != nil {
+		if _, err := buildMCPServerInfoHeader(effectiveConfig, false, harpoonStateless); err != nil {
 			return nil, err
 		}
 	}
@@ -101,13 +112,13 @@ func newMCPServerInfoHeaderProviderForPollChannels(mcpConfig *runtimeconfig.MCPC
 	// registration. Validate that future enabled shape before any request can
 	// depend on it.
 	if harpoonEnabled != nil && harpoonAllowed {
-		if _, err := buildMCPServerInfoHeader(effectiveConfig, true); err != nil {
+		if _, err := buildMCPServerInfoHeader(effectiveConfig, true, harpoonStateless); err != nil {
 			return nil, err
 		}
 	}
 	provider := func() (string, error) {
 		enabled := harpoonAllowed && harpoonEnabled != nil && harpoonEnabled()
-		return buildMCPServerInfoHeader(effectiveConfig, enabled)
+		return buildMCPServerInfoHeader(effectiveConfig, enabled, harpoonStateless)
 	}
 	return provider, nil
 }
@@ -138,7 +149,7 @@ func containsPollChannel(channels []types.Channel, want types.Channel) bool {
 	return false
 }
 
-func buildMCPServerInfoHeader(mcpConfig *runtimeconfig.MCPConfig, harpoonEnabled bool) (string, error) {
+func buildMCPServerInfoHeader(mcpConfig *runtimeconfig.MCPConfig, harpoonEnabled, harpoonStateless bool) (string, error) {
 	if mcpConfig == nil {
 		return "", errors.New("controlplane: MCP config is required")
 	}
@@ -176,7 +187,7 @@ func buildMCPServerInfoHeader(mcpConfig *runtimeconfig.MCPConfig, harpoonEnabled
 		// registry remains process-local in-memory state.
 		declarations = append(declarations, mcpserverinfo.Declaration{
 			Name:            types.ChannelHarpoon.String(),
-			Stateless:       true,
+			Stateless:       harpoonStateless,
 			ProcessAffinity: true,
 		})
 	}

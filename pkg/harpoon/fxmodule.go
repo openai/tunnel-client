@@ -46,16 +46,17 @@ func WithTarget(target Target) TargetRegistrar {
 type harpoonParams struct {
 	fx.In
 
-	Lifecycle     fx.Lifecycle
-	Logger        *slog.Logger
-	MeterProvider *sdkmetric.MeterProvider `optional:"true"`
-	Config        *config.HarpoonConfig
-	RuntimeConfig *runtimeconfig.HarpoonConfig
-	Health        *config.HealthConfig
-	HealthSvc     health.Service
-	AdminMux      *http.ServeMux `name:"admin_mux"`
-	TLSBundle     *tlsconfig.Bundle
-	Registrars    []TargetRegistrar `group:"harpoon_target_registrars"`
+	Lifecycle                fx.Lifecycle
+	Logger                   *slog.Logger
+	MeterProvider            *sdkmetric.MeterProvider `optional:"true"`
+	Config                   *config.HarpoonConfig
+	RuntimeConfig            *runtimeconfig.HarpoonConfig
+	Health                   *config.HealthConfig
+	HealthSvc                health.Service
+	AdminMux                 *http.ServeMux `name:"admin_mux"`
+	TLSBundle                *tlsconfig.Bundle
+	Registrars               []TargetRegistrar `group:"harpoon_target_registrars"`
+	LegacyProtocolForTesting bool              `name:"legacy_harpoon_protocol_for_testing" optional:"true"`
 }
 
 type harpoonOutputs struct {
@@ -75,14 +76,15 @@ func newHarpoonService(p harpoonParams) (harpoonOutputs, error) {
 	buffer := NewCallBuffer()
 	var server *Server
 	shared, err := runtimeharpoon.NewSharedService(runtimeharpoon.SharedServiceParams{
-		Lifecycle:     p.Lifecycle,
-		Logger:        p.Logger,
-		MeterProvider: p.MeterProvider,
-		Config:        p.RuntimeConfig,
-		Health:        p.Health,
-		HealthSvc:     p.HealthSvc,
-		TLSBundle:     p.TLSBundle,
-		Registrars:    p.Registrars,
+		Lifecycle:                p.Lifecycle,
+		Logger:                   p.Logger,
+		MeterProvider:            p.MeterProvider,
+		Config:                   p.RuntimeConfig,
+		Health:                   p.Health,
+		HealthSvc:                p.HealthSvc,
+		TLSBundle:                p.TLSBundle,
+		Registrars:               p.Registrars,
+		LegacyProtocolForTesting: p.LegacyProtocolForTesting,
 		NewServer: func(registry *runtimeharpoon.Registry, logger *slog.Logger, opts []runtimeharpoon.ServerOption) (runtimeharpoon.MCPServerProvider, error) {
 			var err error
 			server, err = NewServer(p.Config, registry, buffer, logger, opts...)
