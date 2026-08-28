@@ -411,6 +411,114 @@ func TestCollectLogExportRuntimeRedactsSplitHeaderFlagValues(t *testing.T) {
 	require.Equal(t, "[REDACTED]", got.Environment["MCP_RUNTIME_SECRET"])
 }
 
+func TestRedactHeaderListValueRedactsDelimitedHeaderValues(t *testing.T) {
+	t.Parallel()
+
+	got := redactHeaderListValue("Cookie: session=opaque-one; refresh=opaque-two, X-Api-Key: opaque-three")
+
+	require.Contains(t, got, "Cookie: [REDACTED]")
+	require.Contains(t, got, "X-Api-Key: [REDACTED]")
+	require.NotContains(t, got, "opaque-one")
+	require.NotContains(t, got, "opaque-two")
+	require.NotContains(t, got, "opaque-three")
+}
+
+func TestRedactHeaderArgValueRedactsDelimitedValueFragments(t *testing.T) {
+	t.Parallel()
+
+	got := redactHeaderArgValue("X-Token: prefix;opaque-fragment:rest")
+
+	require.Equal(t, "X-Token: [REDACTED]", got)
+	require.NotContains(t, got, "opaque-fragment")
+	require.NotContains(t, got, "rest")
+}
+
+func TestBuildLogsArchiveRedactsExtraHeaderEnvReferences(t *testing.T) {
+	t.Parallel()
+
+	const resolvedHeaderValue = "opaque-value-123"
+	runtime := collectLogExportRuntime(
+		[]string{
+			"tunnel-client",
+			"run",
+			"--mcp.extra-headers=Authorization: env:HEADER_VALUE",
+		},
+		[]string{
+			"HEADER_VALUE=" + resolvedHeaderValue,
+		},
+	)
+
+	archive, err := buildLogsArchive(
+		nil,
+		time.Now().UTC(),
+		time.Minute,
+		10,
+		runtime,
+		metricsSnapshot{},
+		logExportAdminSnapshots{},
+	)
+	require.NoError(t, err)
+
+	files := readTarGzForTest(t, archive)
+	require.NotContains(t, files["manifest.json"], resolvedHeaderValue)
+	require.NotContains(t, files[runtimeSnapshotFile], resolvedHeaderValue)
+	require.Contains(t, files[runtimeSnapshotFile], "HEADER_VALUE: '[REDACTED]'")
+}
+
+func TestCollectLogExportRuntimeRedactsExtraHeaderEnvReferencesFromEverySource(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Runtime: config.RuntimeConfig{
+			ConfigFileContents: []byte(`
+control_plane:
+  extra_headers:
+    X-Control: env:CONTROL_PLANE_CONFIG_VALUE
+mcp:
+  extra_headers:
+    Authorization: env:MCP_CONFIG_VALUE
+  discovery_extra_headers:
+    X-Discovery: "ENV: MCP_DISCOVERY_CONFIG_VALUE"
+`),
+		},
+	}
+	got := collectLogExportRuntime(
+		[]string{
+			"tunnel-client",
+			"run",
+			"--control-plane.extra-headers=X-Control: env:CONTROL_HEADER_VALUE",
+			"--mcp-extra-headers",
+			"Authorization: ENV:\vMCP_FLAG_HEADER_VALUE",
+			"--mcp.discovery-extra-headers=X-Discovery: env:DISCOVERY_HEADER_VALUE",
+		},
+		[]string{
+			"CONTROL_HEADER_VALUE=control-opaque-1",
+			"MCP_FLAG_HEADER_VALUE=flag-opaque-2",
+			"DISCOVERY_HEADER_VALUE=discovery-opaque-3",
+			"MCP_EXTRA_HEADERS=Authorization: env:MCP_ENV_HEADER_VALUE",
+			"MCP_ENV_HEADER_VALUE=env-opaque-4",
+			"CONTROL_PLANE_CONFIG_VALUE=config-control-opaque-5",
+			"MCP_CONFIG_VALUE=config-mcp-opaque-6",
+			"MCP_DISCOVERY_CONFIG_VALUE=config-discovery-opaque-7",
+			"MCP_SERVER_URL=https://example.test/mcp",
+		},
+		sensitiveRuntimeEnvReferencesFromConfig(cfg),
+	)
+
+	for _, key := range []string{
+		"CONTROL_HEADER_VALUE",
+		"MCP_FLAG_HEADER_VALUE",
+		"DISCOVERY_HEADER_VALUE",
+		"MCP_ENV_HEADER_VALUE",
+		"CONTROL_PLANE_CONFIG_VALUE",
+		"MCP_CONFIG_VALUE",
+		"MCP_DISCOVERY_CONFIG_VALUE",
+	} {
+		require.Equal(t, "[REDACTED]", got.Environment[key], key)
+	}
+	require.Equal(t, "https://example.test/mcp", got.Environment["MCP_SERVER_URL"])
+}
+
 func TestCollectLogExportRuntimeRedactsOpaqueCloudflaredTokenReferences(t *testing.T) {
 	t.Parallel()
 

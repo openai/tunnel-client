@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -300,6 +301,9 @@ func collectLogExportRuntime(argv []string, environ []string, extraSensitiveEnvK
 		envKeys[key] = struct{}{}
 	}
 	sensitiveEnvKeys := sensitiveRuntimeEnvReferencesFromArgs(argv)
+	for key := range sensitiveRuntimeEnvReferencesFromEnvironment(env) {
+		sensitiveEnvKeys[key] = struct{}{}
+	}
 	for _, keys := range extraSensitiveEnvKeys {
 		for key := range keys {
 			envKeys[key] = struct{}{}
@@ -413,15 +417,24 @@ func sensitiveRuntimeEnvReferencesFromArgs(argv []string) map[string]struct{} {
 	out := make(map[string]struct{})
 	for i, arg := range argv {
 		name, value, hasValue := splitLongFlag(arg)
-		if normalizeRuntimeKey(name) != "cloudflared_token" {
+		if normalizeRuntimeKey(name) != "cloudflared_token" && !isHeaderListKey(name) {
 			continue
 		}
 		if !hasValue && i+1 < len(argv) {
 			value = argv[i+1]
 		}
-		for _, key := range envReferencesFromString(value) {
-			out[key] = struct{}{}
+		addSensitiveRuntimeEnvReferences(out, value)
+	}
+	return out
+}
+
+func sensitiveRuntimeEnvReferencesFromEnvironment(env map[string]string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for key, value := range env {
+		if !isHeaderListKey(key) {
+			continue
 		}
+		addSensitiveRuntimeEnvReferences(out, value)
 	}
 	return out
 }
@@ -436,14 +449,36 @@ func sensitiveRuntimeEnvReferencesFromConfig(cfg *config.Config) map[string]stru
 		Cloudflared struct {
 			Token *string `yaml:"token"`
 		} `yaml:"cloudflared"`
+		ControlPlane struct {
+			ExtraHeaders map[string]string `yaml:"extra_headers"`
+		} `yaml:"control_plane"`
+		MCP struct {
+			ExtraHeaders          map[string]string `yaml:"extra_headers"`
+			DiscoveryExtraHeaders map[string]string `yaml:"discovery_extra_headers"`
+		} `yaml:"mcp"`
 	}
-	if err := yaml.Unmarshal(cfg.Runtime.ConfigFileContents, &file); err != nil || file.Cloudflared.Token == nil {
+	if err := yaml.Unmarshal(cfg.Runtime.ConfigFileContents, &file); err != nil {
 		return out
 	}
-	for _, key := range envReferencesFromString(*file.Cloudflared.Token) {
-		out[key] = struct{}{}
+	if file.Cloudflared.Token != nil {
+		addSensitiveRuntimeEnvReferences(out, *file.Cloudflared.Token)
+	}
+	for _, headers := range []map[string]string{
+		file.ControlPlane.ExtraHeaders,
+		file.MCP.ExtraHeaders,
+		file.MCP.DiscoveryExtraHeaders,
+	} {
+		for _, value := range headers {
+			addSensitiveRuntimeEnvReferences(out, value)
+		}
 	}
 	return out
+}
+
+func addSensitiveRuntimeEnvReferences(out map[string]struct{}, value string) {
+	for _, key := range envReferencesFromString(value) {
+		out[key] = struct{}{}
+	}
 }
 
 func envReferencesFromString(s string) []string {
@@ -456,6 +491,7 @@ func envReferencesFromString(s string) []string {
 		}
 		start := idx + len("env:")
 		tail := remaining[start:]
+		tail = strings.TrimLeftFunc(tail, unicode.IsSpace)
 		end := 0
 		for end < len(tail) && isEnvNameByte(tail[end]) {
 			end++
@@ -516,7 +552,7 @@ func splitLongFlag(arg string) (name string, value string, hasValue bool) {
 
 func redactRuntimeArgValue(key string, value string) string {
 	if isHeaderListKey(key) {
-		return redactHeaderListValue(value)
+		return redactHeaderArgValue(value)
 	}
 	if isSensitiveRuntimeKey(key) && !isReferenceValue(value) {
 		return "[REDACTED]"
@@ -836,6 +872,18 @@ func normalizeRuntimeKey(key string) string {
 	return strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(strings.TrimLeft(key, "-")))
 }
 
+func redactHeaderArgValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return value
+	}
+	key, _, ok := strings.Cut(trimmed, ":")
+	if !ok || strings.TrimSpace(key) == "" {
+		return "[REDACTED]"
+	}
+	return strings.TrimSpace(key) + ": [REDACTED]"
+}
+
 func redactHeaderListValue(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -856,13 +904,15 @@ func redactHeaderListValue(value string) string {
 		}
 		key, _, ok := strings.Cut(part, ":")
 		if !ok || strings.TrimSpace(key) == "" {
-			out = append(out, redactString(part))
+			if len(out) == 0 {
+				return "[REDACTED]"
+			}
 			continue
 		}
 		out = append(out, strings.TrimSpace(key)+": [REDACTED]")
 	}
 	if len(out) == 0 {
-		return redactString(value)
+		return "[REDACTED]"
 	}
 	return strings.Join(out, separator)
 }
