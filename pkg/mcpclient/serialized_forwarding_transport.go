@@ -19,7 +19,7 @@ import (
 // until the matching final JSON-RPC response, an error, or Close. Notifications
 // without ids release immediately after the write because no response is legal.
 func NewSerializedForwardingTransport(base ForwardingTransport) ForwardingTransport {
-	return newSerializedForwardingTransport(base, false, false)
+	return newSerializedForwardingTransport(base, false, false, false)
 }
 
 // NewSerializedForwardingTransportWithDeadlineRetirement wraps a shared
@@ -36,7 +36,16 @@ func NewSerializedForwardingTransport(base ForwardingTransport) ForwardingTransp
 // later request. Admitting the next request after retirement keeps terminal
 // responses flowing even when the timed-out server work never replies.
 func NewSerializedForwardingTransportWithDeadlineRetirement(base ForwardingTransport) ForwardingTransport {
-	return newSerializedForwardingTransport(base, true, false)
+	return newSerializedForwardingTransport(base, true, false, false)
+}
+
+// NewStdioDeadlineRetiringForwardingTransport applies shared stdio's
+// serialization and deadline-retirement behavior while preserving verbatim
+// lifecycle forwarding. If a later logical session reuses an outstanding
+// retired response ID, it uses a private downstream alias so the stale response
+// can stay tombstoned without wedging future sessions.
+func NewStdioDeadlineRetiringForwardingTransport(base ForwardingTransport) ForwardingTransport {
+	return newSerializedForwardingTransport(base, true, false, true)
 }
 
 // NewStdioForwardingTransport opts a shared stdio transport into the
@@ -48,10 +57,10 @@ func NewSerializedForwardingTransportWithDeadlineRetirement(base ForwardingTrans
 // stdio server. Callers must choose this wrapper explicitly so legacy stdio
 // servers keep verbatim forwarding by default.
 func NewStdioForwardingTransport(base ForwardingTransport) ForwardingTransport {
-	return newSerializedForwardingTransport(base, true, true)
+	return newSerializedForwardingTransport(base, true, true, true)
 }
 
-func newSerializedForwardingTransport(base ForwardingTransport, retireOnDeadline, ensureInitialized bool) ForwardingTransport {
+func newSerializedForwardingTransport(base ForwardingTransport, retireOnDeadline, ensureInitialized, aliasRetiredResponseIDs bool) ForwardingTransport {
 	if base == nil {
 		return nil
 	}
@@ -60,6 +69,7 @@ func newSerializedForwardingTransport(base ForwardingTransport, retireOnDeadline
 		lifecycleSlot:      make(chan struct{}, 1),
 		retireOnDeadline:   retireOnDeadline,
 		ensureInitialized:  ensureInitialized,
+		aliasRetiredIDs:    aliasRetiredResponseIDs,
 		retiredResponseIDs: make(map[jsonrpc.ID]struct{}),
 	}
 }
@@ -72,9 +82,14 @@ type serializedForwardingTransport struct {
 	// the caller's lifecycle messages verbatim, but older callers can omit the
 	// required notification and leave a compliant stdio server waiting forever.
 	ensureInitialized bool
+	// aliasRetiredIDs is stdio-only. Generic deadline-retiring wrappers keep
+	// rejecting reused IDs because their opaque preserved-error payloads cannot
+	// safely restore a private downstream alias.
+	aliasRetiredIDs bool
 
 	retiredMu          sync.Mutex
 	retiredResponseIDs map[jsonrpc.ID]struct{}
+	nextAliasedID      uint64
 
 	initializedMu           sync.Mutex
 	initializedNotification bool
@@ -83,6 +98,8 @@ type serializedForwardingTransport struct {
 const maxRetiredResponseIDs = 1024
 
 const initializedNotificationMethod = "notifications/initialized"
+
+const retiredResponseAliasPrefix = "__tunnel_client_stdio_retired_"
 
 func (t *serializedForwardingTransport) Connect(
 	ctx context.Context,
@@ -148,14 +165,42 @@ func (t *serializedForwardingTransport) retireResponseID(id jsonrpc.ID) bool {
 	return true
 }
 
-func (t *serializedForwardingTransport) isRetiredResponseID(id jsonrpc.ID) bool {
-	if t == nil || !id.IsValid() {
-		return false
+// wireResponseID keeps a caller ID verbatim unless an earlier timed-out
+// request with that ID can still produce a late response on the shared stdio
+// stream. In that case, use a fresh downstream-only ID so the old response can
+// remain tombstoned without rejecting every later logical session that reuses
+// the caller's ID.
+func (t *serializedForwardingTransport) wireResponseID(callerID jsonrpc.ID) (jsonrpc.ID, error) {
+	if t == nil || !callerID.IsValid() {
+		return callerID, nil
 	}
+
 	t.retiredMu.Lock()
 	defer t.retiredMu.Unlock()
-	_, ok := t.retiredResponseIDs[id]
-	return ok
+	if _, retired := t.retiredResponseIDs[callerID]; !retired {
+		return callerID, nil
+	}
+	if !t.aliasRetiredIDs {
+		return jsonrpc.ID{}, fmt.Errorf("MCP request ID %v is still retired", callerID.Raw())
+	}
+
+	for {
+		if t.nextAliasedID == ^uint64(0) {
+			return jsonrpc.ID{}, errors.New("mcpclient: exhausted stdio response ID aliases")
+		}
+		t.nextAliasedID++
+		aliasID, err := jsonrpc.MakeID(fmt.Sprintf("%s%d", retiredResponseAliasPrefix, t.nextAliasedID))
+		if err != nil {
+			return jsonrpc.ID{}, fmt.Errorf("mcpclient: build stdio response ID alias: %w", err)
+		}
+		if aliasID == callerID {
+			continue
+		}
+		if _, retired := t.retiredResponseIDs[aliasID]; retired {
+			continue
+		}
+		return aliasID, nil
+	}
 }
 
 func (t *serializedForwardingTransport) consumeRetiredResponseID(id jsonrpc.ID) bool {
@@ -206,6 +251,7 @@ type serializedForwardingConnection struct {
 	writeStarted      bool
 	writeCompleted    bool
 	awaitingResponse  bool
+	callerID          jsonrpc.ID
 	expectedID        jsonrpc.ID
 	requestMethod     string
 	deadlineRetirable bool
@@ -222,8 +268,9 @@ func (c *serializedForwardingConnection) Write(
 		return ForwardingWriteResult{}, nil
 	}
 
-	expectResponse, expectedID, method := expectedResponse(msg)
-	if err := c.acquire(ctx, expectResponse, expectedID, method); err != nil {
+	expectResponse, callerID, method := expectedResponse(msg)
+	expectedID, err := c.acquire(ctx, expectResponse, callerID, method)
+	if err != nil {
 		return ForwardingWriteResult{}, err
 	}
 	if method == "initialize" && c.transport != nil {
@@ -236,7 +283,7 @@ func (c *serializedForwardingConnection) Write(
 		return ForwardingWriteResult{}, nil
 	}
 
-	result, err := c.base.Write(ctx, header, msg)
+	result, err := c.base.Write(ctx, header, requestWithResponseID(msg, callerID, expectedID))
 	c.markWriteCompleted(err == nil)
 	awaitDeadlineRetirement := err != nil && c.shouldAwaitDeadlineRetirement(ctx, err)
 	if c.transport != nil && !awaitDeadlineRetirement && (err != nil || result.PreservedError != nil || result.StatusCode >= http.StatusBadRequest) {
@@ -280,11 +327,46 @@ func (c *serializedForwardingConnection) Read(ctx context.Context) (jsonrpc.Mess
 				return nil, err
 			}
 		}
+		callerMsg := c.restoreCallerResponseID(msg)
 		if c.shouldReleaseAfterRead(msg) {
 			c.release()
 		}
-		return msg, nil
+		return callerMsg, nil
 	}
+}
+
+func requestWithResponseID(msg jsonrpc.Message, callerID, expectedID jsonrpc.ID) jsonrpc.Message {
+	if !callerID.IsValid() || callerID == expectedID {
+		return msg
+	}
+	request, ok := msg.(*jsonrpc.Request)
+	if !ok || request == nil {
+		return msg
+	}
+	cloned := *request
+	cloned.ID = expectedID
+	return &cloned
+}
+
+func (c *serializedForwardingConnection) restoreCallerResponseID(msg jsonrpc.Message) jsonrpc.Message {
+	response, ok := msg.(*jsonrpc.Response)
+	if !ok || response == nil {
+		return msg
+	}
+
+	c.stateMu.Lock()
+	lockHeld := c.lockHeld
+	awaitingResponse := c.awaitingResponse
+	callerID := c.callerID
+	expectedID := c.expectedID
+	c.stateMu.Unlock()
+	if !lockHeld || !awaitingResponse || !callerID.IsValid() || callerID == expectedID || response.ID != expectedID {
+		return msg
+	}
+
+	cloned := *response
+	cloned.ID = callerID
+	return &cloned
 }
 
 func (c *serializedForwardingConnection) shouldSuppressInitializedNotification(msg jsonrpc.Message) bool {
@@ -399,24 +481,29 @@ func (c *serializedForwardingConnection) RetireResponseDeadline() bool {
 	return true
 }
 
-func (c *serializedForwardingConnection) acquire(ctx context.Context, expectResponse bool, expectedID jsonrpc.ID, method string) error {
+func (c *serializedForwardingConnection) acquire(ctx context.Context, expectResponse bool, callerID jsonrpc.ID, method string) (jsonrpc.ID, error) {
 	c.stateMu.Lock()
 	reuseHeldSlot := c.lockHeld && !c.writeStarted
 	c.stateMu.Unlock()
 
 	if !reuseHeldSlot && c.acquireLifecycle != nil {
 		if err := c.acquireLifecycle(ctx); err != nil {
-			return err
+			return jsonrpc.ID{}, err
 		}
 	}
 
-	if expectResponse && c.transport != nil && c.transport.isRetiredResponseID(expectedID) {
-		if reuseHeldSlot {
-			c.release()
-		} else if c.releaseLifecycle != nil {
-			c.releaseLifecycle()
+	expectedID := callerID
+	if expectResponse && c.transport != nil {
+		var err error
+		expectedID, err = c.transport.wireResponseID(callerID)
+		if err != nil {
+			if reuseHeldSlot {
+				c.release()
+			} else if c.releaseLifecycle != nil {
+				c.releaseLifecycle()
+			}
+			return jsonrpc.ID{}, err
 		}
-		return fmt.Errorf("MCP request ID %v is still retired", expectedID.Raw())
 	}
 
 	c.stateMu.Lock()
@@ -424,12 +511,13 @@ func (c *serializedForwardingConnection) acquire(ctx context.Context, expectResp
 	c.writeStarted = true
 	c.writeCompleted = false
 	c.awaitingResponse = expectResponse
+	c.callerID = callerID
 	c.expectedID = expectedID
 	c.requestMethod = method
 	c.deadlineRetirable = false
 	c.retired = false
 	c.stateMu.Unlock()
-	return nil
+	return expectedID, nil
 }
 
 func (c *serializedForwardingConnection) markWriteCompleted(completed bool) {
@@ -565,6 +653,7 @@ func (c *serializedForwardingConnection) clearLifecycleStateLocked() {
 	c.writeStarted = false
 	c.writeCompleted = false
 	c.awaitingResponse = false
+	c.callerID = jsonrpc.ID{}
 	c.expectedID = jsonrpc.ID{}
 	c.requestMethod = ""
 }

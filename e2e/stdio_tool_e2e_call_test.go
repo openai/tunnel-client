@@ -126,7 +126,7 @@ func TestHarnessStdioResponseDeadlineKeepsServingAfterTimedOutRequest(t *testing
 		timedOutRequestID = "cmd-timeout"
 		recoveryRequestID = "cmd-recovery"
 		timedOutCallID    = "call-timeout"
-		recoveryCallID    = "call-recovery"
+		recoveryCallID    = timedOutCallID
 	)
 
 	invocationLog := t.TempDir() + "/stdio-invocations.log"
@@ -175,6 +175,13 @@ func TestHarnessStdioResponseDeadlineKeepsServingAfterTimedOutRequest(t *testing
 				}
 				if !bytes.Contains(resp.JSONResponse, []byte(`"message":"hello recovered"`)) {
 					tb.Fatalf("recovery response payload mismatch: %s", string(resp.JSONResponse))
+				}
+				var payload map[string]any
+				if err := json.Unmarshal(resp.JSONResponse, &payload); err != nil {
+					tb.Fatalf("decode recovery response payload: %v", err)
+				}
+				if payload["id"] != recoveryCallID {
+					tb.Fatalf("recovery response ID mismatch: got %v want %q", payload["id"], recoveryCallID)
 				}
 			},
 		}},

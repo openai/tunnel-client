@@ -203,7 +203,7 @@ func newProcessorChannelBindings(p processorChannelBindingsParams) (map[types.Ch
 				if binding.StdioSendInitializedNotification {
 					transport = mcpclient.NewStdioForwardingTransport(transport)
 				} else {
-					transport = mcpclient.NewSerializedForwardingTransportWithDeadlineRetirement(transport)
+					transport = mcpclient.NewStdioDeadlineRetiringForwardingTransport(transport)
 				}
 			} else if canonical == types.ChannelHarpoon {
 				transport = mcpclient.NewSerializedForwardingTransport(transport)

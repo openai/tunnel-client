@@ -345,7 +345,10 @@ retire the timed-out JSON-RPC ID before admitting later work, and discard any
 later response for that ID so it cannot be mistaken for the next command. While
 a retired response remains outstanding, downstream server requests and
 notifications are ambiguous and may be dropped, but later terminal responses
-continue by ID. An `initialize` deadline remains fail-closed because
+continue by ID. If a later command reuses a still-retired caller ID, use a fresh
+downstream-only ID for that command and restore the caller ID on its matching
+response; this keeps the stale response unambiguous without rejecting future
+logical sessions forever. An `initialize` deadline remains fail-closed because
 initialization cannot be safely cancelled or replayed.
 
 Shared stdio also has one opt-in lifecycle compatibility guard. When
@@ -363,7 +366,9 @@ that omit the notification.
 
 For `command_type: "jsonrpc"`, `jsonrpc` is the raw JSON-RPC request or
 notification to send to the MCP server. Preserve JSON-RPC IDs and do not
-reinterpret the payload as a tunnel-protocol object.
+reinterpret the payload as a tunnel-protocol object, except for the private
+shared-stdio retired-ID alias described above. That alias is restored before
+the response returns to the control plane.
 
 ### `session_termination` commands
 

@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ func TestNewSerializedForwardingTransportNilBaseReturnsNil(t *testing.T) {
 
 	require.Nil(t, NewSerializedForwardingTransport(nil))
 	require.Nil(t, NewSerializedForwardingTransportWithDeadlineRetirement(nil))
+	require.Nil(t, NewStdioDeadlineRetiringForwardingTransport(nil))
 	require.Nil(t, NewStdioForwardingTransport(nil))
 }
 
@@ -28,7 +30,7 @@ func TestStdioDeadlineRetirementWrapperPreservesLegacyNotificationForwarding(t *
 	t.Parallel()
 
 	baseConn := newStubSerializedForwardingConnection()
-	transport := NewSerializedForwardingTransportWithDeadlineRetirement(&stubSerializedForwardingTransport{conn: baseConn})
+	transport := NewStdioDeadlineRetiringForwardingTransport(&stubSerializedForwardingTransport{conn: baseConn})
 	serializedTransport := transport.(*serializedForwardingTransport)
 
 	conn, err := transport.Connect(context.Background())
@@ -550,7 +552,7 @@ func TestSerializedForwardingTransportRetiresCanceledRead(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, retiring.RetireResponseDeadline())
 	requireLifecycleLockReleased(t, serializedTransport)
-	require.True(t, serializedTransport.isRetiredResponseID(id))
+	require.True(t, hasRetiredResponseID(serializedTransport, id))
 
 	require.NoError(t, conn.Close())
 	require.Zero(t, baseConn.closeCalls.Load(), "canceled read must retire without closing the shared physical connection")
@@ -614,7 +616,7 @@ func TestSerializedForwardingTransportLetsNextResponseThroughWhenRetiredRequestN
 	msg, err := connB.Read(context.Background())
 	require.NoError(t, err)
 	require.Same(t, responseB, msg)
-	require.True(t, serializedTransport.isRetiredResponseID(idA), "missing late response stays tombstoned")
+	require.True(t, hasRetiredResponseID(serializedTransport, idA), "missing late response stays tombstoned")
 	requireLifecycleLockReleased(t, serializedTransport)
 	require.Zero(t, baseConn.closeCalls.Load())
 }
@@ -648,7 +650,7 @@ func TestSerializedForwardingTransportDropsLateResponseAfterNewerResponseComplet
 	msg, err := connB.Read(context.Background())
 	require.NoError(t, err)
 	require.Same(t, responseB, msg)
-	require.True(t, serializedTransport.isRetiredResponseID(idA))
+	require.True(t, hasRetiredResponseID(serializedTransport, idA))
 
 	connC, err := transport.Connect(context.Background())
 	require.NoError(t, err)
@@ -701,7 +703,7 @@ func TestSerializedForwardingTransportPreservesStdioPipesAfterCanceledRead(t *te
 		},
 	}
 	shared := newContextCancellationPreservingSharedConnectionTransport(ioTransport)
-	transport := NewSerializedForwardingTransportWithDeadlineRetirement(NewForwardingTransport(shared))
+	transport := NewStdioDeadlineRetiringForwardingTransport(NewForwardingTransport(shared))
 
 	connA, err := transport.Connect(context.Background())
 	require.NoError(t, err)
@@ -747,7 +749,72 @@ func TestSerializedForwardingTransportPreservesStdioPipesAfterCanceledRead(t *te
 	require.False(t, writeFailed.Load(), "retiring request A must not trigger the stdio write-error callback")
 }
 
-func TestSerializedForwardingTransportRejectsRetiredResponseIDReuse(t *testing.T) {
+func TestStdioForwardingTransportAliasesRetiredResponseIDReuse(t *testing.T) {
+	t.Parallel()
+
+	baseConn := newStubSerializedForwardingConnection()
+	transport := NewStdioDeadlineRetiringForwardingTransport(&stubSerializedForwardingTransport{
+		conn: baseConn,
+	})
+	require.NotNil(t, transport)
+	serializedTransport := transport.(*serializedForwardingTransport)
+
+	connA, err := transport.Connect(context.Background())
+	require.NoError(t, err)
+	id, err := jsonrpc.MakeID("reused")
+	require.NoError(t, err)
+	_, err = connA.Write(context.Background(), nil, &jsonrpc.Request{ID: id, Method: "tools/call"})
+	require.NoError(t, err)
+
+	retiringA, ok := connA.(ResponseDeadlineRetiringConnection)
+	require.True(t, ok, "deadline-retiring transport connection must expose retirement")
+	require.True(t, retiringA.RetireResponseDeadline())
+	requireLifecycleLockReleased(t, serializedTransport)
+	require.NoError(t, connA.Close())
+
+	connB, err := transport.Connect(context.Background())
+	require.NoError(t, err)
+	_, err = connB.Write(context.Background(), nil, &jsonrpc.Request{ID: id, Method: "tools/call"})
+	require.NoError(t, err)
+	writtenIDs := baseConn.writtenRequestIDs()
+	require.Len(t, writtenIDs, 2)
+	require.Equal(t, id, writtenIDs[0])
+	require.NotEqual(t, id, writtenIDs[1], "reused caller ID must use a fresh downstream ID")
+
+	retiringB, ok := connB.(ResponseDeadlineRetiringConnection)
+	require.True(t, ok)
+	require.True(t, retiringB.RetireResponseDeadline())
+	requireLifecycleLockReleased(t, serializedTransport)
+	require.NoError(t, connB.Close())
+
+	connC, err := transport.Connect(context.Background())
+	require.NoError(t, err)
+	_, err = connC.Write(context.Background(), nil, &jsonrpc.Request{ID: id, Method: "tools/call"})
+	require.NoError(t, err)
+	writtenIDs = baseConn.writtenRequestIDs()
+	require.Len(t, writtenIDs, 3)
+	require.NotEqual(t, id, writtenIDs[2], "reused caller ID must keep using fresh downstream IDs")
+	require.NotEqual(t, writtenIDs[1], writtenIDs[2], "each retired downstream ID needs a distinct replacement")
+
+	baseConn.enqueueRead(&jsonrpc.Response{ID: id, Result: json.RawMessage(`{"source":"late-a"}`)}, nil)
+	baseConn.enqueueRead(&jsonrpc.Response{ID: writtenIDs[1], Result: json.RawMessage(`{"source":"late-b"}`)}, nil)
+	activeResponse := &jsonrpc.Response{ID: writtenIDs[2], Result: json.RawMessage(`{"source":"active-c"}`)}
+	baseConn.enqueueRead(activeResponse, nil)
+
+	msg, err := connC.Read(context.Background())
+	require.NoError(t, err)
+	response, ok := msg.(*jsonrpc.Response)
+	require.True(t, ok)
+	require.NotSame(t, activeResponse, response, "aliased downstream response must be cloned before restoring caller ID")
+	require.Equal(t, id, response.ID)
+	require.JSONEq(t, `{"source":"active-c"}`, string(response.Result))
+	require.False(t, serializedTransport.hasRetiredResponseIDs(), "late responses should clear both retired downstream IDs")
+	requireLifecycleLockReleased(t, serializedTransport)
+	require.EqualValues(t, 3, baseConn.writeCalls.Load(), "reused IDs must still reach the physical connection")
+	require.Zero(t, baseConn.closeCalls.Load())
+}
+
+func TestSerializedForwardingTransportRejectsRetiredResponseIDReuseWithoutStdioAliasing(t *testing.T) {
 	t.Parallel()
 
 	baseConn := newStubSerializedForwardingConnection()
@@ -765,17 +832,18 @@ func TestSerializedForwardingTransportRejectsRetiredResponseIDReuse(t *testing.T
 	require.NoError(t, err)
 
 	retiring, ok := connA.(ResponseDeadlineRetiringConnection)
-	require.True(t, ok, "deadline-retiring transport connection must expose retirement")
+	require.True(t, ok)
 	require.True(t, retiring.RetireResponseDeadline())
 	requireLifecycleLockReleased(t, serializedTransport)
+	require.NoError(t, connA.Close())
 
 	connB, err := transport.Connect(context.Background())
 	require.NoError(t, err)
 	_, err = connB.Write(context.Background(), nil, &jsonrpc.Request{ID: id, Method: "tools/call"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "is still retired")
-	require.EqualValues(t, 1, baseConn.writeCalls.Load(), "reused ID must be rejected before it reaches the shared physical connection")
-	require.True(t, serializedTransport.isRetiredResponseID(id), "failed reuse must keep the old ID retired")
+	require.EqualValues(t, 1, baseConn.writeCalls.Load(), "generic wrapper must not alias opaque downstream responses")
+	require.True(t, hasRetiredResponseID(serializedTransport, id))
 	requireLifecycleLockReleased(t, serializedTransport)
 	require.Zero(t, baseConn.closeCalls.Load())
 }
@@ -911,7 +979,7 @@ func TestSerializedForwardingTransportFailsClosedWhenRetiredResponseLimitReached
 	retiring := conn.(ResponseDeadlineRetiringConnection)
 	require.False(t, retiring.RetireResponseDeadline())
 	requireLifecycleLockHeld(t, serializedTransport)
-	require.False(t, serializedTransport.isRetiredResponseID(id))
+	require.False(t, hasRetiredResponseID(serializedTransport, id))
 
 	require.NoError(t, conn.Close())
 	require.EqualValues(t, 1, baseConn.closeCalls.Load())
@@ -925,6 +993,16 @@ func requireLifecycleLockHeld(t *testing.T, transport *serializedForwardingTrans
 func requireLifecycleLockReleased(t *testing.T, transport *serializedForwardingTransport) {
 	t.Helper()
 	require.Empty(t, transport.lifecycleSlot, "lifecycle slot was still held")
+}
+
+func hasRetiredResponseID(transport *serializedForwardingTransport, id jsonrpc.ID) bool {
+	if transport == nil || !id.IsValid() {
+		return false
+	}
+	transport.retiredMu.Lock()
+	defer transport.retiredMu.Unlock()
+	_, ok := transport.retiredResponseIDs[id]
+	return ok
 }
 
 type stubSerializedForwardingTransport struct {
@@ -1095,6 +1173,20 @@ func (s *stubSerializedForwardingConnection) writtenMethods() []string {
 		methods = append(methods, request.Method)
 	}
 	return methods
+}
+
+func (s *stubSerializedForwardingConnection) writtenRequestIDs() []jsonrpc.ID {
+	s.writesMu.Lock()
+	defer s.writesMu.Unlock()
+	ids := make([]jsonrpc.ID, 0, len(s.writes))
+	for _, msg := range s.writes {
+		request, ok := msg.(*jsonrpc.Request)
+		if !ok || request == nil || !request.ID.IsValid() {
+			continue
+		}
+		ids = append(ids, request.ID)
+	}
+	return ids
 }
 
 func (s *stubSerializedForwardingConnection) Read(context.Context) (jsonrpc.Message, error) {
