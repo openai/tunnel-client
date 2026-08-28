@@ -60,7 +60,7 @@ CLIENT_STAGE_LICENSE_NAME := $(TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_STAGE_LICENSE_NAME := $(RUNTIME_TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_CLOUDFLARED_STAGE_LICENSE_NAME := $(RUNTIME_CLOUDFLARED_TARGET)-$(OS)-$(ARCH)-licenses.txt
 
-.PHONY: all help fmt test test-runtime test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
+.PHONY: all help fmt test test-runtime test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-go-cache clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
 
 all: clean mod-tidy fmt test $(TARGET)
 
@@ -87,6 +87,7 @@ help:
 	@echo "  release-source-version - Write VERSION into pkg/version/VERSION before creating a release tag"
 	@echo "  release-tag   - Generate a release tag like v1.2.3"
 	@echo "  clean         - Remove built binaries"
+	@echo "  clean-go-cache - Remove Go build and test caches"
 	@echo "  build-image   - Build Docker image with tunnel-client binary"
 	@echo "  build-image-runtime - Build the narrow runtime Docker image"
 	@echo "  build-image-runtime-cloudflared - Build the runtime-cloudflared Docker image"
@@ -207,6 +208,8 @@ clean: clean-client clean-runtime
 
 clean-client:
 	-rm -f $(BIN) $(STABLE_BIN)
+
+clean-go-cache:
 	-go clean -cache -testcache
 
 clean-runtime:
