@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -475,6 +476,188 @@ func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T
 	)
 
 	h.ExecuteScenarious(t)
+}
+
+func TestOAuthDiscoveredHarpoonTargetIsUnavailableAfterSecondaryDiscoveryMissE2E(t *testing.T) {
+	// Characterize the current proc-affinity boundary. Once dynamic Harpoon
+	// targets become replica-safe, this test should flip from rejection to success.
+	const (
+		customerHost = "redundant-mcp.internal.preproduction.smp.bigco-example.com"
+		idpIssuer    = "http://idp.bigco-example.com/oauth2/aus2jrb9zi4O8hseE0h8"
+		targetLabel  = "oauth-registration-endpoint-0"
+		requestID    = "cmd-harpoon-process-local-oauth-target"
+	)
+	customerBase := "http://" + customerHost
+	discoveryEnabled := atomic.Bool{}
+	discoveryEnabled.Store(true)
+	var registrationCalls atomic.Int32
+	secondaryDiscoveryFailed := make(chan struct{}, 1)
+	secondaryReady := make(chan struct{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/register":
+			registrationCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"registered":true}`))
+		case "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource":
+			if !discoveryEnabled.Load() {
+				select {
+				case secondaryDiscoveryFailed <- struct{}{}:
+				default:
+				}
+				http.Error(w, "discovery unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              customerBase + "/mcp",
+				"authorization_servers": []string{customerBase},
+				"scopes_supported":      []string{"mcp:tools"},
+			})
+		case "/.well-known/oauth-authorization-server":
+			if !discoveryEnabled.Load() {
+				select {
+				case secondaryDiscoveryFailed <- struct{}{}:
+				default:
+				}
+				http.Error(w, "discovery unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                                idpIssuer,
+				"authorization_endpoint":                idpIssuer + "/v1/authorize",
+				"token_endpoint":                        idpIssuer + "/v1/token",
+				"registration_endpoint":                 customerBase + "/register",
+				"code_challenge_methods_supported":      []string{"S256"},
+				"token_endpoint_auth_methods_supported": []string{"none"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	proxy := mockproxy.New(mockproxy.WithRoute(customerHost, mustParseURL(t, upstream.URL)))
+	proxy.Start()
+	t.Cleanup(proxy.Close)
+
+	callTargetCommand := newModernHarpoonCommand(t, requestID, "tools/call", map[string]any{
+		"name": "call_target",
+		"arguments": map[string]any{
+			"label":   targetLabel,
+			"method":  "GET",
+			"headers": map[string]any{},
+		},
+	}, func(testing.TB, map[string]any) {})
+	callTargetCommand.DeliverAfter = secondaryReady
+	callTargetCommand.ExpectedResponses[0].Assert = func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
+		target := oauthDiscoveryE2ETarget(t, tb)
+		if resp.ResponseType != string(wiretypes.ResponsePayloadJSONRPC) {
+			target.Fatalf("harpoon call response type mismatch: got %q", resp.ResponseType)
+		}
+		if resp.ResponseCode != http.StatusOK {
+			target.Fatalf("harpoon call response code mismatch: %d", resp.ResponseCode)
+		}
+		var payload struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+			Error json.RawMessage `json:"error"`
+		}
+		if err := json.Unmarshal(resp.JSONResponse, &payload); err != nil {
+			target.Fatalf("decode harpoon call response: %v", err)
+		}
+		if len(payload.Error) != 0 {
+			target.Fatalf("harpoon call returned JSON-RPC error: %s", payload.Error)
+		}
+		if !payload.Result.IsError {
+			target.Fatalf("dynamic OAuth target unexpectedly remained callable on the second client")
+		}
+		var textParts []string
+		for _, content := range payload.Result.Content {
+			textParts = append(textParts, content.Text)
+		}
+		if !strings.Contains(strings.Join(textParts, "\n"), "unknown target") {
+			target.Fatalf("unexpected process-local target rejection: %v", textParts)
+		}
+	}
+
+	var secondaryClient *harnesspkg.TunnelClient
+	h := harnesspkg.NewHarness(
+		t,
+		harnesspkg.WithPreserveClientURLs(),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.Logging.Level = slog.LevelDebug
+			cfg.MCP.TransportKind = config.MCPTransportHTTPStreamable
+			cfg.MCP.ServerURL = mustParseURL(t, customerBase+"/mcp")
+			cfg.MCP.HTTPProxy = mustParseURL(t, proxy.URL())
+			cfg.MCP.HTTPProxySource = config.ProxySource("mcp.http-proxy")
+			cfg.MCP.ChannelBindings = []config.MCPChannelBinding{{
+				Channel:         types.DefaultChannel,
+				TransportKind:   config.MCPTransportHTTPStreamable,
+				ServerURL:       cfg.MCP.ServerURL,
+				HTTPProxy:       cfg.MCP.HTTPProxy,
+				HTTPProxySource: cfg.MCP.HTTPProxySource,
+			}}
+			cfg.Harpoon.AllowPlaintextHTTP = true
+			cfg.Harpoon.MaxResponseBytes = config.DefaultHarpoonMaxResponseBytes
+			cfg.Harpoon.MaxRedirects = config.DefaultHarpoonMaxRedirects
+			cfg.Harpoon.HTTPProxy = mustParseURL(t, proxy.URL())
+			cfg.Harpoon.HTTPProxySource = config.ProxySource("harpoon.http-proxy")
+			cfg.Harpoon.Targets = []config.HarpoonTarget{{
+				Label:       "seed",
+				Description: "seed target for routable harpoon channel",
+				BaseURL:     mustParseURL(t, upstream.URL),
+			}}
+		}),
+		harnesspkg.WithControlPlaneOptions(
+			mocktunnelservice.WithPollWaitLimit(time.Second),
+			mocktunnelservice.WithCommandResponses(callTargetCommand),
+		),
+		harnesspkg.WithAfterClientStart(func(h *harnesspkg.Harness) {
+			if h.HarpoonRegistry == nil {
+				t.Fatal("primary harpoon registry not populated")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := h.HarpoonRegistry.WaitForTarget(ctx, targetLabel); err != nil {
+				t.Fatalf("wait for primary dynamic OAuth target: %v", err)
+			}
+			discoveryEnabled.Store(false)
+			primaryClient := h.PrimaryClient()
+			if err := primaryClient.PausePoller(ctx); err != nil {
+				t.Fatalf("pause primary poller: %v", err)
+			}
+			secondaryClient = h.StartAdditionalClient(t)
+			waitForActiveHarpoonPollers(t, h, secondaryClient)
+			select {
+			case <-secondaryDiscoveryFailed:
+			case <-ctx.Done():
+				t.Fatal("second client did not attempt disabled OAuth discovery")
+			}
+			close(secondaryReady)
+		}),
+	)
+
+	h.ExecuteScenarious(t)
+
+	if got := registrationCalls.Load(); got != 0 {
+		t.Fatalf("dynamic registration endpoint calls = %d, want 0", got)
+	}
+	if got := len(h.ControlPlane.DeliveredCommands()); got != 1 {
+		t.Fatalf("delivered process-local OAuth commands = %d, want 1", got)
+	}
+	if got := len(h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched)); got != 1 {
+		t.Fatalf("matched process-local OAuth responses = %d, want 1", got)
+	}
+	assertHarpoonResponseAttribution(t, h.ControlPlane.ReceivedHTTPRequests(), map[string]int{
+		secondaryClient.Name(): 1,
+	})
 }
 
 func TestOAuthDiscoveryRejectsOffOriginPrivateMetadataEndpointsE2E(t *testing.T) {

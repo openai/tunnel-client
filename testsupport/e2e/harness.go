@@ -465,7 +465,9 @@ func (h *Harness) StartAdditionalClient(t testing.TB) *TunnelClient {
 		t.Fatalf("harness not initialized")
 		return nil
 	}
-	if !h.tunnelStarted || !h.mcpStarted {
+	// Harpoon's in-memory transport supplies its own MCP server, so the normal
+	// mock MCP server is intentionally not started for that harness mode.
+	if !h.tunnelStarted || (!h.mcpStarted && !h.useHarpoon) {
 		t.Fatalf("start harness mocks before starting another tunnel-client")
 		return nil
 	}

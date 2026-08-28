@@ -1,11 +1,14 @@
 package e2e_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -277,6 +280,148 @@ func TestHarpoonChannelAcceptsSelfContained20260728Requests(t *testing.T) {
 	}
 }
 
+func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *testing.T) {
+	var targetCalls atomic.Int32
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer targetServer.Close()
+
+	const timeout = 2 * time.Second
+	var (
+		primaryClient   *harnesspkg.TunnelClient
+		secondaryClient *harnesspkg.TunnelClient
+	)
+	primaryReady := make(chan struct{})
+	secondaryReady := make(chan struct{})
+	handoverErrors := make(chan error, 1)
+
+	discoverCommand := newModernHarpoonCommand(t, "cmd-harpoon-redundant-discover", "server/discover", nil, func(tb testing.TB, result map[string]any) {
+		if !resultContains(t, result, "2026-07-28") {
+			tb.Fatalf("server/discover result = %v, want 2026-07-28 support", result)
+		}
+	})
+	discoverCommand.DeliverAfter = primaryReady
+	discoverAssert := discoverCommand.ExpectedResponses[0].Assert
+	discoverCommand.ExpectedResponses[0].Assert = func(tb testing.TB, resp mocktunnelservice.ReceivedResponse) {
+		discoverAssert(tb, resp)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := primaryClient.PausePoller(ctx); err != nil {
+				handoverErrors <- fmt.Errorf("pause primary Harpoon poller: %w", err)
+				close(secondaryReady)
+				return
+			}
+			pollsBeforeHandover := secondaryClient.PollCount()
+			secondaryClient.UnpausePoller()
+			if err := secondaryClient.WaitForPolls(ctx, pollsBeforeHandover+1); err != nil {
+				handoverErrors <- fmt.Errorf("wait for secondary Harpoon poll: %w", err)
+				close(secondaryReady)
+				return
+			}
+			close(secondaryReady)
+		}()
+	}
+
+	toolsListCommand := newModernHarpoonCommand(t, "cmd-harpoon-redundant-tools-list", "tools/list", nil, func(tb testing.TB, result map[string]any) {
+		if !resultContains(t, result, "list_targets") || !resultContains(t, result, "call_target") {
+			tb.Fatalf("tools/list result = %v, want Harpoon tools", result)
+		}
+	})
+	toolsListCommand.DeliverAfter = secondaryReady
+
+	callTargetCommand := newModernHarpoonCommand(t, "cmd-harpoon-redundant-call-target", "tools/call", map[string]any{
+		"name": "call_target",
+		"arguments": map[string]any{
+			"label":   "seed",
+			"method":  "GET",
+			"headers": map[string]any{},
+		},
+	}, func(tb testing.TB, result map[string]any) {
+		if !resultContains(t, result, "status_code") {
+			tb.Fatalf("tools/call result = %v, want call_target response", result)
+		}
+	})
+	callTargetCommand.DeliverAfter = secondaryReady
+
+	h := harnesspkg.NewHarness(
+		t,
+		harnesspkg.WithHarpoonInMemoryTransport(),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.Logging.Level = slog.LevelDebug
+			cfg.Harpoon.AllowPlaintextHTTP = true
+			cfg.Harpoon.Targets = []config.HarpoonTarget{{
+				Label:       "seed",
+				Description: "identical static target for redundant Harpoon clients",
+				BaseURL:     mustParseURL(t, targetServer.URL),
+			}}
+		}),
+		harnesspkg.WithControlPlaneOptions(
+			mocktunnelservice.WithPollWaitLimit(time.Second),
+			mocktunnelservice.WithCommandResponses(discoverCommand, toolsListCommand, callTargetCommand),
+		),
+		harnesspkg.WithAfterClientStart(func(h *harnesspkg.Harness) {
+			primaryClient = h.PrimaryClient()
+			secondaryClient = h.StartAdditionalClient(t)
+			waitForActiveHarpoonPollers(t, h, primaryClient, secondaryClient)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := secondaryClient.PausePoller(ctx); err != nil {
+				t.Fatalf("pause secondary Harpoon poller: %v", err)
+			}
+			close(primaryReady)
+		}),
+	)
+
+	h.ExecuteScenarious(t)
+
+	select {
+	case err := <-handoverErrors:
+		t.Fatal(err)
+	default:
+	}
+	if got := targetCalls.Load(); got != 1 {
+		t.Fatalf("call_target downstream requests = %d, want 1", got)
+	}
+	assertUniqueHarpoonCommandIDs(t, h.ControlPlane.DeliveredCommands(), 3)
+	matched := h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched)
+	if len(matched) != 3 {
+		t.Fatalf("matched redundant Harpoon responses = %d, want 3", len(matched))
+	}
+	if unexpected := h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchUnexpected); len(unexpected) != 0 {
+		t.Fatalf("unexpected redundant Harpoon responses: got %d", len(unexpected))
+	}
+	assertHarpoonResponseAttribution(t, h.ControlPlane.ReceivedHTTPRequests(), map[string]int{
+		primaryClient.Name():   1,
+		secondaryClient.Name(): 2,
+	})
+}
+
+func assertUniqueHarpoonCommandIDs(t *testing.T, commands []json.RawMessage, want int) {
+	t.Helper()
+	if len(commands) != want {
+		t.Fatalf("delivered Harpoon commands = %d, want %d", len(commands), want)
+	}
+	seen := make(map[string]struct{}, len(commands))
+	for _, command := range commands {
+		var payload struct {
+			RequestID string `json:"request_id"`
+		}
+		if err := json.Unmarshal(command, &payload); err != nil {
+			t.Fatalf("decode delivered Harpoon command: %v", err)
+		}
+		if payload.RequestID == "" {
+			t.Fatal("delivered Harpoon command has empty request_id")
+		}
+		if _, ok := seen[payload.RequestID]; ok {
+			t.Fatalf("duplicate delivered Harpoon request_id %q", payload.RequestID)
+		}
+		seen[payload.RequestID] = struct{}{}
+	}
+}
 func newModernHarpoonCommand(
 	t *testing.T,
 	requestID string,
