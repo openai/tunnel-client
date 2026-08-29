@@ -476,6 +476,310 @@ func TestNewTunnelServiceClientUsesConfiguredPollDeadlineGuardrail(t *testing.T)
 	require.Equal(t, pollTimeout+pollGuardrail, client.client.Timeout)
 }
 
+func TestControlPlaneUsesProxy(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := config.ControlPlaneConfig{
+		BaseURL: mustParseURL(t, "https://api.openai.com"),
+	}
+	explicitProxyConfig := baseConfig
+	explicitProxyConfig.HTTPProxy = mustParseURL(t, "http://proxy.example:8080")
+	explicitProxyConfig.HTTPProxySource = config.ProxySource("control-plane.http-proxy")
+	unixSocketConfig := explicitProxyConfig
+	unixSocketConfig.UnixSocketPath = "/tmp/tunnel-service.sock"
+
+	testCases := []struct {
+		name             string
+		cfg              config.ControlPlaneConfig
+		env              map[string]string
+		environmentProxy *url.URL
+		proxyErr         error
+		want             bool
+	}{
+		{
+			name: "direct route",
+			cfg:  baseConfig,
+		},
+		{
+			name: "explicit proxy",
+			cfg:  explicitProxyConfig,
+			want: true,
+		},
+		{
+			name:             "environment proxy",
+			cfg:              baseConfig,
+			environmentProxy: mustParseURL(t, "http://proxy.example:8080"),
+			want:             true,
+		},
+		{
+			name: "environment resolver direct result",
+			cfg:  baseConfig,
+		},
+		{
+			name:     "environment proxy resolution error",
+			cfg:      baseConfig,
+			proxyErr: errors.New("invalid proxy"),
+		},
+		{
+			name: "configured unix socket bypasses proxy",
+			cfg:  unixSocketConfig,
+		},
+		{
+			name: "integration unix socket bypasses proxy",
+			cfg:  explicitProxyConfig,
+			env:  map[string]string{tunnelIntegrationSocketEnv: "/tmp/tunnel-service.sock"},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			lookupEnv := func(key string) (string, bool) {
+				value, ok := tc.env[key]
+				return value, ok
+			}
+			proxyFromEnvironment := func(*http.Request) (*url.URL, error) {
+				return tc.environmentProxy, tc.proxyErr
+			}
+			require.Equal(t, tc.want, controlPlaneUsesProxy(&tc.cfg, proxyFromEnvironment, lookupEnv))
+		})
+	}
+}
+
+func TestLearnedProxyPollTimeoutFromDisconnect(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		elapsed          time.Duration
+		attemptedTimeout time.Duration
+		guardrail        time.Duration
+		want             time.Duration
+	}{
+		{
+			name:             "thirty second cutoff learns twenty five seconds",
+			elapsed:          30 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        5 * time.Second,
+			want:             25 * time.Second,
+		},
+		{
+			name:             "fifteen second cutoff learns ten seconds",
+			elapsed:          15 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        5 * time.Second,
+			want:             10 * time.Second,
+		},
+		{
+			name:             "cutoff after requested wait but before deadline still learns",
+			elapsed:          31 * time.Second,
+			attemptedTimeout: 30 * time.Second,
+			guardrail:        5 * time.Second,
+			want:             26 * time.Second,
+		},
+		{
+			name:             "small deadline guardrail keeps minimum proxy margin",
+			elapsed:          30 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        500 * time.Millisecond,
+			want:             25 * time.Second,
+		},
+		{
+			name:             "large deadline guardrail still learns short cutoff",
+			elapsed:          8 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        10 * time.Second,
+			want:             minimumAdaptiveProxyPollTimeout,
+		},
+		{
+			name:             "near floor cutoff clamps to service minimum",
+			elapsed:          6 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        5 * time.Second,
+			want:             minimumAdaptiveProxyPollTimeout,
+		},
+		{
+			name:             "disconnect at minimum observation window is ignored",
+			elapsed:          5 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        5 * time.Second,
+		},
+		{
+			name:             "disconnect at poll deadline is ignored",
+			elapsed:          40 * time.Second,
+			attemptedTimeout: 35 * time.Second,
+			guardrail:        5 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, learnedProxyPollTimeoutFromDisconnect(tc.elapsed, tc.attemptedTimeout, tc.guardrail))
+		})
+	}
+}
+
+func TestTunnelServiceClientMaybeLearnsProxyPollTimeout(t *testing.T) {
+	t.Parallel()
+
+	const (
+		configuredTimeout = 35 * time.Second
+		guardrail         = 5 * time.Second
+	)
+	testCases := []struct {
+		name            string
+		usesProxy       bool
+		elapsed         time.Duration
+		receivedHeaders bool
+		err             error
+		cancelParent    bool
+		cancelPoll      bool
+		want            time.Duration
+	}{
+		{
+			name:      "proxied EOF learns cutoff",
+			usesProxy: true,
+			elapsed:   30 * time.Second,
+			err:       io.EOF,
+			want:      25 * time.Second,
+		},
+		{
+			name:      "proxied unexpected EOF learns cutoff",
+			usesProxy: true,
+			elapsed:   30 * time.Second,
+			err:       io.ErrUnexpectedEOF,
+			want:      25 * time.Second,
+		},
+		{
+			name:      "wrapped reset does not learn",
+			usesProxy: true,
+			elapsed:   30 * time.Second,
+			err:       &url.Error{Op: "Get", URL: "https://example.com", Err: syscall.ECONNRESET},
+			want:      configuredTimeout,
+		},
+		{
+			name:    "direct route does not learn",
+			elapsed: 30 * time.Second,
+			err:     io.EOF,
+			want:    configuredTimeout,
+		},
+		{
+			name:            "response headers do not learn",
+			usesProxy:       true,
+			elapsed:         30 * time.Second,
+			receivedHeaders: true,
+			err:             io.EOF,
+			want:            configuredTimeout,
+		},
+		{
+			name:      "early EOF does not learn",
+			usesProxy: true,
+			elapsed:   guardrail,
+			err:       io.EOF,
+			want:      configuredTimeout,
+		},
+		{
+			name:         "canceled parent does not learn",
+			usesProxy:    true,
+			elapsed:      30 * time.Second,
+			err:          io.EOF,
+			cancelParent: true,
+			want:         configuredTimeout,
+		},
+		{
+			name:       "expired poll context does not learn",
+			usesProxy:  true,
+			elapsed:    30 * time.Second,
+			err:        io.EOF,
+			cancelPoll: true,
+			want:       configuredTimeout,
+		},
+		{
+			name:      "unrelated transport error does not learn",
+			usesProxy: true,
+			elapsed:   30 * time.Second,
+			err:       errors.New("dial failed"),
+			want:      configuredTimeout,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			parentCtx, cancelParent := context.WithCancel(context.Background())
+			defer cancelParent()
+			pollCtx, cancelPoll := context.WithCancel(parentCtx)
+			defer cancelPoll()
+			if tc.cancelParent {
+				cancelParent()
+			}
+			if tc.cancelPoll {
+				cancelPoll()
+			}
+
+			client := &TunnelServiceClient{
+				pollTimeout:   configuredTimeout,
+				pollGuardrail: guardrail,
+				usesProxy:     tc.usesProxy,
+				logger:        newDiscardLogger(),
+			}
+			client.maybeLearnProxyPollTimeout(parentCtx, pollCtx, configuredTimeout, tc.elapsed, tc.receivedHeaders, tc.err)
+			require.Equal(t, tc.want, client.effectivePollTimeout())
+		})
+	}
+}
+
+func TestTunnelServiceClientOnlyLowersLearnedProxyPollTimeout(t *testing.T) {
+	t.Parallel()
+
+	client := &TunnelServiceClient{
+		pollTimeout:   35 * time.Second,
+		pollGuardrail: 5 * time.Second,
+		usesProxy:     true,
+		logger:        newDiscardLogger(),
+	}
+	ctx := context.Background()
+
+	client.maybeLearnProxyPollTimeout(ctx, ctx, 35*time.Second, 30*time.Second, false, io.EOF)
+	require.Equal(t, 25*time.Second, client.effectivePollTimeout())
+
+	client.maybeLearnProxyPollTimeout(ctx, ctx, 35*time.Second, 32*time.Second, false, io.EOF)
+	require.Equal(t, 25*time.Second, client.effectivePollTimeout())
+
+	client.maybeLearnProxyPollTimeout(ctx, ctx, 25*time.Second, 15*time.Second, false, io.EOF)
+	require.Equal(t, 10*time.Second, client.effectivePollTimeout())
+}
+
+func TestTunnelServiceClientDoesNotLearnProxyTimeoutBeforeRequestWrite(t *testing.T) {
+	t.Parallel()
+
+	client, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
+		BaseURL:     mustParseURL(t, "https://api.openai.com"),
+		TunnelID:    types.TunnelID("cli-tunnel"),
+		APIKey:      "test-api-key",
+		PollTimeout: 35 * time.Second,
+		HTTPProxy:   mustParseURL(t, "http://proxy.example:8080"),
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	require.NoError(t, err)
+
+	client.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		// A transport failure before WroteRequest fires can include slow proxy
+		// setup time, but it is not evidence of a long-poll idle cutoff.
+		return nil, io.ErrUnexpectedEOF
+	})
+	client.pollElapsedSince = func(time.Time) time.Duration { return 30 * time.Second }
+
+	_, _, err = client.Poll(context.Background(), 1)
+	require.Error(t, err)
+	require.Equal(t, 35*time.Second, client.effectivePollTimeout())
+}
+
 func TestPollDeadlineTimeoutUsesRequestedPollTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -1959,6 +2263,165 @@ func TestTunnelServiceClientUsesProxy(t *testing.T) {
 		t.Fatalf("expected target server not to be called directly")
 	default:
 	}
+}
+
+func TestTunnelServiceClientLearnsProxyIdleCutoffForHTTPSPoll(t *testing.T) {
+	t.Parallel()
+
+	const (
+		tunnelID          = "cli-tunnel"
+		apiKey            = "test-api-key"
+		requestedPollWait = 35 * time.Second
+	)
+	const learnedPollWait = 25 * time.Second
+	requestedPollWaitMS := strconv.FormatInt(requestedPollWait.Milliseconds(), 10)
+	learnedPollWaitMS := strconv.FormatInt(learnedPollWait.Milliseconds(), 10)
+
+	material := newControlPlaneMTLSTestMaterial(t)
+	longPollStarted := make(chan struct{})
+	proxyDone := make(chan struct{})
+	t.Cleanup(func() { close(proxyDone) })
+
+	var (
+		serverMu         sync.Mutex
+		observedTimeouts []string
+	)
+	controlPlane := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/tunnels/"+url.PathEscape(tunnelID)+"/poll" {
+			http.NotFound(w, r)
+			return
+		}
+
+		timeoutMS := r.URL.Query().Get("timeout_ms")
+		serverMu.Lock()
+		observedTimeouts = append(observedTimeouts, timeoutMS)
+		serverMu.Unlock()
+
+		// Model an intermediary that closes a silent CONNECT tunnel before a
+		// long poll above its idle budget can return response headers. The next
+		// poll should use the process-local timeout learned from that EOF.
+		if timeoutMS == requestedPollWaitMS {
+			select {
+			case longPollStarted <- struct{}{}:
+			case <-r.Context().Done():
+				return
+			}
+			<-r.Context().Done()
+			return
+		}
+
+		if timeoutMS != learnedPollWaitMS {
+			http.Error(w, "unexpected timeout", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	controlPlane.TLS = &tls.Config{
+		Certificates: []tls.Certificate{material.serverCertificate},
+		MinVersion:   tls.VersionTLS12,
+	}
+	controlPlane.StartTLS()
+	t.Cleanup(controlPlane.Close)
+
+	controlPlaneURL := mustParseURL(t, controlPlane.URL)
+	var (
+		proxyMu      sync.Mutex
+		connectHosts []string
+	)
+	proxyServer := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect {
+			http.Error(w, "expected CONNECT", http.StatusMethodNotAllowed)
+			return
+		}
+
+		proxyMu.Lock()
+		connectHosts = append(connectHosts, r.Host)
+		proxyMu.Unlock()
+
+		upstreamConn, err := net.Dial("tcp", controlPlaneURL.Host)
+		if err != nil {
+			http.Error(w, "proxy dial failed", http.StatusBadGateway)
+			return
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			_ = upstreamConn.Close()
+			http.Error(w, "proxy hijack unsupported", http.StatusBadGateway)
+			return
+		}
+		clientConn, _, err := hijacker.Hijack()
+		if err != nil {
+			_ = upstreamConn.Close()
+			return
+		}
+		if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+			_ = clientConn.Close()
+			_ = upstreamConn.Close()
+			return
+		}
+
+		var closeOnce sync.Once
+		closeTunnel := func() {
+			closeOnce.Do(func() {
+				_ = clientConn.Close()
+				_ = upstreamConn.Close()
+			})
+		}
+		go func() {
+			select {
+			case <-longPollStarted:
+			case <-proxyDone:
+			}
+			closeTunnel()
+		}()
+		go func() {
+			_, _ = io.Copy(upstreamConn, clientConn)
+			closeTunnel()
+		}()
+		go func() {
+			_, _ = io.Copy(clientConn, upstreamConn)
+			closeTunnel()
+		}()
+	}))
+
+	client, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{
+		BaseURL:     controlPlaneURL,
+		TunnelID:    types.TunnelID(tunnelID),
+		APIKey:      apiKey,
+		PollTimeout: requestedPollWait,
+		HTTPProxy:   mustParseURL(t, proxyServer.URL),
+	}, &tlsconfig.Bundle{RootCAs: material.caPool}, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	require.NoError(t, err)
+	require.Equal(t, requestedPollWait, client.pollTimeout)
+	require.True(t, client.usesProxy)
+	require.Equal(t, requestedPollWait+5*time.Second, client.client.Timeout)
+	client.pollElapsedSince = func(time.Time) time.Duration { return 30 * time.Second }
+	t.Cleanup(client.client.CloseIdleConnections)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err = client.Poll(ctx, 1)
+	require.Error(t, err)
+	require.True(t, isProxyIdleDisconnectError(err), "first poll error should be an EOF-style proxy disconnect: %v", err)
+	require.Equal(t, learnedPollWait, client.effectivePollTimeout())
+
+	commands, _, err := client.Poll(ctx, 1)
+	require.NoError(t, err)
+	require.Nil(t, commands)
+
+	serverMu.Lock()
+	require.GreaterOrEqual(t, len(observedTimeouts), 2)
+	require.Equal(t, requestedPollWaitMS, observedTimeouts[0])
+	require.Equal(t, learnedPollWaitMS, observedTimeouts[len(observedTimeouts)-1])
+	serverMu.Unlock()
+
+	proxyMu.Lock()
+	require.GreaterOrEqual(t, len(connectHosts), 2)
+	for _, connectHost := range connectHosts {
+		require.Equal(t, controlPlaneURL.Host, connectHost)
+	}
+	proxyMu.Unlock()
 }
 
 func newDiscardLogger() *slog.Logger {

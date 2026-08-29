@@ -44,6 +44,13 @@ const (
 	tunnelIntegrationSocketEnv            = "TUNNEL_INTEGRATION_TUNNEL_SERVICE_SOCKET_PATH"
 	defaultResponseRetryAttempts          = 3
 	defaultManagedCloudflareRetryAttempts = 3
+	// The default tunnel-service route clamps requested poll waits below five
+	// seconds, so a learned proxy cutoff cannot safely reduce the wire timeout
+	// below this in the supported deployment.
+	minimumAdaptiveProxyPollTimeout = 5 * time.Second
+	// Keep enough distance from an observed idle cutoff even when operators
+	// configure a smaller client deadline guardrail.
+	minimumAdaptiveProxyPollMargin = 5 * time.Second
 )
 
 var errMissingConfig = errors.New("controlplane client: config is required")
@@ -63,9 +70,12 @@ type TunnelServiceClient struct {
 	userAgent                      string
 	pollTimeout                    time.Duration
 	pollGuardrail                  time.Duration
+	usesProxy                      bool
+	learnedProxyPollTimeout        atomic.Int64
 	pollChannels                   []types.Channel
 	pollChannelsConfigured         bool
 	now                            func() time.Time
+	pollElapsedSince               func(time.Time) time.Duration
 	responseRetryAttempts          int
 	newResponseBackoff             func() *backoff.Backoff
 	managedCloudflareRetryAttempts int
@@ -107,6 +117,7 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 	pollTimeout := cfg.PollTimeoutOrDefault()
 	pollGuardrail := cfg.PollDeadlineGuardrailOrDefault()
 	pollDeadline := cfg.PollDeadlineTimeoutOrDefault()
+	usesProxy := controlPlaneUsesProxy(cfg, http.ProxyFromEnvironment, os.LookupEnv)
 
 	transport, err := buildControlPlaneHTTPTransport(cfg, tlsBundle, logger, loggingCfg, meterProvider)
 	if err != nil {
@@ -137,9 +148,11 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 		userAgent:                      version.UserAgent,
 		pollTimeout:                    pollTimeout,
 		pollGuardrail:                  pollGuardrail,
+		usesProxy:                      usesProxy,
 		pollChannels:                   append([]types.Channel(nil), cfg.PollChannels...),
 		pollChannelsConfigured:         cfg.PollChannelsConfigured,
 		now:                            time.Now,
+		pollElapsedSince:               time.Since,
 		responseRetryAttempts:          defaultResponseRetryAttempts,
 		newResponseBackoff:             newControlPlaneBackoff,
 		managedCloudflareRetryAttempts: defaultManagedCloudflareRetryAttempts,
@@ -154,9 +167,128 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 		slog.Int64("poll_timeout_ms", pollTimeoutMilliseconds(pollTimeout)),
 		slog.Int64("poll_deadline_guardrail_ms", pollGuardrail.Milliseconds()),
 		slog.Int64("poll_deadline_ms", pollDeadline.Milliseconds()),
+		slog.Bool("uses_proxy", usesProxy),
 	)
 
 	return client, nil
+}
+
+func controlPlaneUsesProxy(cfg *runtimeconfig.ControlPlaneConfig, proxyFromEnvironment func(*http.Request) (*url.URL, error), lookupEnv func(string) (string, bool)) bool {
+	if cfg == nil || cfg.BaseURL == nil || cfg.UnixSocketPath != "" {
+		return false
+	}
+	if lookupEnv != nil {
+		if socketPath, ok := lookupEnv(tunnelIntegrationSocketEnv); ok && socketPath != "" {
+			return false
+		}
+	}
+	if cfg.HTTPProxy != nil {
+		return true
+	}
+	if proxyFromEnvironment == nil {
+		return false
+	}
+
+	req := &http.Request{URL: cfg.BaseURL}
+	proxyURL, err := proxyFromEnvironment(req)
+	return err == nil && proxyURL != nil
+}
+
+func (c *TunnelServiceClient) effectivePollTimeout() time.Duration {
+	if c == nil {
+		return 0
+	}
+	if learned := time.Duration(c.learnedProxyPollTimeout.Load()); learned > 0 && learned < c.pollTimeout {
+		return learned
+	}
+	return c.pollTimeout
+}
+
+func (c *TunnelServiceClient) pollDeadlineFor(timeout time.Duration) time.Duration {
+	return (runtimeconfig.ControlPlaneConfig{
+		PollTimeout:           timeout,
+		PollDeadlineGuardrail: c.pollGuardrail,
+	}).PollDeadlineTimeoutOrDefault()
+}
+
+func (c *TunnelServiceClient) elapsedSince(start time.Time) time.Duration {
+	if c != nil && c.pollElapsedSince != nil {
+		return c.pollElapsedSince(start)
+	}
+	return time.Since(start)
+}
+
+// maybeLearnProxyPollTimeout lowers future proxy-routed polls after a
+// pre-header transport disconnect that happened before either request
+// deadline fired. The learned value is process-local and only ever decreases.
+func (c *TunnelServiceClient) maybeLearnProxyPollTimeout(
+	ctx context.Context,
+	pollCtx context.Context,
+	attemptedTimeout time.Duration,
+	elapsed time.Duration,
+	receivedHeaders bool,
+	err error,
+) {
+	if c == nil || !c.usesProxy || receivedHeaders || err == nil {
+		return
+	}
+	if ctx.Err() != nil || pollCtx.Err() != nil || !isProxyIdleDisconnectError(err) {
+		return
+	}
+	learned := learnedProxyPollTimeoutFromDisconnect(elapsed, attemptedTimeout, c.pollGuardrail)
+	if learned <= 0 {
+		return
+	}
+
+	for {
+		currentNanos := c.learnedProxyPollTimeout.Load()
+		current := time.Duration(currentNanos)
+		if current > 0 && current <= learned {
+			return
+		}
+		if !c.learnedProxyPollTimeout.CompareAndSwap(currentNanos, int64(learned)) {
+			continue
+		}
+		if c.logger != nil {
+			c.logger.WarnContext(ctx, "control-plane proxy closed long poll; lowering future poll timeout",
+				slog.String("error", err.Error()),
+				slog.Int64("observed_disconnect_ms", elapsed.Milliseconds()),
+				slog.Int64("attempted_poll_timeout_ms", pollTimeoutMilliseconds(attemptedTimeout)),
+				slog.Int64("learned_poll_timeout_ms", pollTimeoutMilliseconds(learned)),
+			)
+		}
+		return
+	}
+}
+
+func learnedProxyPollTimeoutFromDisconnect(elapsed, attemptedTimeout, guardrail time.Duration) time.Duration {
+	// A proxy can close just after the service-side wait expires but before the
+	// client-side deadline does. Treat the full poll deadline as the upper
+	// bound, not just the requested service wait.
+	pollDeadline := attemptedTimeout + guardrail
+	if elapsed <= minimumAdaptiveProxyPollMargin || elapsed >= pollDeadline || attemptedTimeout <= minimumAdaptiveProxyPollTimeout {
+		return 0
+	}
+	margin := guardrail
+	if margin < minimumAdaptiveProxyPollMargin {
+		margin = minimumAdaptiveProxyPollMargin
+	}
+	if halfElapsed := elapsed / 2; margin > halfElapsed {
+		margin = halfElapsed
+	}
+	learned := (elapsed - margin).Truncate(time.Millisecond)
+	if learned < minimumAdaptiveProxyPollTimeout {
+		learned = minimumAdaptiveProxyPollTimeout
+	}
+	if learned >= attemptedTimeout {
+		return 0
+	}
+	return learned
+}
+
+func isProxyIdleDisconnectError(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // TunnelMetadata captures the minimal tunnel metadata needed for boot logging.
@@ -658,14 +790,21 @@ func (c *TunnelServiceClient) Poll(ctx context.Context, limit int) ([]controlpla
 		return nil, "", nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.pollEndpoint.String(), nil)
+	// Keep any learned proxy-specific deadline scoped to polls. The shared HTTP
+	// client also serves metadata and response calls, which retain their
+	// configured timeout.
+	pollTimeout := c.effectivePollTimeout()
+	pollCtx, cancel := context.WithTimeout(ctx, c.pollDeadlineFor(pollTimeout))
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(pollCtx, http.MethodGet, c.pollEndpoint.String(), nil)
 	if err != nil {
 		return nil, "", err
 	}
 
 	query := req.URL.Query()
 	query.Set("limit", strconv.Itoa(limit))
-	query.Set("timeout_ms", strconv.FormatInt(pollTimeoutMilliseconds(c.pollTimeout), 10))
+	query.Set("timeout_ms", strconv.FormatInt(pollTimeoutMilliseconds(pollTimeout), 10))
 	if c.pollChannelsConfigured {
 		for _, channel := range c.pollChannels {
 			query.Add("channel", channel.String())
@@ -673,10 +812,33 @@ func (c *TunnelServiceClient) Poll(ctx context.Context, limit int) ([]controlpla
 	}
 	req.URL.RawQuery = query.Encode()
 	receipt := newResponseReceiptRecorder(c.nowTime)
-	req = req.WithContext(contextWithResponseReceiptRecorder(req.Context(), receipt))
+	var pollWrittenAt atomic.Pointer[time.Time]
+	req = req.WithContext(httptrace.WithClientTrace(
+		contextWithResponseReceiptRecorder(req.Context(), receipt),
+		&httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				if info.Err != nil {
+					return
+				}
+				writtenAt := time.Now()
+				pollWrittenAt.Store(&writtenAt)
+			},
+		},
+	))
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if writtenAt := pollWrittenAt.Load(); writtenAt != nil {
+			_, receivedHeaders := receipt.value()
+			c.maybeLearnProxyPollTimeout(
+				ctx,
+				pollCtx,
+				pollTimeout,
+				c.elapsedSince(*writtenAt),
+				receivedHeaders,
+				err,
+			)
+		}
 		return nil, "", err
 	}
 	receivedAt, recorded := receipt.value()

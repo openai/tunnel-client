@@ -317,6 +317,12 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
   - Behavior: tunnel-client sends this as the requested `/poll?timeout_ms=...`
     empty-poll wait budget. Together with `poll_deadline_guardrail`, the client
     poll HTTP/context deadline must stay at or below `600000ms`.
+  - For an HTTP-proxied route, tunnel-client starts with this configured wait.
+    If a poll loses its connection before response headers with an EOF-style error
+    while neither deadline has fired, the process automatically learns a
+    shorter wait for future proxied polls. The learned value only decreases,
+    never below `5000ms`; configured `poll_timeout` remains the ceiling.
+    Direct routes and Unix sockets keep the configured value.
 - **Poll deadline guardrail**
   - Flag: `--control-plane.poll-deadline-guardrail`
   - Env: `CONTROL_PLANE_POLL_DEADLINE_GUARDRAIL`

@@ -638,6 +638,13 @@ make admin-ui
 - `tunnel-client profiles samples list|show` exposes built-in sample profiles.
 - `sample_mcp_enterprise_proxy` is the built-in starter for outbound proxies
   and private PKI, with env-backed proxy and CA bundle references.
+- Control-plane polls routed through an HTTP proxy start at the configured
+  `--control-plane.poll-timeout` / `CONTROL_PLANE_POLL_TIMEOUT`. If a proxied
+  poll loses its connection before response headers with an EOF-style error while
+  neither deadline has fired, tunnel-client automatically learns a shorter
+  process-local timeout for future polls. The learned timeout only decreases,
+  never below 5 seconds, while the configured poll timeout remains its ceiling.
+  Direct routes and Unix sockets keep the configured timeout.
 - `tunnel-client admin-profiles list|set|delete` manages saved admin-key
   profiles for native runtime workflows.
 - `tunnel-client runtimes create|connect|list|status|stop|rm` manages native
