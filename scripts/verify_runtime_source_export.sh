@@ -30,11 +30,14 @@ usage() {
 Usage:
   ./scripts/verify_runtime_source_export.sh \
     --flavor runtime|runtime-cloudflared \
-    --archive <path-to-tar.gz>
+    --archive <path-to-tar.gz> \
+    [--platform <goos>/<goarch>]
 
 Checks that a source export contains only its recorded rebuild inputs, that
 its dependency manifests match the current source tree, and that every
-release platform can rebuild from the archive.
+release platform can rebuild from the archive by default. With --platform,
+the proof is restricted to one explicit release platform; a full archive is
+also accepted so Bazel can share one deterministic producer across leaves.
 EOF
 }
 
@@ -50,6 +53,7 @@ die() {
 
 flavor=""
 archive=""
+platform=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flavor)
@@ -59,6 +63,14 @@ while [[ $# -gt 0 ]]; do
     --archive)
       archive="${2:-}"
       shift 2
+      ;;
+    --platform)
+      platform="${2:-}"
+      shift 2
+      ;;
+    --platform=*)
+      platform="${1#*=}"
+      shift
       ;;
     -h|--help)
       usage
@@ -75,6 +87,15 @@ case "${flavor}" in
   runtime|runtime-cloudflared) ;;
   *) die "--flavor must be runtime or runtime-cloudflared" ;;
 esac
+case "${platform}" in
+  ""|linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+  *) die "--platform must be one supported goos/goarch release platform" ;;
+esac
+
+selected_platforms=("${PLATFORMS[@]}")
+if [[ -n "${platform}" ]]; then
+  selected_platforms=("${platform}")
+fi
 
 public_build_scripts=("scripts/rebuild_runtime_from_source.sh")
 required_manifests=()
@@ -109,7 +130,11 @@ case "${flavor}" in
     ;;
 esac
 
-"${SCRIPT_DIR}/check_runtime_boundary.sh" --flavor "${flavor}"
+boundary_args=(--flavor "${flavor}")
+if [[ -n "${platform}" ]]; then
+  boundary_args+=(--platform "${platform}")
+fi
+"${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
 
 if runtime_is_bazel_test; then
   tmp_dir="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-source-verify.XXXXXX")"
@@ -138,13 +163,14 @@ file_manifest="${metadata_root}/files.txt"
 [[ -f "${manifest_path}" ]] || die "archive is missing ${METADATA_DIR}/manifest.json"
 [[ -f "${file_manifest}" ]] || die "archive is missing ${METADATA_DIR}/files.txt"
 manifest_fields="$(
-  runtime_python - "${manifest_path}" "${flavor}" <<'PY'
+  runtime_python - "${manifest_path}" "${flavor}" "${selected_platforms[@]}" <<'PY'
 import json
 import pathlib
 import sys
 
 manifest_path = pathlib.Path(sys.argv[1])
 flavor = sys.argv[2]
+expected_platforms = sys.argv[3:]
 
 
 def die(message: str) -> None:
@@ -174,6 +200,28 @@ if not (
     and len(manifest["excludedDirectoryAssertions"]) > 0
 ):
     die("archive manifest is missing source-boundary evidence")
+supported_platforms = [
+    "linux/amd64",
+    "linux/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+    "windows/amd64",
+    "windows/arm64",
+]
+recorded_platforms = manifest.get("platforms")
+if (
+    not isinstance(recorded_platforms, list)
+    or recorded_platforms
+    != [platform for platform in supported_platforms if platform in recorded_platforms]
+):
+    die("archive manifest platforms are not a supported canonical selection")
+if len(expected_platforms) == 1:
+    if expected_platforms[0] not in recorded_platforms:
+        die("archive manifest does not contain the requested platform")
+elif recorded_platforms != expected_platforms:
+    die("archive manifest platforms do not match the requested selection")
+if set(manifest["dependencyPackages"]) != set(recorded_platforms):
+    die("archive manifest dependencyPackages do not match its platforms")
 
 expected_build_scripts = ["scripts/rebuild_runtime_from_source.sh"]
 expected_manifests = []
@@ -455,7 +503,7 @@ if [[ "${#required_manifests[@]}" -gt 0 ]]; then
 fi
 printf '%s\n' "${exported_required_files[@]}" >"${exported_selected_files}"
 
-for platform in "${PLATFORMS[@]}"; do
+for platform in "${selected_platforms[@]}"; do
   goos="${platform%/*}"
   goarch="${platform#*/}"
   expected_manifest="${metadata_root}/dependencies/${goos}_${goarch}.txt"
@@ -485,8 +533,7 @@ for platform in "${PLATFORMS[@]}"; do
     GOMODCACHE="${GO_MOD_CACHE_DIR}" \
     "${archive_root}/scripts/rebuild_runtime_from_source.sh" \
       --flavor "${flavor}" \
-      --goos "${goos}" \
-      --goarch "${goarch}" \
+      --platform "${platform}" \
       --output "${output_path}"; then
     die "exported source rebuild failed for ${platform}"
   fi
@@ -495,6 +542,13 @@ for platform in "${PLATFORMS[@]}"; do
 done
 
 LC_ALL=C sort -u "${exported_selected_files}" -o "${exported_selected_files}"
-if ! diff -u "${file_manifest}" "${exported_selected_files}"; then
+if [[ -n "${platform}" ]]; then
+  while IFS= read -r relative_path; do
+    [[ -n "${relative_path}" ]] || continue
+    if ! grep -Fqx -- "${relative_path}" "${file_manifest}"; then
+      die "archive is missing selected rebuild input: ${relative_path}"
+    fi
+  done <"${exported_selected_files}"
+elif ! diff -u "${file_manifest}" "${exported_selected_files}"; then
   die "archive contains files outside the selected rebuild closure"
 fi

@@ -34,11 +34,13 @@ Usage:
   ./scripts/build_runtime_source_export.sh \
     --flavor runtime|runtime-cloudflared \
     --version <vX.Y.Z-or-dev-version> \
-    --output-dir <directory>
+    --output-dir <directory> \
+    [--platform <goos>/<goarch>]
 
 Creates a deterministic source archive containing the first-party files,
 public rebuild helpers, and required manifests needed to rebuild one runtime
-flavor for every supported release platform.
+flavor for every supported release platform by default, or for one explicit
+release platform when --platform is supplied.
 EOF
 }
 
@@ -55,6 +57,12 @@ die() {
 flavor=""
 version=""
 output_dir=""
+platform=""
+# Bazel's archive action supplies canonical per-platform closure evidence so it
+# can assemble the historical full archive once after the six closures run in
+# parallel. Keep this intentionally undocumented: public callers still use the
+# no-flag/default path below.
+dependency_evidence_dir=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flavor)
@@ -67,6 +75,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       output_dir="${2:-}"
+      shift 2
+      ;;
+    --platform)
+      platform="${2:-}"
+      shift 2
+      ;;
+    --platform=*)
+      platform="${1#*=}"
+      shift
+      ;;
+    --dependency-evidence-dir)
+      dependency_evidence_dir="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -84,6 +104,15 @@ case "${flavor}" in
   runtime|runtime-cloudflared) ;;
   *) die "--flavor must be runtime or runtime-cloudflared" ;;
 esac
+case "${platform}" in
+  ""|linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+  *) die "--platform must be one supported goos/goarch release platform" ;;
+esac
+
+selected_platforms=("${PLATFORMS[@]}")
+if [[ -n "${platform}" ]]; then
+  selected_platforms=("${platform}")
+fi
 
 public_build_scripts=("${COMMON_PUBLIC_BUILD_SCRIPTS[@]}")
 required_manifests=()
@@ -94,6 +123,12 @@ fi
 [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] ||
   die "--version must be a v-prefixed semantic version or development version"
 [[ -n "${output_dir}" ]] || die "--output-dir is required"
+if [[ -n "${dependency_evidence_dir}" ]]; then
+  [[ "${dependency_evidence_dir}" == /* ]] ||
+    die "--dependency-evidence-dir must be absolute"
+  [[ -d "${dependency_evidence_dir}" ]] ||
+    die "--dependency-evidence-dir must be a directory"
+fi
 
 command -v go >/dev/null 2>&1 || die "go is required"
 if [[ -z "${TUNNEL_CLIENT_RUNTIME_PYTHON:-}" ]]; then
@@ -120,13 +155,24 @@ case "${flavor}" in
     ;;
 esac
 
-"${SCRIPT_DIR}/check_runtime_boundary.sh" --flavor "${flavor}"
+# Closure actions already run this exact gate before writing their evidence.
+# The ordinary public path keeps the gate inline; only Bazel's internal
+# evidence path skips the duplicate serial six-platform scan.
+if [[ -z "${dependency_evidence_dir}" ]]; then
+  boundary_args=(--flavor "${flavor}")
+  if [[ -n "${platform}" ]]; then
+    boundary_args+=(--platform "${platform}")
+  fi
+  "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
+fi
 
 readonly MODULE_PATH="$(env GOWORK=off GOCACHE="${GO_CACHE_DIR}" GOMODCACHE="${GO_MOD_CACHE_DIR}" go list -m -f '{{.Path}}')"
 [[ -n "${MODULE_PATH}" ]] || die "could not determine the Go module path"
 readonly GO_VERSION="$(go version)"
 source_commit=""
-if [[ -n "${TEST_SRCDIR:-}" && -n "${TEST_WORKSPACE:-}" && -n "${SOURCE_COMMIT:-}" ]]; then
+if [[ -n "${SOURCE_COMMIT:-}" &&
+  ( -n "${dependency_evidence_dir}" ||
+    ( -n "${TEST_SRCDIR:-}" && -n "${TEST_WORKSPACE:-}" ) ) ]]; then
   source_commit="${SOURCE_COMMIT}"
 else
   source_commit="$(git rev-parse HEAD 2>/dev/null)" ||
@@ -300,25 +346,51 @@ reject_export_path() {
 }
 
 platform_json="${tmp_dir}/platform.json"
-for platform in "${PLATFORMS[@]}"; do
-  goos="${platform%/*}"
-  goarch="${platform#*/}"
-  manifest_path="${dependency_root}/${goos}_${goarch}.txt"
+if [[ -n "${dependency_evidence_dir}" ]]; then
+  for platform in "${selected_platforms[@]}"; do
+    goos="${platform%/*}"
+    goarch="${platform#*/}"
+    manifest_path="${dependency_root}/${goos}_${goarch}.txt"
+    evidence_manifest="${dependency_evidence_dir}/dependencies/${goos}_${goarch}.txt"
+    evidence_source_files="${dependency_evidence_dir}/source-files/${goos}_${goarch}.txt"
+    [[ -f "${evidence_manifest}" ]] ||
+      die "dependency evidence is missing manifest for ${platform}"
+    [[ -f "${evidence_source_files}" ]] ||
+      die "dependency evidence is missing source files for ${platform}"
+    cp -p "${evidence_manifest}" "${manifest_path}"
+    while IFS= read -r relative_path; do
+      [[ -n "${relative_path}" ]] || continue
+      case "${relative_path}" in
+        /*|.|..|./*|../*|*/./*|*/../*|*/..)
+          die "dependency evidence contains an unsafe source path: ${relative_path}"
+          ;;
+      esac
+      [[ -f "${relative_path}" ]] ||
+        die "dependency evidence source file is missing: ${relative_path}"
+      printf '%s\n' "${relative_path}" >>"${source_files}"
+    done <"${evidence_source_files}"
+  done
+else
+  for platform in "${selected_platforms[@]}"; do
+    goos="${platform%/*}"
+    goarch="${platform#*/}"
+    manifest_path="${dependency_root}/${goos}_${goarch}.txt"
 
-  if ! env \
-    GOWORK=off \
-    GOCACHE="${GO_CACHE_DIR}" \
-    GOMODCACHE="${GO_MOD_CACHE_DIR}" \
-    GOOS="${goos}" \
-    GOARCH="${goarch}" \
-    CGO_ENABLED=0 \
-    go list -buildvcs=false "${GO_MOD_FLAG}" -deps -json "${target}" >"${platform_json}"; then
-    die "${flavor} dependency listing failed for ${platform}"
-  fi
+    if ! env \
+      GOWORK=off \
+      GOCACHE="${GO_CACHE_DIR}" \
+      GOMODCACHE="${GO_MOD_CACHE_DIR}" \
+      GOOS="${goos}" \
+      GOARCH="${goarch}" \
+      CGO_ENABLED=0 \
+      go list -buildvcs=false "${GO_MOD_FLAG}" -deps -json "${target}" >"${platform_json}"; then
+      die "${flavor} dependency listing failed for ${platform}"
+    fi
 
-  relative_package_manifest "${platform_json}" "${manifest_path}"
-  append_selected_source_files "${platform_json}" >>"${source_files}"
-done
+    relative_package_manifest "${platform_json}" "${manifest_path}"
+    append_selected_source_files "${platform_json}" >>"${source_files}"
+  done
+fi
 
 LC_ALL=C sort -u "${source_files}" >"${metadata_root}/files.txt"
 
@@ -340,12 +412,14 @@ runtime_python - \
   "${MODULE_PATH}" \
   "${SOURCE_DATE_EPOCH}" \
   "${archive_root}" \
-  "${metadata_root}" <<'PY'
+  "${metadata_root}" \
+  "${selected_platforms[@]}" <<'PY'
 import hashlib
 import json
 import pathlib
 import sys
 
+# sys.argv[0] is "-", then eight fixed archive fields precede the platform list.
 (
     flavor,
     version,
@@ -355,17 +429,10 @@ import sys
     source_date_epoch,
     archive_root_arg,
     metadata_root_arg,
-) = sys.argv[1:]
+) = sys.argv[1:9]
 archive_root = pathlib.Path(archive_root_arg)
 metadata_root = pathlib.Path(metadata_root_arg)
-platforms = [
-    "linux/amd64",
-    "linux/arm64",
-    "darwin/amd64",
-    "darwin/arm64",
-    "windows/amd64",
-    "windows/arm64",
-]
+platforms = sys.argv[9:]
 
 selected_paths = [
     line.strip()

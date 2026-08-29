@@ -27,9 +27,10 @@ readonly -a PLATFORMS=(
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/check_runtime_boundary.sh [--flavor runtime|runtime-cloudflared|all] [--binary <path>]
+  ./scripts/check_runtime_boundary.sh [--flavor runtime|runtime-cloudflared|all] [--platform <goos>/<goarch>] [--binary <path>]
 
-Checks the first-party Go dependency closure for every release platform.
+Checks the first-party Go dependency closure for every release platform by
+default, or for one explicit release platform when --platform is supplied.
 The normal runtime must stay free of support, development, and companion
 packages. The companion runtime may add only its runtime-specific package.
 When --binary is supplied, the same public-safe gate validates the already
@@ -49,6 +50,7 @@ die() {
 
 flavor="all"
 binary=""
+platform=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flavor)
@@ -58,6 +60,14 @@ while [[ $# -gt 0 ]]; do
     --binary)
       binary="${2:-}"
       shift 2
+      ;;
+    --platform)
+      platform="${2:-}"
+      shift 2
+      ;;
+    --platform=*)
+      platform="${1#*=}"
+      shift
       ;;
     -h|--help)
       usage
@@ -74,9 +84,19 @@ case "${flavor}" in
   runtime|runtime-cloudflared|all) ;;
   *) die "--flavor must be runtime, runtime-cloudflared, or all" ;;
 esac
+case "${platform}" in
+  ""|linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+  *) die "--platform must be one supported goos/goarch release platform" ;;
+esac
+
+selected_platforms=("${PLATFORMS[@]}")
+if [[ -n "${platform}" ]]; then
+  selected_platforms=("${platform}")
+fi
 
 if [[ -n "${binary}" ]]; then
   [[ "${flavor}" != "all" ]] || die "--binary requires one explicit flavor"
+  [[ -z "${platform}" ]] || die "--platform cannot be combined with --binary"
   marker_script="${SCRIPT_DIR}/check_runtime_binary_markers.sh"
   if [[ ! -x "${marker_script}" && -x "${SCRIPT_DIR}/scripts/check_runtime_binary_markers.sh" ]]; then
     marker_script="${SCRIPT_DIR}/scripts/check_runtime_binary_markers.sh"
@@ -191,7 +211,7 @@ check_flavor() {
   local package_list
   package_list="$(mktemp)"
 
-  for platform in "${PLATFORMS[@]}"; do
+  for platform in "${selected_platforms[@]}"; do
     goos="${platform%/*}"
     goarch="${platform#*/}"
     if ! env \

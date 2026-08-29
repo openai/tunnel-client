@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build deterministic six-platform client and narrow-runtime payloads, then
-# delegate SPDX generation and normalization to the shared oai_sbom tool.
+# Build deterministic release-platform client and narrow-runtime payloads,
+# then delegate SPDX generation and normalization to the shared oai_sbom tool.
+# Public callers get all six release platforms unless they request one leaf.
 
 readonly BASELINE_SEMANTIC_VERSION="0.0.0-baseline"
 readonly BASELINE_GIT_SHA="baseline"
@@ -55,11 +56,13 @@ Usage:
     --oai-sbom <absolute-path> \
     --syft <absolute-path> \
     --syft-lock <absolute-path> \
-    --output <spdx-path>
+    --output <spdx-path> \
+    [--platform <goos>/<goarch>]
 
-Builds a deterministic six-platform baseline from declared offline inputs and
-generates one SPDX 2.3 report through oai_sbom. Runtime flavors also stage
-their checked-in artifact-scoped license sidecars.
+Builds a deterministic baseline from declared offline inputs and generates one
+SPDX 2.3 report through oai_sbom. All six release platforms are included by
+default; --platform narrows the payload to one release-platform leaf. Runtime
+flavors also stage their checked-in artifact-scoped license sidecars.
 EOF
 }
 
@@ -73,6 +76,7 @@ clear_ambient_go_build_environment() {
 }
 
 flavor="client"
+requested_platform=""
 source_root=""
 cloudflared_source=""
 go_bin=""
@@ -90,6 +94,14 @@ while [[ $# -gt 0 ]]; do
     --flavor)
       flavor="${2:-}"
       shift 2
+      ;;
+    --platform)
+      requested_platform="${2:-}"
+      shift 2
+      ;;
+    --platform=*)
+      requested_platform="${1#*=}"
+      shift
       ;;
     --source-root)
       source_root="${2:-}"
@@ -154,6 +166,15 @@ case "${flavor}" in
   client|runtime|runtime-cloudflared) ;;
   *) die "--flavor must be client, runtime, or runtime-cloudflared" ;;
 esac
+case "${requested_platform}" in
+  ""|linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+  *) die "--platform must be one supported goos/goarch release platform" ;;
+esac
+
+selected_platforms=("${PLATFORMS[@]}")
+if [[ -n "${requested_platform}" ]]; then
+  selected_platforms=("${requested_platform}")
+fi
 
 for required_arg in \
   source_root \
@@ -374,7 +395,7 @@ fi
 artifact_ldflags="-X ${module_path}/pkg/version.semanticVersion=${BASELINE_SEMANTIC_VERSION} -X ${module_path}/pkg/version.GitSHA=${BASELINE_GIT_SHA} -X ${module_path}/pkg/version.GoVersion=${actual_go_version} -X ${module_path}/pkg/version.BuildFlags=-trimpath,-buildvcs=false -X ${module_path}/pkg/version.Flavor=${linked_flavor}"
 cloudflared_ldflags="-X main.Version=${cloudflared_version} -X main.BuildTime=${cloudflared_build_time}"
 
-for platform in "${PLATFORMS[@]}"; do
+for platform in "${selected_platforms[@]}"; do
   goos="${platform%/*}"
   goarch="${platform#*/}"
   extension=""
@@ -470,4 +491,8 @@ oai_sbom_args+=(
 )
 "${oai_sbom_bin}" "${oai_sbom_args[@]}"
 
-printf 'generated %s SBOM for six platforms\n' "${flavor}"
+if [[ -n "${requested_platform}" ]]; then
+  printf 'generated %s SBOM for %s\n' "${flavor}" "${requested_platform}"
+else
+  printf 'generated %s SBOM for six platforms\n' "${flavor}"
+fi

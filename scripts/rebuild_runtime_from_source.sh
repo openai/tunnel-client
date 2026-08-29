@@ -11,8 +11,8 @@ usage() {
 Usage:
   ./scripts/rebuild_runtime_from_source.sh \
     --flavor runtime|runtime-cloudflared \
-    --goos <linux|darwin|windows> \
-    --goarch <amd64|arm64> \
+    [--platform <goos>/<goarch> | \
+      --goos <linux|darwin|windows> --goarch <amd64|arm64>] \
     --output <path>
 
 Rebuilds one tunnel-client runtime binary from a published runtime source
@@ -40,6 +40,7 @@ runtime_python() {
 flavor=""
 goos=""
 goarch=""
+platform=""
 output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +55,14 @@ while [[ $# -gt 0 ]]; do
     --goarch)
       goarch="${2:-}"
       shift 2
+      ;;
+    --platform)
+      platform="${2:-}"
+      shift 2
+      ;;
+    --platform=*)
+      platform="${1#*=}"
+      shift
       ;;
     --output)
       output="${2:-}"
@@ -74,6 +83,16 @@ case "${flavor}" in
   runtime|runtime-cloudflared) ;;
   *) die "--flavor must be runtime or runtime-cloudflared" ;;
 esac
+if [[ -n "${platform}" ]]; then
+  [[ -z "${goos}" && -z "${goarch}" ]] ||
+    die "--platform cannot be combined with --goos or --goarch"
+  case "${platform}" in
+    linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+    *) die "--platform must be one supported goos/goarch release platform" ;;
+  esac
+  goos="${platform%/*}"
+  goarch="${platform#*/}"
+fi
 case "${goos}" in
   linux|darwin|windows) ;;
   *) die "--goos must be linux, darwin, or windows" ;;
