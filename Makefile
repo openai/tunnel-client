@@ -20,6 +20,7 @@ PNPM_PACKAGE_MANAGER_MANIFEST ?= $(or $(wildcard package.json),$(shell git rev-p
 PNPM_PACKAGE_MANAGER ?= $(shell sed -n 's/^[[:space:]]*"packageManager"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$(PNPM_PACKAGE_MANAGER_MANIFEST)")
 ADMIN_UI_PNPM_FLAGS := --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false
 ADMIN_UI_PNPM_STORE_DIR ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/tunnel-client-adminui-pnpm-store
+MAKE_ALL_JOBS ?= 3
 GOPROXY ?= https://proxy.golang.org
 ifeq ($(OS),windows)
   BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET).exe
@@ -60,13 +61,28 @@ CLIENT_STAGE_LICENSE_NAME := $(TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_STAGE_LICENSE_NAME := $(RUNTIME_TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_CLOUDFLARED_STAGE_LICENSE_NAME := $(RUNTIME_CLOUDFLARED_TARGET)-$(OS)-$(ARCH)-licenses.txt
 
-.PHONY: all help fmt test test-runtime test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-go-cache clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
+.PHONY: all help fmt test test-go-race test-runtime test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-go-cache clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
 
-all: clean mod-tidy fmt test $(TARGET)
+# Keep an explicit mixed-goal invocation such as make -j all tunnel-client from
+# racing all's clean/tidy/format phase against a sibling goal. The default
+# no-goal make invocation and all's recursive final phase still use the bounded
+# parallelism below.
+ifneq (,$(filter all,$(MAKECMDGOALS)))
+.NOTPARALLEL:
+endif
+
+# Keep the mutation-prone checks ordered, then let the independent read/build
+# work overlap. The recursive make provides the bounded parallelism even when a
+# caller invokes plain `make all` without its own -j flag.
+all:
+	$(MAKE) clean
+	$(MAKE) mod-tidy
+	$(MAKE) fmt
+	$(MAKE) -j$(MAKE_ALL_JOBS) admin-ui-test test-go-race $(TARGET)
 
 help:
 	@echo "Available targets:"
-	@echo "  all           - Build the tunnel-client binary (default)"
+	@echo "  all           - Run the full clean/tidy/format/test/build gate (default)"
 	@echo "  mod-tidy      - Run go mod tidy and fail if go.mod/go.sum change"
 	@echo "  fmt           - Run go fmt and fail if files are modified"
 	@echo "  $(TARGET)     - Build the tunnel-client binary"
@@ -75,6 +91,7 @@ help:
 	@echo "  runtime       - Short alias for $(RUNTIME_TARGET)"
 	@echo "  runtime-cloudflared - Short alias for $(RUNTIME_CLOUDFLARED_TARGET)"
 	@echo "  test          - Run Go and admin UI tests"
+	@echo "  test-go-race  - Run race-enabled Go tests"
 	@echo "  test-runtime  - Run runtime package and runtime artifact tests"
 	@echo "  test-runtime-release-archive - Package, verify, extract, and smoke-test native runtime ZIP fixtures"
 	@echo "  runtime-container-compatibility - Smoke-test already-built runtime images with hardened mounts"
@@ -109,6 +126,7 @@ help:
 	@echo "  GOARCH       - Target architecture (default: $(ARCH))"
 	@echo "  GIT_SHA      - Git SHA/tag for version info and Docker tagging"
 	@echo "  GOPROXY      - Proxy-only Go module source for bundled cloudflared builds"
+	@echo "  MAKE_ALL_JOBS - Maximum concurrent test/build jobs used by make all (default: $(MAKE_ALL_JOBS))"
 	@echo "  VERSION      - Version for make release-tag (required)"
 	@echo ""
 	@echo "Artifacts:"
@@ -117,6 +135,9 @@ help:
 	@echo "  $(RUNTIME_CLOUDFLARED_STABLE_BIN) -> $(RUNTIME_CLOUDFLARED_BIN)"
 
 test: admin-ui-test
+	$(MAKE) test-go-race
+
+test-go-race:
 	go test -race ./...
 
 test-runtime: runtime runtime-cloudflared test-runtime-release-archive
