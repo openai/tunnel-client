@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -412,9 +413,9 @@ func (l *additionalTransportTestLifecycle) Append(hook fx.Hook) {
 func (l *additionalTransportTestLifecycle) stop(t *testing.T) {
 	t.Helper()
 
-	for i := len(l.hooks) - 1; i >= 0; i-- {
-		if l.hooks[i].OnStop != nil {
-			require.NoError(t, l.hooks[i].OnStop(context.Background()))
+	for _, hook := range slices.Backward(l.hooks) {
+		if hook.OnStop != nil {
+			require.NoError(t, hook.OnStop(context.Background()))
 		}
 	}
 }
