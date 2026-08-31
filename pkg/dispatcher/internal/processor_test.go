@@ -3660,6 +3660,10 @@ func (r *recordingHostBus) Publish(ctx context.Context, bundle hostbus.URLBundle
 	}
 }
 
+func (r *recordingHostBus) PublishAndWait(ctx context.Context, bundle hostbus.URLBundle) error {
+	return r.Publish(ctx, bundle)
+}
+
 func (r *recordingHostBus) Close() error {
 	return nil
 }

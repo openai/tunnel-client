@@ -59,12 +59,15 @@ func NewHostBus(p HostBusSubscriberIn) (hostbus.HostRegistrationBus, error) {
 type HostRegistrationParams struct {
 	fx.In
 
-	Lifecycle  fx.Lifecycle
-	Logger     *slog.Logger
-	Registry   *Registry
-	Config     *runtimeconfig.HarpoonConfig
-	Bus        hostbus.HostRegistrationBus
-	Subscriber chan hostbus.URLBundle `name:"harpoon_hostbus_subscriber"`
+	Lifecycle      fx.Lifecycle
+	Logger         *slog.Logger
+	Registry       *Registry
+	Config         *runtimeconfig.HarpoonConfig
+	ControlPlane   *runtimeconfig.ControlPlaneConfig `optional:"true"`
+	DigestState    *startupCatalogDigestState        `optional:"true"`
+	StartupCatalog *hostbus.StartupCatalogState      `optional:"true"`
+	Bus            hostbus.HostRegistrationBus
+	Subscriber     chan hostbus.URLBundle `name:"harpoon_hostbus_subscriber"`
 }
 
 // StartHostRegistration wires canonical OAuth host auto-registration.
@@ -85,17 +88,94 @@ func StartHostRegistration(p HostRegistrationParams) error {
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
+				startupPending := p.StartupCatalog != nil
+				var startupDone <-chan struct{}
+				if startupPending {
+					settled := make(chan struct{})
+					startupDone = settled
+					go func() {
+						_ = p.StartupCatalog.Wait(ctx)
+						if ctx.Err() != nil {
+							return
+						}
+						close(settled)
+					}()
+				}
+
+				pending := make([]hostbus.URLBundle, 0)
+				processBundle := func(bundle hostbus.URLBundle, captureStartup bool) {
+					if ctx.Err() != nil {
+						bundle.Acknowledge(ctx.Err())
+						return
+					}
+					err := registerHostBundle(bundle, classifier, p.Registry, logger)
+					if ctx.Err() != nil {
+						bundle.Acknowledge(ctx.Err())
+						return
+					}
+					if captureStartup {
+						bundle.AcknowledgeAfter(err, func() error {
+							if ctx.Err() != nil {
+								return ctx.Err()
+							}
+							if p.DigestState == nil {
+								return nil
+							}
+							// Capture while this single consumer still owns the
+							// registration boundary. No later bundle can be
+							// processed until the startup digest is immutable.
+							return p.DigestState.Capture(p.Registry, p.ControlPlane)
+						})
+					} else {
+						bundle.Acknowledge(err)
+					}
+					if err != nil {
+						logger.Warn("harpoon host auto-registration skipped", slog.String("error", err.Error()))
+					}
+				}
+				flushPending := func() {
+					for _, bundle := range pending {
+						processBundle(bundle, false)
+					}
+					pending = pending[:0]
+				}
+
 				for {
 					select {
 					case <-ctx.Done():
 						return
+					case <-startupDone:
+						if ctx.Err() != nil {
+							return
+						}
+						// A hard startup failure never publishes an
+						// acknowledgement bundle. Let ordinary later
+						// registrations proceed, but leave the digest unset.
+						startupPending = false
+						startupDone = nil
+						flushPending()
 					case bundle, ok := <-p.Subscriber:
 						if !ok {
 							return
 						}
-						if err := registerHostBundle(bundle, classifier, p.Registry, logger); err != nil {
-							logger.Warn("harpoon host auto-registration skipped", slog.String("error", err.Error()))
+						if ctx.Err() != nil {
+							bundle.Acknowledge(ctx.Err())
+							return
 						}
+						if startupPending && !bundle.RequiresAcknowledgement() {
+							// Preserve startup semantics even if a later OAuth
+							// command races ahead of startup discovery.
+							pending = append(pending, bundle)
+							continue
+						}
+						if startupPending {
+							processBundle(bundle, true)
+							startupPending = false
+							startupDone = nil
+							flushPending()
+							continue
+						}
+						processBundle(bundle, false)
 					}
 				}
 			}()

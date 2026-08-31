@@ -27,8 +27,9 @@ var Module = fx.Module(
 		newHarpoonGuardedMux,
 		runtimeharpoon.NewHostBusSubscriber,
 		runtimeharpoon.NewHostBus,
+		runtimeharpoon.NewStartupCatalogDigestState,
 	),
-	fx.Invoke(registerAdditionalTransport, runtimeharpoon.StartHostRegistration),
+	fx.Invoke(registerAdditionalTransport, runtimeharpoon.StartHostRegistration, runtimeharpoon.StartCatalogDigestLogging),
 )
 
 func newRuntimeRegistryCounter(registry *Registry) runtimeharpoon.RegistryCounter {

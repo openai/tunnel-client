@@ -92,6 +92,36 @@ func TestBusPublishAfterClose(t *testing.T) {
 	}
 }
 
+func TestBusPublishAndWaitForwardsAcknowledgement(t *testing.T) {
+	ch := make(chan URLBundle)
+	bus, err := New(ch)
+	if err != nil {
+		t.Fatalf("new bus: %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- PublishAndWait(context.Background(), bus, URLBundle{})
+	}()
+
+	var bundle URLBundle
+	select {
+	case bundle = <-ch:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed out waiting for bundle")
+	}
+	bundle.Acknowledge(nil)
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("publish and wait: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed out waiting for acknowledgement")
+	}
+}
+
 func mustParseURL(t *testing.T, raw string) *url.URL {
 	t.Helper()
 	parsed, err := url.Parse(raw)

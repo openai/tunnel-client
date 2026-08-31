@@ -585,6 +585,15 @@ Harpoon's channel (`harpoon`) is enabled only when at least one target is
 registered. If there are no targets, `harpoon` commands return
 `unsupported_channel`.
 
+At startup, after configured targets and startup OAuth-discovered targets have
+been processed, tunnel-client emits one INFO log named
+`harpoon startup catalog digest`. The HMAC digest is a privacy-safe comparison
+aid: it does not expose target labels, URLs, paths, or credentials. Compare
+digests only between replicas using the same tunnel ID and the same resolved
+control-plane runtime API key; a different key or key rotation intentionally
+produces a different digest. The digest is startup-only and is not updated for
+later OAuth discovery commands or registry mutations.
+
 - **Target mappings**
   - Flag (repeatable): `--harpoon.target="label=auth,url=https://auth.example.com,desc=Auth server"`
   - Env: `HARPOON_TARGETS` (semicolon- or newline-delimited list of the same

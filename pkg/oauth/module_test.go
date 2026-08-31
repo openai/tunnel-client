@@ -24,11 +24,32 @@ import (
 )
 
 type recordingBus struct {
+	mu                sync.Mutex
+	notify            chan struct{}
+	notifyOne         sync.Once
+	bundles           []hostbus.URLBundle
+	publishAndWaitErr error
+}
+
+// legacyRecordingBus intentionally implements only the original public bus
+// contract. It guards compatibility for embedders that have not adopted the
+// additive startup acknowledgement capability.
+type legacyRecordingBus struct {
 	mu        sync.Mutex
 	notify    chan struct{}
 	notifyOne sync.Once
 	bundles   []hostbus.URLBundle
 }
+
+func (b *legacyRecordingBus) Publish(_ context.Context, bundle hostbus.URLBundle) error {
+	b.mu.Lock()
+	b.bundles = append(b.bundles, bundle)
+	b.mu.Unlock()
+	b.notifyOne.Do(func() { close(b.notify) })
+	return nil
+}
+
+func (b *legacyRecordingBus) Close() error { return nil }
 
 func (b *recordingBus) Publish(ctx context.Context, bundle hostbus.URLBundle) error {
 	b.mu.Lock()
@@ -38,7 +59,39 @@ func (b *recordingBus) Publish(ctx context.Context, bundle hostbus.URLBundle) er
 	return nil
 }
 
+func (b *recordingBus) PublishAndWait(ctx context.Context, bundle hostbus.URLBundle) error {
+	if err := b.Publish(ctx, bundle); err != nil {
+		return err
+	}
+	return b.publishAndWaitErr
+}
+
 func (b *recordingBus) Close() error { return nil }
+
+type blockingRecordingBus struct {
+	*recordingBus
+	started            chan struct{}
+	startedOnce        sync.Once
+	release            chan struct{}
+	contextHasDeadline chan bool
+}
+
+func (b *blockingRecordingBus) PublishAndWait(ctx context.Context, bundle hostbus.URLBundle) error {
+	if err := b.Publish(ctx, bundle); err != nil {
+		return err
+	}
+	if b.contextHasDeadline != nil {
+		_, hasDeadline := ctx.Deadline()
+		b.contextHasDeadline <- hasDeadline
+	}
+	b.startedOnce.Do(func() { close(b.started) })
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 func TestLogDiscoveredURLsRedactsSensitiveURLParts(t *testing.T) {
 	sensitiveURL, err := url.Parse("https://client:credential@auth.internal/oauth/token?client_id=identifier#state=fragment-value")
@@ -203,6 +256,212 @@ func TestOAuthDiscoveryPublishesPRMDBundle(t *testing.T) {
 	}
 }
 
+func TestOAuthStartupCatalogWaitsForHostRegistrationAcknowledgement(t *testing.T) {
+	server := newStartupCatalogOAuthServer(t)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	discoveryState := NewDiscoveryState()
+	startupCatalog := hostbus.NewStartupCatalogState()
+	bus := &blockingRecordingBus{
+		recordingBus:       &recordingBus{notify: make(chan struct{})},
+		started:            make(chan struct{}),
+		release:            make(chan struct{}),
+		contextHasDeadline: make(chan bool, 1),
+	}
+	app := fx.New(
+		fx.Provide(
+			func() *config.MCPConfig {
+				return &config.MCPConfig{
+					ServerURL:     serverURL,
+					TransportKind: config.MCPTransportHTTPStreamable,
+				}
+			},
+			fx.Annotate(
+				func() *http.Client { return server.Client() },
+				fx.ResultTags(`name:"mcp_client"`),
+			),
+			func() hostbus.HostRegistrationBus { return bus },
+			func() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) },
+			func() *DiscoveryState { return discoveryState },
+			func() *hostbus.StartupCatalogState { return startupCatalog },
+		),
+		fx.Invoke(startOAuthDiscovery),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		_ = app.Stop(context.Background())
+	}()
+
+	select {
+	case <-bus.started:
+	case <-ctx.Done():
+		t.Fatalf("startup discovery did not wait for registration: %v", ctx.Err())
+	}
+	select {
+	case hasDeadline := <-bus.contextHasDeadline:
+		if hasDeadline {
+			t.Fatal("startup registration acknowledgement reused the delivery timeout")
+		}
+	case <-ctx.Done():
+		t.Fatalf("did not observe startup registration context: %v", ctx.Err())
+	}
+
+	_, _, _, discoveryErr, discoveryDone := discoveryState.Wait(time.Second)
+	if !discoveryDone {
+		t.Fatal("OAuth readiness state did not settle before host registration acknowledgement")
+	}
+	if discoveryErr != nil {
+		t.Fatalf("OAuth readiness state returned error: %v", discoveryErr)
+	}
+
+	canceledCtx, cancelWait := context.WithCancel(context.Background())
+	cancelWait()
+	if err := startupCatalog.Wait(canceledCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("startup catalog wait before acknowledgement = %v, want context canceled", err)
+	}
+
+	close(bus.release)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	if err := startupCatalog.Wait(waitCtx); err != nil {
+		t.Fatalf("startup catalog wait after acknowledgement: %v", err)
+	}
+}
+
+func TestOAuthModulePublishesDiscoveredBundleToLegacyHostBus(t *testing.T) {
+	server := newStartupCatalogOAuthServer(t)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	bus := &legacyRecordingBus{notify: make(chan struct{})}
+	var discoveryState *DiscoveryState
+	var startupCatalog *hostbus.StartupCatalogState
+	app := fx.New(
+		Module,
+		fx.Provide(
+			func() *config.MCPConfig {
+				return &config.MCPConfig{
+					ServerURL:     serverURL,
+					TransportKind: config.MCPTransportHTTPStreamable,
+				}
+			},
+			fx.Annotate(
+				func() *http.Client { return server.Client() },
+				fx.ResultTags(`name:"mcp_client"`),
+			),
+			func() hostbus.HostRegistrationBus { return bus },
+			func() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) },
+		),
+		fx.Populate(&discoveryState, &startupCatalog),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		_ = app.Stop(context.Background())
+	}()
+
+	select {
+	case <-bus.notify:
+	case <-ctx.Done():
+		t.Fatalf("legacy host bus did not receive OAuth bundle: %v", ctx.Err())
+	}
+	_, _, _, discoveryErr, discoveryDone := discoveryState.Wait(time.Second)
+	if !discoveryDone {
+		t.Fatal("OAuth discovery did not settle")
+	}
+	if discoveryErr != nil {
+		t.Fatalf("OAuth discovery returned error: %v", discoveryErr)
+	}
+
+	bus.mu.Lock()
+	if len(bus.bundles) != 1 || len(bus.bundles[0].URLs) == 0 {
+		bus.mu.Unlock()
+		t.Fatalf("legacy host bus bundles = %#v, want one non-empty bundle", bus.bundles)
+	}
+	bus.mu.Unlock()
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	if err := startupCatalog.Wait(waitCtx); !errors.Is(err, errStartupCatalogAcknowledgementUnavailable) {
+		t.Fatalf("legacy startup catalog wait = %v, want acknowledgement unavailable", err)
+	}
+}
+
+func TestOAuthStartupCatalogRecordsHardRegistrationFailure(t *testing.T) {
+	server := newStartupCatalogOAuthServer(t)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	startupCatalog := hostbus.NewStartupCatalogState()
+	bus := &recordingBus{
+		notify:            make(chan struct{}),
+		publishAndWaitErr: errors.New("registration acknowledgement failed"),
+	}
+	app := fx.New(
+		fx.Provide(
+			func() *config.MCPConfig {
+				return &config.MCPConfig{
+					ServerURL:     serverURL,
+					TransportKind: config.MCPTransportHTTPStreamable,
+				}
+			},
+			fx.Annotate(
+				func() *http.Client { return server.Client() },
+				fx.ResultTags(`name:"mcp_client"`),
+			),
+			func() hostbus.HostRegistrationBus { return bus },
+			func() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) },
+			NewDiscoveryState,
+			func() *hostbus.StartupCatalogState { return startupCatalog },
+		),
+		fx.Invoke(startOAuthDiscovery),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		_ = app.Stop(context.Background())
+	}()
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	if err := startupCatalog.Wait(waitCtx); err == nil {
+		t.Fatal("startup catalog completed successfully after registration failure")
+	}
+}
+
+func newStartupCatalogOAuthServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/oauth-protected-resource" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"resource":"`+server.URL+`/resource"}`)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
 func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 	requestSeen := make(chan struct{})
 	var requestOnce sync.Once
@@ -219,6 +478,7 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 	}
 
 	state := NewDiscoveryState()
+	startupCatalog := hostbus.NewStartupCatalogState()
 	bus := &recordingBus{notify: make(chan struct{})}
 	app := fx.New(
 		fx.Provide(
@@ -236,6 +496,7 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 			func() hostbus.HostRegistrationBus { return bus },
 			func() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) },
 			func() *DiscoveryState { return state },
+			func() *hostbus.StartupCatalogState { return startupCatalog },
 		),
 		fx.Invoke(startOAuthDiscovery),
 	)
@@ -256,6 +517,11 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 	if discoveryErr != nil {
 		t.Fatalf("disabled OAuth discovery returned error: %v", discoveryErr)
 	}
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	if err := startupCatalog.Wait(waitCtx); err != nil {
+		t.Fatalf("disabled OAuth startup catalog did not finalize: %v", err)
+	}
 	select {
 	case <-requestSeen:
 		t.Fatal("disabled main MCP endpoint received an OAuth discovery request")
@@ -264,8 +530,8 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 
 	bus.mu.Lock()
 	defer bus.mu.Unlock()
-	if len(bus.bundles) != 0 {
-		t.Fatalf("disabled main published %d OAuth bundle(s)", len(bus.bundles))
+	if len(bus.bundles) != 1 || len(bus.bundles[0].URLs) != 0 {
+		t.Fatalf("disabled main finalization bundles = %#v, want one empty bundle", bus.bundles)
 	}
 }
 

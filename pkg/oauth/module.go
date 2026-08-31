@@ -16,10 +16,12 @@ import (
 	"github.com/openai/tunnel-client/pkg/runtimeharpoon/hostbus"
 )
 
+var errStartupCatalogAcknowledgementUnavailable = errors.New("oauth discovery: startup catalog acknowledgement unavailable")
+
 // Module wires OAuth discovery state and fetcher.
 var Module = fx.Module(
 	"oauth",
-	fx.Provide(NewDiscoveryState),
+	fx.Provide(NewDiscoveryState, hostbus.NewStartupCatalogState),
 	fx.Invoke(startOAuthDiscovery),
 )
 
@@ -33,6 +35,11 @@ type discoveryParams struct {
 	State      *DiscoveryState
 	Bus        hostbus.HostRegistrationBus
 	ProbeState *mcpclient.ProbeState `optional:"true"`
+
+	// StartupCatalog is intentionally separate from DiscoveryState. Readiness
+	// keeps its existing OAuth semantics, while startup catalog consumers wait
+	// until any discovered URL bundle has also been processed by Harpoon.
+	StartupCatalog *hostbus.StartupCatalogState `optional:"true"`
 }
 
 func startOAuthDiscovery(p discoveryParams) error {
@@ -57,6 +64,50 @@ func startOAuthDiscovery(p discoveryParams) error {
 
 	logger := p.Logger.With(tclog.FieldComponent, "oauth")
 	ctx, cancel := context.WithCancel(context.Background())
+	startupCatalogBarrierEnabled := p.StartupCatalog != nil && hostbus.SupportsAcknowledgement(p.Bus)
+	completeStartupCatalog := func(err error) {
+		if p.StartupCatalog != nil {
+			p.StartupCatalog.Complete(err)
+		}
+	}
+	settleUnsupportedStartupCatalog := func() {
+		if p.StartupCatalog != nil && !startupCatalogBarrierEnabled {
+			// A custom legacy bus still receives discovered targets through the
+			// historical Publish path, but it cannot prove registration completed.
+			// Settle the stricter startup barrier with a generic failure so the
+			// digest logger exits without emitting a false comparison signal.
+			completeStartupCatalog(errStartupCatalogAcknowledgementUnavailable)
+		}
+	}
+	finalizeStaticStartupCatalog := func() {
+		if !startupCatalogBarrierEnabled {
+			return
+		}
+		// Keep this asynchronous for disabled discovery paths so OAuth's
+		// OnStart hook cannot wait on a registration subscriber whose own
+		// OnStart hook has not run yet.
+		go func() {
+			if err := hostbus.PublishAndWait(ctx, p.Bus, hostbus.URLBundle{}); err != nil {
+				completeStartupCatalog(err)
+				logger.ErrorContext(ctx, "OAuth startup catalog finalization failed", slog.String("error", err.Error()))
+				return
+			}
+			completeStartupCatalog(nil)
+		}()
+	}
+	publishDiscoveredBundle := func(bundle hostbus.URLBundle) error {
+		if startupCatalogBarrierEnabled {
+			// Use the lifecycle context for acknowledgement waiting. A slow
+			// registrar is not a hard startup failure merely because it takes
+			// longer than the old delivery-only timeout.
+			return hostbus.PublishAndWait(ctx, p.Bus, bundle)
+		}
+		// Isolated callers without the startup barrier retain the historical
+		// fire-and-forget publication behavior.
+		publishCtx, publishCancel := context.WithTimeout(ctx, time.Second)
+		defer publishCancel()
+		return p.Bus.Publish(publishCtx, bundle)
+	}
 
 	transportKind := p.MCPConfig.TransportKind
 	serverURL := p.MCPConfig.ServerURL
@@ -72,9 +123,11 @@ func startOAuthDiscovery(p discoveryParams) error {
 
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(startCtx context.Context) error {
+			settleUnsupportedStartupCatalog()
 			if p.MCPConfig.AllowNoMain {
 				const reason = "oauth discovery disabled because the main channel is not enabled"
 				p.State.Set(nil, nil, nil, nil)
+				finalizeStaticStartupCatalog()
 				logger.DebugContext(startCtx, reason)
 				return nil
 			}
@@ -85,6 +138,7 @@ func startOAuthDiscovery(p discoveryParams) error {
 					reason = "oauth discovery server URL is not configured"
 				}
 				p.State.Set(nil, errors.New(reason), nil, nil)
+				finalizeStaticStartupCatalog()
 				logger.DebugContext(startCtx, reason)
 				return nil
 			}
@@ -100,6 +154,7 @@ func startOAuthDiscovery(p discoveryParams) error {
 						return
 					}
 					p.State.Set(nil, err, nil, nil)
+					completeStartupCatalog(err)
 					logger.WarnContext(ctx, "OAuth discovery disabled", slog.String("error", err.Error()))
 					return
 				}
@@ -111,6 +166,7 @@ func startOAuthDiscovery(p discoveryParams) error {
 				candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger)
 				if err != nil {
 					p.State.Set(nil, err, nil, nil)
+					completeStartupCatalog(err)
 					logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
 					return
 				}
@@ -118,6 +174,7 @@ func startOAuthDiscovery(p discoveryParams) error {
 				if len(candidates) == 0 {
 					err := errors.New("oauth discovery metadata URLs are not configured")
 					p.State.Set(nil, err, probe, candidateStrings)
+					completeStartupCatalog(err)
 					logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
 					return
 				}
@@ -126,12 +183,25 @@ func startOAuthDiscovery(p discoveryParams) error {
 				result := BuildDiscoveryResult(resp, sourceURL, start, attempts)
 				if err != nil {
 					p.State.Set(result, err, probe, candidateStrings)
+					if IsOptionalDiscoveryFailure(result, probe, err) {
+						if !startupCatalogBarrierEnabled {
+							completeStartupCatalog(nil)
+						} else if finalizeErr := hostbus.PublishAndWait(ctx, p.Bus, hostbus.URLBundle{}); finalizeErr != nil {
+							completeStartupCatalog(finalizeErr)
+							logger.ErrorContext(fetchCtx, "OAuth startup catalog finalization failed", slog.String("error", finalizeErr.Error()))
+						} else {
+							completeStartupCatalog(nil)
+						}
+					} else {
+						completeStartupCatalog(err)
+					}
 					logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
 					return
 				}
 				if resp == nil {
 					err := errors.New("oauth discovery returned nil response")
 					p.State.Set(result, err, probe, candidateStrings)
+					completeStartupCatalog(err)
 					logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
 					return
 				}
@@ -153,13 +223,15 @@ func startOAuthDiscovery(p discoveryParams) error {
 				}
 				p.State.Set(result, nil, probe, candidateStrings)
 				if err != nil {
+					completeStartupCatalog(err)
 					logger.ErrorContext(fetchCtx, "OAuth discovery bundle build failed", slog.String("error", err.Error()))
 				} else {
 					logDiscoveredURLs(logger, bundle)
-					publishCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-					defer cancel()
-					if err := p.Bus.Publish(publishCtx, bundle); err != nil {
+					if err := publishDiscoveredBundle(bundle); err != nil {
+						completeStartupCatalog(err)
 						logger.ErrorContext(fetchCtx, "OAuth discovery bundle publish failed", slog.String("error", err.Error()))
+					} else {
+						completeStartupCatalog(nil)
 					}
 				}
 				logger.InfoContext(fetchCtx, "OAuth discovery ProtectedResourceMetaData fetched",

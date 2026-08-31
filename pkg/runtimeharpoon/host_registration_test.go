@@ -1,10 +1,12 @@
 package runtimeharpoon
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
@@ -17,6 +19,14 @@ import (
 type hostRegistrationTestLifecycle struct{}
 
 func (hostRegistrationTestLifecycle) Append(fx.Hook) {}
+
+type hostRegistrationCaptureLifecycle struct {
+	hooks []fx.Hook
+}
+
+func (l *hostRegistrationCaptureLifecycle) Append(hook fx.Hook) {
+	l.hooks = append(l.hooks, hook)
+}
 
 func TestStartHostRegistrationRequiresLogger(t *testing.T) {
 	t.Parallel()
@@ -79,6 +89,51 @@ func TestRegisterHostBundleAllowsDisallowedRecordOnlyOnExactProtectedResourceOri
 	))
 	_, ok := registry.Lookup("oauth-registration-endpoint-0")
 	require.True(t, ok, "exact protected-resource origin should remain eligible")
+}
+
+func TestStartupCatalogCaptureExcludesEarlierQueuedDynamicBundle(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, false, nil)
+	require.NoError(t, err)
+	subscriber := make(chan hostbus.URLBundle, 2)
+	bus, err := hostbus.New(subscriber)
+	require.NoError(t, err)
+	startupCatalog := hostbus.NewStartupCatalogState()
+	digestState := NewStartupCatalogDigestState()
+	lifecycle := &hostRegistrationCaptureLifecycle{}
+
+	require.NoError(t, StartHostRegistration(HostRegistrationParams{
+		Lifecycle:      lifecycle,
+		Logger:         logger,
+		Registry:       registry,
+		Config:         &runtimeconfig.HarpoonConfig{HostClassifier: runtimeconfig.HarpoonHostClassifierConfig{IncludePrivate: true}},
+		ControlPlane:   catalogDigestControlPlane("runtime-secret", "tunnel_0123456789abcdef0123456789abcdef"),
+		DigestState:    digestState,
+		StartupCatalog: startupCatalog,
+		Bus:            bus,
+		Subscriber:     subscriber,
+	}))
+	require.Len(t, lifecycle.hooks, 1)
+	require.NoError(t, lifecycle.hooks[0].OnStart(context.Background()))
+	defer func() {
+		startupCatalog.Complete(nil)
+		require.NoError(t, lifecycle.hooks[0].OnStop(context.Background()))
+	}()
+
+	dynamic := hostbus.URLBundle{URLs: []hostbus.URLRecord{
+		runtimeOAuthURLRecordForTest(t, "https://10.0.0.1/oauth", "prmd-resource"),
+	}}
+	require.NoError(t, bus.Publish(context.Background(), dynamic))
+	require.NoError(t, hostbus.PublishAndWait(context.Background(), bus, hostbus.URLBundle{}))
+
+	digest, ok := digestState.Result()
+	require.True(t, ok)
+	require.Equal(t, 0, digest.TargetCount)
+	require.Eventually(t, func() bool {
+		return registry.Count() == 1
+	}, time.Second, 10*time.Millisecond)
 }
 
 func runtimeOAuthURLRecordForTest(t *testing.T, rawURL, role string) hostbus.URLRecord {

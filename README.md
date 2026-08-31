@@ -574,6 +574,11 @@ Starter prompts for Codex:
   `harpoon` is routable only when Harpoon has registered targets.
 - On startup, it fetches OAuth Protected Resource Metadata from the MCP server
   for diagnostics.
+- After configured and startup OAuth-discovered Harpoon targets settle, it
+  emits one privacy-safe `harpoon startup catalog digest` INFO log. Compare
+  replicas only when they use the same tunnel ID and control-plane runtime API
+  key; the startup-only digest is a comparison aid, not convergence
+  enforcement.
 - For sidecar deployments whose local MCP listener may bind after
   `tunnel-client` starts, the optional `MCP_STARTUP_WAIT_TIMEOUT` gate delays
   the first control-plane poll and OAuth discovery until the main MCP listener

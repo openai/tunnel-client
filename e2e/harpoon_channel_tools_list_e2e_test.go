@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -398,6 +400,183 @@ func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *te
 		primaryClient.Name():   1,
 		secondaryClient.Name(): 2,
 	})
+}
+
+func TestHarpoonStartupCatalogDigestMatchesRedundantClientsE2E(t *testing.T) {
+	oauthServer := newStartupCatalogDigestOAuthServer(t)
+
+	capture := newStartupCatalogDigestCapture()
+	h := newStartupCatalogDigestHarness(t, oauthServer.URL, "test-api-key", capture, func(h *harnesspkg.Harness) {
+		h.StartAdditionalClient(t)
+		capture.WaitForRecords(t, 2)
+	})
+	h.ExecuteScenarious(t)
+
+	redundantRecords := capture.Records(t)
+	if len(redundantRecords) != 2 {
+		t.Fatalf("startup catalog digest records = %d, want 2", len(redundantRecords))
+	}
+	firstDigest := startupCatalogDigestFromRecord(t, redundantRecords[0])
+	secondDigest := startupCatalogDigestFromRecord(t, redundantRecords[1])
+	if firstDigest != secondDigest {
+		t.Fatalf("redundant startup catalog digests differ: %q != %q", firstDigest, secondDigest)
+	}
+
+	changedTargetDigest := runSingleStartupCatalogDigestHarness(t, oauthServer.URL+"/changed", "test-api-key")
+	if changedTargetDigest == firstDigest {
+		t.Fatal("changed startup target emitted the same catalog digest")
+	}
+
+	differentKeyDigest := runSingleStartupCatalogDigestHarness(t, oauthServer.URL, "different-test-api-key")
+	if differentKeyDigest == firstDigest {
+		t.Fatal("different runtime API key emitted the same catalog digest")
+	}
+}
+
+func newStartupCatalogDigestOAuthServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"resource":"` + server.URL + `/resource"}`))
+		case "/.well-known/oauth-protected-resource/changed":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"resource":"` + server.URL + `/resource-changed"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func newStartupCatalogDigestHarness(
+	t *testing.T,
+	mcpURL string,
+	apiKey string,
+	capture *startupCatalogDigestCapture,
+	afterStart func(*harnesspkg.Harness),
+) *harnesspkg.Harness {
+	t.Helper()
+	return harnesspkg.NewHarness(
+		t,
+		harnesspkg.WithAPIKey(apiKey),
+		harnesspkg.WithLogWriter(capture),
+		harnesspkg.WithPreserveClientURLs(),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.Logging.Level = slog.LevelInfo
+			cfg.Logging.Format = config.LogFormatJSON
+			cfg.MCP.ServerURL = mustParseURL(t, mcpURL)
+			cfg.MCP.TransportKind = config.MCPTransportHTTPStreamable
+			cfg.Harpoon.AllowPlaintextHTTP = true
+			cfg.Harpoon.HostClassifier.IncludeLoopback = true
+		}),
+		harnesspkg.WithAfterClientStart(afterStart),
+	)
+}
+
+func runSingleStartupCatalogDigestHarness(t *testing.T, targetURL, apiKey string) string {
+	t.Helper()
+	capture := newStartupCatalogDigestCapture()
+	h := newStartupCatalogDigestHarness(t, targetURL, apiKey, capture, func(*harnesspkg.Harness) {
+		capture.WaitForRecords(t, 1)
+	})
+	h.ExecuteScenarious(t)
+	records := capture.Records(t)
+	if len(records) != 1 {
+		t.Fatalf("startup catalog digest records = %d, want 1", len(records))
+	}
+	return startupCatalogDigestFromRecord(t, records[0])
+}
+
+func startupCatalogDigestFromRecord(t *testing.T, record map[string]any) string {
+	t.Helper()
+	if got := record["msg"]; got != "harpoon startup catalog digest" {
+		t.Fatalf("startup catalog digest message = %v", got)
+	}
+	if got := record["catalog_digest_version"]; got != float64(1) {
+		t.Fatalf("startup catalog digest version = %v, want 1", got)
+	}
+	targetCount, ok := record["target_count"].(float64)
+	if !ok || targetCount < 1 {
+		t.Fatalf("startup catalog target count = %v, want at least 1 discovered target", record["target_count"])
+	}
+	if got := record["digest_scope"]; got != "startup" {
+		t.Fatalf("startup catalog digest scope = %v, want startup", got)
+	}
+	if got := record["comparability_scope"]; got != "same_tunnel_and_runtime_key" {
+		t.Fatalf("startup catalog comparability scope = %v", got)
+	}
+	digest, ok := record["catalog_digest"].(string)
+	if !ok || !strings.HasPrefix(digest, "hmac-sha256:v1:") {
+		t.Fatalf("startup catalog digest = %v", record["catalog_digest"])
+	}
+	return digest
+}
+
+type startupCatalogDigestCapture struct {
+	mu      sync.Mutex
+	records [][]byte
+	notify  chan struct{}
+}
+
+func newStartupCatalogDigestCapture() *startupCatalogDigestCapture {
+	return &startupCatalogDigestCapture{notify: make(chan struct{}, 8)}
+}
+
+func (c *startupCatalogDigestCapture) Write(p []byte) (int, error) {
+	if !bytes.Contains(p, []byte("harpoon startup catalog digest")) {
+		return len(p), nil
+	}
+	record := append([]byte(nil), bytes.TrimSpace(p)...)
+	c.mu.Lock()
+	c.records = append(c.records, record)
+	c.mu.Unlock()
+	select {
+	case c.notify <- struct{}{}:
+	default:
+	}
+	return len(p), nil
+}
+
+func (c *startupCatalogDigestCapture) WaitForRecords(t *testing.T, want int) {
+	t.Helper()
+	for {
+		c.mu.Lock()
+		got := len(c.records)
+		c.mu.Unlock()
+		if got >= want {
+			return
+		}
+		select {
+		case <-c.notify:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for startup catalog digests: got %d want %d", got, want)
+		}
+	}
+}
+
+func (c *startupCatalogDigestCapture) Records(t *testing.T) []map[string]any {
+	t.Helper()
+	c.mu.Lock()
+	rawRecords := make([][]byte, len(c.records))
+	for idx, record := range c.records {
+		rawRecords[idx] = append([]byte(nil), record...)
+	}
+	c.mu.Unlock()
+
+	records := make([]map[string]any, 0, len(rawRecords))
+	for _, raw := range rawRecords {
+		var record map[string]any
+		if err := json.Unmarshal(raw, &record); err != nil {
+			t.Fatalf("decode startup catalog digest log: %v", err)
+		}
+		records = append(records, record)
+	}
+	return records
 }
 
 func assertUniqueHarpoonCommandIDs(t *testing.T, commands []json.RawMessage, want int) {

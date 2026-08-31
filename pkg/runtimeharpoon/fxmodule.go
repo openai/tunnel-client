@@ -17,8 +17,8 @@ import (
 // Module wires the harpoon MCP server.
 var Module = fx.Module(
 	"harpoon",
-	fx.Provide(newHarpoonService, newRegistryCounter, newHarpoonGuardedMux, NewHostBusSubscriber, NewHostBus),
-	fx.Invoke(registerAdditionalTransport, StartHostRegistration),
+	fx.Provide(newHarpoonService, newRegistryCounter, newHarpoonGuardedMux, NewHostBusSubscriber, NewHostBus, NewStartupCatalogDigestState),
+	fx.Invoke(registerAdditionalTransport, StartHostRegistration, StartCatalogDigestLogging),
 )
 
 func newRegistryCounter(registry *Registry) RegistryCounter {

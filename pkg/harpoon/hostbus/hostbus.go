@@ -14,6 +14,7 @@ type URLRecord = runtimehostbus.URLRecord
 type TagKey = runtimehostbus.TagKey
 type Tag = runtimehostbus.Tag
 type HostRegistrationBus = runtimehostbus.HostRegistrationBus
+type StartupCatalogState = runtimehostbus.StartupCatalogState
 
 const (
 	TagKeyUnspecified = runtimehostbus.TagKeyUnspecified
@@ -40,11 +41,37 @@ func New(subscriber chan URLBundle) (HostRegistrationBus, error) {
 	return &hostRegistrationBus{inner: inner}, nil
 }
 
+// NewStartupCatalogState constructs the shared one-shot startup catalog
+// completion barrier.
+func NewStartupCatalogState() *StartupCatalogState {
+	return runtimehostbus.NewStartupCatalogState()
+}
+
+// PublishAndWait forwards the runtime-owned acknowledgement-aware startup
+// publication helper while preserving HostRegistrationBus as the ordinary
+// fire-and-forget publisher interface.
+func PublishAndWait(ctx context.Context, bus HostRegistrationBus, bundle URLBundle) error {
+	return runtimehostbus.PublishAndWait(ctx, bus, bundle)
+}
+
+// SupportsAcknowledgement reports whether bus supports the additive startup
+// registration barrier.
+func SupportsAcknowledgement(bus HostRegistrationBus) bool {
+	return runtimehostbus.SupportsAcknowledgement(bus)
+}
+
 func (b *hostRegistrationBus) Publish(ctx context.Context, bundle URLBundle) error {
 	if b == nil || b.inner == nil {
 		return errors.New("hostbus: subscriber channel is required")
 	}
 	return b.inner.Publish(ctx, bundle)
+}
+
+func (b *hostRegistrationBus) PublishAndWait(ctx context.Context, bundle URLBundle) error {
+	if b == nil || b.inner == nil {
+		return errors.New("hostbus: subscriber channel is required")
+	}
+	return runtimehostbus.PublishAndWait(ctx, b.inner, bundle)
 }
 
 func (b *hostRegistrationBus) Close() error {
