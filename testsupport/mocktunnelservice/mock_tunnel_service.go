@@ -225,6 +225,8 @@ type MockTunnelService struct {
 	script              []*scriptedCommand
 	received            []ReceivedResponse
 	httpSeen            []IncomingHTTPRequest
+	activePolls         map[uint64]IncomingHTTPRequest
+	nextActivePollID    uint64
 	delivered           []json.RawMessage
 	stateCh             chan struct{}
 	pollWaitLimit       time.Duration
@@ -249,6 +251,7 @@ func NewMockTunnelService(opts ...Option) *MockTunnelService {
 		stateCh:       make(chan struct{}),
 		pollWaitLimit: defaultPollWaitLimit,
 		storage:       newSharedStorage(),
+		activePolls:   make(map[uint64]IncomingHTTPRequest),
 	}
 	for _, opt := range opts {
 		opt(mock)
@@ -621,6 +624,62 @@ func (m *MockTunnelService) WaitForHTTPRequests(
 	}
 }
 
+// WaitForActivePollRequests blocks until at least one in-flight GET /poll
+// handler matches predicate, or until ctx expires.
+func (m *MockTunnelService) WaitForActivePollRequests(
+	ctx context.Context,
+	predicate func(IncomingHTTPRequest) bool,
+) error {
+	for {
+		m.mu.Lock()
+		active := m.activePollRequestCountLocked(predicate)
+		state := m.stateCh
+		m.mu.Unlock()
+		if active > 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-state:
+		}
+	}
+}
+
+// WaitForNoActivePollRequests blocks until no in-flight GET /poll handlers
+// match predicate, or until ctx expires. Callers should first stop the
+// corresponding client poller so the zero-active state cannot immediately
+// become stale.
+func (m *MockTunnelService) WaitForNoActivePollRequests(
+	ctx context.Context,
+	predicate func(IncomingHTTPRequest) bool,
+) error {
+	for {
+		m.mu.Lock()
+		active := m.activePollRequestCountLocked(predicate)
+		state := m.stateCh
+		m.mu.Unlock()
+		if active == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-state:
+		}
+	}
+}
+
+func (m *MockTunnelService) activePollRequestCountLocked(predicate func(IncomingHTTPRequest) bool) int {
+	active := 0
+	for _, req := range m.activePolls {
+		if predicate == nil || predicate(req) {
+			active++
+		}
+	}
+	return active
+}
+
 // WaitUntilIdle blocks until every scripted command has been delivered and all
 // expected responses have been observed, or until ctx expires.
 func (m *MockTunnelService) WaitUntilIdle(ctx context.Context) error {
@@ -695,21 +754,48 @@ func (m *MockTunnelService) recordHTTPRequest(req *http.Request) {
 	if m == nil || req == nil {
 		return
 	}
+	record := incomingHTTPRequest(req)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.httpSeen = append(m.httpSeen, record)
+	m.signalStateChangeLocked()
+}
+
+func (m *MockTunnelService) beginActivePoll(req *http.Request) func() {
+	if m == nil || req == nil {
+		return func() {}
+	}
+	record := incomingHTTPRequest(req)
+	m.mu.Lock()
+	pollID := m.nextActivePollID
+	m.nextActivePollID++
+	m.activePolls[pollID] = record
+	m.signalStateChangeLocked()
+	m.mu.Unlock()
+	return func() {
+		m.mu.Lock()
+		delete(m.activePolls, pollID)
+		m.signalStateChangeLocked()
+		m.mu.Unlock()
+	}
+}
+
+func incomingHTTPRequest(req *http.Request) IncomingHTTPRequest {
+	if req == nil {
+		return IncomingHTTPRequest{}
+	}
 	path := ""
 	rawQuery := ""
 	if req.URL != nil {
 		path = req.URL.Path
 		rawQuery = req.URL.RawQuery
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.httpSeen = append(m.httpSeen, IncomingHTTPRequest{
+	return IncomingHTTPRequest{
 		Method:   req.Method,
 		Path:     path,
 		RawQuery: rawQuery,
 		Headers:  req.Header.Clone(),
-	})
-	m.signalStateChangeLocked()
+	}
 }
 
 // DeliveredCommands returns a snapshot of all commands that have been issued to clients.
@@ -749,6 +835,10 @@ func (m *MockTunnelService) SharedStorageSnapshot() map[string]string {
 }
 
 func (m *MockTunnelService) handleTunnel(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/poll") {
+		finishPoll := m.beginActivePoll(r)
+		defer finishPoll()
+	}
 	m.recordHTTPRequest(r)
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/poll"):

@@ -433,6 +433,121 @@ func TestMockTunnelServiceWaitUntilIdle(t *testing.T) {
 	}
 }
 
+func TestMockTunnelServiceWaitForNoActivePollRequests(t *testing.T) {
+	t.Parallel()
+
+	deliverAfter := make(chan struct{})
+	mock := NewMockTunnelService(
+		WithTunnelID("cli-tunnel"),
+		WithAPIKey("test-api-key"),
+		WithPollWaitLimit(5*time.Second),
+		WithCommandResponses(CommandResponse{
+			Command: NewCommand(
+				"cmd-after-drain",
+				json.RawMessage(`{"jsonrpc":"2.0","id":"cmd-after-drain","method":"ping"}`),
+				nil,
+			),
+			DeliverAfter:       deliverAfter,
+			NoResponseExpected: true,
+		}),
+	)
+	mock.Start(t)
+
+	baseURL := mock.BaseURL()
+	if baseURL == nil {
+		t.Fatal("mock did not expose a base URL")
+	}
+
+	pollCtx, cancelPoll := context.WithCancel(context.Background())
+	defer cancelPoll()
+	pollReq := newTunnelRequest(
+		t,
+		http.MethodGet,
+		baseURL,
+		&url.URL{Path: "/v1/tunnels/cli-tunnel/poll"},
+		mock,
+		nil,
+	).WithContext(pollCtx)
+	pollReq.Header.Set("X-Test-Client", "primary")
+
+	pollDone := make(chan error, 1)
+	go func() {
+		resp, err := (&http.Client{}).Do(pollReq)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		pollDone <- err
+	}()
+
+	requestCtx, requestCancel := context.WithTimeout(context.Background(), time.Second)
+	defer requestCancel()
+	if err := mock.WaitForActivePollRequests(requestCtx, func(req IncomingHTTPRequest) bool {
+		return req.Headers.Get("X-Test-Client") == "primary"
+	}); err != nil {
+		t.Fatalf("wait for active poll request: %v", err)
+	}
+
+	unrelatedCtx, unrelatedCancel := context.WithTimeout(context.Background(), time.Second)
+	defer unrelatedCancel()
+	if err := mock.WaitForNoActivePollRequests(unrelatedCtx, func(req IncomingHTTPRequest) bool {
+		return req.Headers.Get("X-Test-Client") == "secondary"
+	}); err != nil {
+		t.Fatalf("wait for unrelated active poll requests: %v", err)
+	}
+
+	activeCtx, activeCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer activeCancel()
+	if err := mock.WaitForNoActivePollRequests(activeCtx, func(req IncomingHTTPRequest) bool {
+		return req.Headers.Get("X-Test-Client") == "primary"
+	}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait for active primary poll = %v, want deadline exceeded", err)
+	}
+
+	cancelPoll()
+	select {
+	case <-pollDone:
+	case <-time.After(time.Second):
+		t.Fatal("canceled poll request did not return")
+	}
+
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), time.Second)
+	defer drainCancel()
+	if err := mock.WaitForNoActivePollRequests(drainCtx, func(req IncomingHTTPRequest) bool {
+		return req.Headers.Get("X-Test-Client") == "primary"
+	}); err != nil {
+		t.Fatalf("wait for canceled primary poll request to drain: %v", err)
+	}
+
+	close(deliverAfter)
+	if got := len(mock.DeliveredCommands()); got != 0 {
+		t.Fatalf("canceled poll delivered gated command after drain: got %d delivered command(s)", got)
+	}
+
+	nextPollReq := newTunnelRequest(
+		t,
+		http.MethodGet,
+		baseURL,
+		&url.URL{Path: "/v1/tunnels/cli-tunnel/poll"},
+		mock,
+		nil,
+	)
+	nextPollReq.Header.Set("X-Test-Client", "secondary")
+	nextPollCtx, nextPollCancel := context.WithTimeout(context.Background(), time.Second)
+	defer nextPollCancel()
+	nextPollResp, err := (&http.Client{}).Do(nextPollReq.WithContext(nextPollCtx))
+	if err != nil {
+		t.Fatalf("poll after canceled handler drain: %v", err)
+	}
+	defer func() { _ = nextPollResp.Body.Close() }()
+	var envelope polledCommandEnvelope
+	if err := json.NewDecoder(nextPollResp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode poll after canceled handler drain: %v", err)
+	}
+	if len(envelope.Commands) != 1 {
+		t.Fatalf("poll after canceled handler drain returned %d command(s), want 1", len(envelope.Commands))
+	}
+}
+
 func TestMockTunnelServicePollTimeoutReturnsEmptyCommands(t *testing.T) {
 	t.Parallel()
 

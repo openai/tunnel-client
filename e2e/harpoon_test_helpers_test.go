@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -33,6 +34,42 @@ func waitForActiveHarpoonPollers(
 		}); err != nil {
 			t.Fatalf("wait for %s Harpoon poll request: %v", clientName, err)
 		}
+	}
+}
+
+func waitForNoActiveHarpoonPollRequests(
+	ctx context.Context,
+	h *harnesspkg.Harness,
+	clients ...*harnesspkg.TunnelClient,
+) error {
+	for _, client := range clients {
+		clientName := client.Name()
+		if err := h.ControlPlane.WaitForNoActivePollRequests(ctx, harpoonPollRequestForClient(clientName)); err != nil {
+			return fmt.Errorf("wait for %s Harpoon poll request drain: %w", clientName, err)
+		}
+	}
+	return nil
+}
+
+func waitForActiveHarpoonPollRequests(
+	ctx context.Context,
+	h *harnesspkg.Harness,
+	clients ...*harnesspkg.TunnelClient,
+) error {
+	for _, client := range clients {
+		clientName := client.Name()
+		if err := h.ControlPlane.WaitForActivePollRequests(ctx, harpoonPollRequestForClient(clientName)); err != nil {
+			return fmt.Errorf("wait for %s active Harpoon poll request: %w", clientName, err)
+		}
+	}
+	return nil
+}
+
+func harpoonPollRequestForClient(clientName string) func(mocktunnelservice.IncomingHTTPRequest) bool {
+	return func(req mocktunnelservice.IncomingHTTPRequest) bool {
+		return req.Method == http.MethodGet &&
+			strings.HasSuffix(req.Path, "/poll") &&
+			req.Headers.Get(harnesspkg.TestClientInstanceHeader) == clientName
 	}
 }
 

@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -476,6 +478,335 @@ func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T
 	)
 
 	h.ExecuteScenarious(t)
+}
+
+func TestOAuthDiscoveredHarpoonTargetsHandoverAcrossRedundantClientsE2E(t *testing.T) {
+	const (
+		customerHost = "active-active-mcp.internal.preproduction.smp.bigco-example.com"
+	)
+	customerBase := "http://" + customerHost
+	tokenEndpoint := customerBase + "/token"
+	var registrationCalls atomic.Int32
+	var (
+		registrationCallsMu        sync.Mutex
+		registrationCallsByReplica = make(map[string]int, 2)
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              customerBase + "/mcp",
+				"authorization_servers": []string{customerBase},
+				"scopes_supported":      []string{"mcp:tools"},
+			})
+		case "/.well-known/oauth-authorization-server":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                                customerBase,
+				"authorization_endpoint":                customerBase + "/authorize",
+				"token_endpoint":                        tokenEndpoint,
+				"registration_endpoint":                 customerBase + "/register",
+				"code_challenge_methods_supported":      []string{"S256"},
+				"token_endpoint_auth_methods_supported": []string{"private_key_jwt"},
+			})
+		case "/register":
+			if r.Method != http.MethodPost {
+				http.Error(w, "registration must use POST", http.StatusMethodNotAllowed)
+				return
+			}
+			registrationCalls.Add(1)
+			registrationCallsMu.Lock()
+			registrationCallsByReplica[r.Header.Get("X-Test-Replica")]++
+			registrationCallsMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"registered": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	proxy := mockproxy.New(mockproxy.WithRoute(customerHost, mustParseURL(t, upstream.URL)))
+	proxy.Start()
+	t.Cleanup(proxy.Close)
+
+	requiredOAuthLabels := []string{
+		"oauth-auth-server-metadata-0",
+		"oauth-registration-endpoint-0",
+		"oauth-token-endpoint-0",
+	}
+	var (
+		labelsMu        sync.Mutex
+		labelsByReplica = make(map[string][]string, 2)
+	)
+	oauthLabelsFromResult := func(tb testing.TB, result map[string]any) []string {
+		target := oauthDiscoveryE2ETarget(t, tb)
+		structuredContent, ok := result["structuredContent"].(map[string]any)
+		if !ok {
+			target.Fatalf("list_targets structured content = %T, want map", result["structuredContent"])
+		}
+		rawTargets, ok := structuredContent["targets"].([]any)
+		if !ok {
+			target.Fatalf("list_targets targets = %T, want array", structuredContent["targets"])
+		}
+		labels := make([]string, 0, len(rawTargets))
+		for _, rawTarget := range rawTargets {
+			targetInfo, ok := rawTarget.(map[string]any)
+			if !ok {
+				target.Fatalf("list_targets target = %T, want map", rawTarget)
+			}
+			label, ok := targetInfo["label"].(string)
+			if !ok {
+				target.Fatalf("list_targets label = %T, want string", targetInfo["label"])
+			}
+			if strings.HasPrefix(label, "oauth-") {
+				labels = append(labels, label)
+			}
+		}
+		sort.Strings(labels)
+		for _, want := range requiredOAuthLabels {
+			found := false
+			for _, got := range labels {
+				if got == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				target.Fatalf("list_targets missing OAuth label %q: %v", want, labels)
+			}
+		}
+		return labels
+	}
+	recordOAuthLabels := func(replica string) func(testing.TB, map[string]any) {
+		return func(tb testing.TB, result map[string]any) {
+			labels := oauthLabelsFromResult(tb, result)
+			labelsMu.Lock()
+			labelsByReplica[replica] = append([]string(nil), labels...)
+			labelsMu.Unlock()
+		}
+	}
+	assertRegistrationCall := func(tb testing.TB, result map[string]any) {
+		target := oauthDiscoveryE2ETarget(t, tb)
+		structuredContent, ok := result["structuredContent"].(map[string]any)
+		if !ok {
+			target.Fatalf("call_target structured content = %T, want map", result["structuredContent"])
+		}
+		statusCode, ok := structuredContent["status_code"].(float64)
+		if !ok || int(statusCode) != http.StatusOK {
+			target.Fatalf("registration call status = %v, want %d", structuredContent["status_code"], http.StatusOK)
+		}
+	}
+	assertAudience := func(after func(testing.TB)) func(testing.TB, map[string]any) {
+		return func(tb testing.TB, result map[string]any) {
+			target := oauthDiscoveryE2ETarget(t, tb)
+			structuredContent, ok := result["structuredContent"].(map[string]any)
+			if !ok {
+				target.Fatalf("get_oauth_target_audience structured content = %T, want map", result["structuredContent"])
+			}
+			audience, ok := structuredContent["audience"].(string)
+			if !ok || audience != tokenEndpoint {
+				target.Fatalf("OAuth token audience = %v, want %q", structuredContent["audience"], tokenEndpoint)
+			}
+			if after != nil {
+				after(target)
+			}
+		}
+	}
+	registrationCall := func(requestID string, replica string) mocktunnelservice.CommandResponse {
+		return newModernHarpoonCommand(t, requestID, "tools/call", map[string]any{
+			"name": "call_target",
+			"arguments": map[string]any{
+				"label":  "oauth-registration-endpoint-0",
+				"method": "POST",
+				"headers": map[string]any{
+					"Content-Type":   "application/json",
+					"X-Test-Replica": replica,
+				},
+				"body": "{}",
+			},
+		}, assertRegistrationCall)
+	}
+	audienceCall := func(requestID string, after func(testing.TB)) mocktunnelservice.CommandResponse {
+		return newModernHarpoonCommand(t, requestID, "tools/call", map[string]any{
+			"name": "get_oauth_target_audience",
+			"arguments": map[string]any{
+				"label": "oauth-token-endpoint-0",
+			},
+		}, assertAudience(after))
+	}
+
+	const timeout = 5 * time.Second
+	var (
+		primaryClient   *harnesspkg.TunnelClient
+		secondaryClient *harnesspkg.TunnelClient
+		h               *harnesspkg.Harness
+	)
+	primaryReady := make(chan struct{})
+	secondaryReady := make(chan struct{})
+	handoverErrors := make(chan error, 1)
+
+	primaryList := newModernHarpoonCommand(t, "cmd-oauth-redundant-primary-list", "tools/call", map[string]any{
+		"name":      "list_targets",
+		"arguments": map[string]any{},
+	}, recordOAuthLabels("primary"))
+	primaryList.DeliverAfter = primaryReady
+	primaryRegistration := registrationCall("cmd-oauth-redundant-primary-register", "primary")
+	primaryRegistration.DeliverAfter = primaryReady
+	primaryAudience := audienceCall("cmd-oauth-redundant-primary-audience", func(testing.TB) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := waitForActiveHarpoonPollRequests(ctx, h, primaryClient); err != nil {
+				handoverErrors <- err
+				close(secondaryReady)
+				return
+			}
+			if err := primaryClient.PausePoller(ctx); err != nil {
+				handoverErrors <- err
+				close(secondaryReady)
+				return
+			}
+			if err := waitForNoActiveHarpoonPollRequests(ctx, h, primaryClient); err != nil {
+				handoverErrors <- err
+				close(secondaryReady)
+				return
+			}
+			pollsBeforeHandover := secondaryClient.PollCount()
+			secondaryClient.UnpausePoller()
+			if err := secondaryClient.WaitForPolls(ctx, pollsBeforeHandover+1); err != nil {
+				handoverErrors <- err
+				close(secondaryReady)
+				return
+			}
+			close(secondaryReady)
+		}()
+	})
+	primaryAudience.DeliverAfter = primaryReady
+
+	secondaryList := newModernHarpoonCommand(t, "cmd-oauth-redundant-secondary-list", "tools/call", map[string]any{
+		"name":      "list_targets",
+		"arguments": map[string]any{},
+	}, recordOAuthLabels("secondary"))
+	secondaryList.DeliverAfter = secondaryReady
+	secondaryRegistration := registrationCall("cmd-oauth-redundant-secondary-register", "secondary")
+	secondaryRegistration.DeliverAfter = secondaryReady
+	secondaryAudience := audienceCall("cmd-oauth-redundant-secondary-audience", nil)
+	secondaryAudience.DeliverAfter = secondaryReady
+
+	capture := newStartupCatalogDigestCapture()
+	h = harnesspkg.NewHarness(
+		t,
+		harnesspkg.WithAPIKey("test-api-key"),
+		harnesspkg.WithLogWriter(capture),
+		harnesspkg.WithPreserveClientURLs(),
+		harnesspkg.WithScenarioTimeout(15*time.Second),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.Logging.Level = slog.LevelInfo
+			cfg.Logging.Format = config.LogFormatJSON
+			cfg.MCP.TransportKind = config.MCPTransportHTTPStreamable
+			cfg.MCP.ServerURL = mustParseURL(t, customerBase+"/mcp")
+			cfg.MCP.HTTPProxy = mustParseURL(t, proxy.URL())
+			cfg.MCP.HTTPProxySource = config.ProxySource("mcp.http-proxy")
+			cfg.MCP.ChannelBindings = []config.MCPChannelBinding{{
+				Channel:         types.DefaultChannel,
+				TransportKind:   config.MCPTransportHTTPStreamable,
+				ServerURL:       cfg.MCP.ServerURL,
+				HTTPProxy:       cfg.MCP.HTTPProxy,
+				HTTPProxySource: cfg.MCP.HTTPProxySource,
+			}}
+			cfg.Harpoon.AllowPlaintextHTTP = true
+			cfg.Harpoon.MaxResponseBytes = config.DefaultHarpoonMaxResponseBytes
+			cfg.Harpoon.MaxRedirects = config.DefaultHarpoonMaxRedirects
+			cfg.Harpoon.HTTPProxy = mustParseURL(t, proxy.URL())
+			cfg.Harpoon.HTTPProxySource = config.ProxySource("harpoon.http-proxy")
+			cfg.Harpoon.Targets = []config.HarpoonTarget{{
+				Label:       "seed",
+				Description: "seed target for routable harpoon channel",
+				BaseURL:     mustParseURL(t, upstream.URL),
+			}}
+		}),
+		harnesspkg.WithControlPlaneOptions(
+			mocktunnelservice.WithPollWaitLimit(time.Second),
+			mocktunnelservice.WithCommandResponses(
+				primaryList,
+				primaryRegistration,
+				primaryAudience,
+				secondaryList,
+				secondaryRegistration,
+				secondaryAudience,
+			),
+		),
+		harnesspkg.WithAfterClientStart(func(h *harnesspkg.Harness) {
+			primaryClient = h.PrimaryClient()
+			secondaryClient = h.StartAdditionalClient(t)
+			capture.WaitForRecords(t, 2)
+			records := capture.Records(t)
+			if len(records) != 2 {
+				t.Fatalf("startup catalog digest records = %d, want 2", len(records))
+			}
+			if first, second := startupCatalogDigestFromRecord(t, records[0]), startupCatalogDigestFromRecord(t, records[1]); first != second {
+				t.Fatalf("redundant OAuth startup catalog digests differ: %q != %q", first, second)
+			}
+			waitForActiveHarpoonPollers(t, h, primaryClient, secondaryClient)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := waitForActiveHarpoonPollRequests(ctx, h, secondaryClient); err != nil {
+				t.Fatalf("wait for active secondary OAuth poller: %v", err)
+			}
+			if err := secondaryClient.PausePoller(ctx); err != nil {
+				t.Fatalf("pause secondary OAuth poller: %v", err)
+			}
+			if err := waitForNoActiveHarpoonPollRequests(ctx, h, secondaryClient); err != nil {
+				t.Fatalf("drain secondary OAuth poller: %v", err)
+			}
+			close(primaryReady)
+		}),
+	)
+
+	h.ExecuteScenarious(t)
+
+	select {
+	case err := <-handoverErrors:
+		t.Fatalf("handover redundant OAuth pollers: %v", err)
+	default:
+	}
+	if got := registrationCalls.Load(); got != 2 {
+		t.Fatalf("OAuth registration endpoint calls = %d, want 2", got)
+	}
+	registrationCallsMu.Lock()
+	primaryRegistrationCalls := registrationCallsByReplica["primary"]
+	secondaryRegistrationCalls := registrationCallsByReplica["secondary"]
+	registrationReplicaCount := len(registrationCallsByReplica)
+	registrationCallsMu.Unlock()
+	if primaryRegistrationCalls != 1 || secondaryRegistrationCalls != 1 || registrationReplicaCount != 2 {
+		t.Fatalf(
+			"OAuth registration calls by replica = primary:%d secondary:%d unique:%d, want primary:1 secondary:1 unique:2",
+			primaryRegistrationCalls,
+			secondaryRegistrationCalls,
+			registrationReplicaCount,
+		)
+	}
+	assertUniqueHarpoonCommandIDs(t, h.ControlPlane.DeliveredCommands(), 6)
+	if matched := h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched); len(matched) != 6 {
+		t.Fatalf("matched redundant OAuth responses = %d, want 6", len(matched))
+	}
+	if unexpected := h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchUnexpected); len(unexpected) != 0 {
+		t.Fatalf("unexpected redundant OAuth responses: got %d", len(unexpected))
+	}
+	assertHarpoonResponseAttribution(t, h.ControlPlane.ReceivedHTTPRequests(), map[string]int{
+		primaryClient.Name():   3,
+		secondaryClient.Name(): 3,
+	})
+	labelsMu.Lock()
+	primaryLabels := append([]string(nil), labelsByReplica["primary"]...)
+	secondaryLabels := append([]string(nil), labelsByReplica["secondary"]...)
+	labelsMu.Unlock()
+	if strings.Join(primaryLabels, ",") != strings.Join(secondaryLabels, ",") {
+		t.Fatalf("OAuth labels differ across redundant clients: primary=%v secondary=%v", primaryLabels, secondaryLabels)
+	}
 }
 
 func TestOAuthDiscoveredHarpoonTargetIsUnavailableAfterSecondaryDiscoveryMissE2E(t *testing.T) {

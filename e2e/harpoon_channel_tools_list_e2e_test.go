@@ -291,10 +291,11 @@ func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *te
 	}))
 	defer targetServer.Close()
 
-	const timeout = 2 * time.Second
+	const timeout = 5 * time.Second
 	var (
 		primaryClient   *harnesspkg.TunnelClient
 		secondaryClient *harnesspkg.TunnelClient
+		h               *harnesspkg.Harness
 	)
 	primaryReady := make(chan struct{})
 	secondaryReady := make(chan struct{})
@@ -312,8 +313,18 @@ func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *te
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
+			if err := waitForActiveHarpoonPollRequests(ctx, h, primaryClient); err != nil {
+				handoverErrors <- err
+				close(secondaryReady)
+				return
+			}
 			if err := primaryClient.PausePoller(ctx); err != nil {
 				handoverErrors <- fmt.Errorf("pause primary Harpoon poller: %w", err)
+				close(secondaryReady)
+				return
+			}
+			if err := waitForNoActiveHarpoonPollRequests(ctx, h, primaryClient); err != nil {
+				handoverErrors <- err
 				close(secondaryReady)
 				return
 			}
@@ -349,9 +360,10 @@ func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *te
 	})
 	callTargetCommand.DeliverAfter = secondaryReady
 
-	h := harnesspkg.NewHarness(
+	h = harnesspkg.NewHarness(
 		t,
 		harnesspkg.WithHarpoonInMemoryTransport(),
+		harnesspkg.WithScenarioTimeout(15*time.Second),
 		harnesspkg.WithClientConfig(func(cfg *config.Config) {
 			cfg.Logging.Level = slog.LevelDebug
 			cfg.Harpoon.AllowPlaintextHTTP = true
@@ -371,8 +383,14 @@ func TestHarpoonChannelSelfContainedRequestsHandoverAcrossRedundantClients(t *te
 			waitForActiveHarpoonPollers(t, h, primaryClient, secondaryClient)
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
+			if err := waitForActiveHarpoonPollRequests(ctx, h, secondaryClient); err != nil {
+				t.Fatalf("wait for active secondary Harpoon poller: %v", err)
+			}
 			if err := secondaryClient.PausePoller(ctx); err != nil {
 				t.Fatalf("pause secondary Harpoon poller: %v", err)
+			}
+			if err := waitForNoActiveHarpoonPollRequests(ctx, h, secondaryClient); err != nil {
+				t.Fatalf("drain secondary Harpoon poller: %v", err)
 			}
 			close(primaryReady)
 		}),
