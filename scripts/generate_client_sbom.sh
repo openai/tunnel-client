@@ -56,13 +56,19 @@ Usage:
     --oai-sbom <absolute-path> \
     --syft <absolute-path> \
     --syft-lock <absolute-path> \
-    --output <spdx-path> \
-    [--platform <goos>/<goarch>]
+    [--output <spdx-path>] \
+    [--platform <goos>/<goarch>] \
+    [--payload-only-output <absolute-directory>] \
+    [--prebuilt-payload <goos/goarch>=<absolute-directory>]
 
 Builds a deterministic baseline from declared offline inputs and generates one
 SPDX 2.3 report through oai_sbom. All six release platforms are included by
 default; --platform narrows the payload to one release-platform leaf. Runtime
 flavors also stage their checked-in artifact-scoped license sidecars.
+
+--payload-only-output emits the staged payload without invoking Syft and
+requires one explicit --platform. --prebuilt-payload may be repeated to supply
+the exact platform payloads that the final six-platform scan should assemble.
 EOF
 }
 
@@ -89,6 +95,8 @@ oai_sbom_bin=""
 syft_bin=""
 syft_lock=""
 output_path=""
+payload_only_output=""
+prebuilt_payload_specs=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flavor)
@@ -151,6 +159,14 @@ while [[ $# -gt 0 ]]; do
       output_path="${2:-}"
       shift 2
       ;;
+    --payload-only-output)
+      payload_only_output="${2:-}"
+      shift 2
+      ;;
+    --prebuilt-payload)
+      prebuilt_payload_specs+=("${2:-}")
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -176,35 +192,91 @@ if [[ -n "${requested_platform}" ]]; then
   selected_platforms=("${requested_platform}")
 fi
 
+[[ -z "${payload_only_output}" || ${#prebuilt_payload_specs[@]} -eq 0 ]] ||
+  die "--payload-only-output cannot be combined with --prebuilt-payload"
+[[ -z "${payload_only_output}" || -n "${requested_platform}" ]] ||
+  die "--payload-only-output requires one explicit --platform"
+[[ -z "${payload_only_output}" || -z "${output_path}" ]] ||
+  die "--payload-only-output cannot be combined with --output"
+
+prebuilt_payload_platforms=()
+prebuilt_payload_roots=()
+for spec in "${prebuilt_payload_specs[@]}"; do
+  [[ "${spec}" == *=* ]] ||
+    die "--prebuilt-payload must be formatted as goos/goarch=absolute-directory"
+  mapped_platform="${spec%%=*}"
+  mapped_root="${spec#*=}"
+  case "${mapped_platform}" in
+    linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
+    *) die "--prebuilt-payload uses an unsupported platform: ${mapped_platform}" ;;
+  esac
+  [[ "${mapped_root}" == /* && -d "${mapped_root}" ]] ||
+    die "--prebuilt-payload root must be an absolute directory: ${mapped_root}"
+  [[ ! -L "${mapped_root}" ]] ||
+    die "--prebuilt-payload root must not be a symlink: ${mapped_root}"
+  for existing_platform in "${prebuilt_payload_platforms[@]}"; do
+    [[ "${existing_platform}" != "${mapped_platform}" ]] ||
+      die "duplicate --prebuilt-payload platform: ${mapped_platform}"
+  done
+  prebuilt_payload_platforms+=("${mapped_platform}")
+  prebuilt_payload_roots+=("${mapped_root}")
+done
+if [[ ${#prebuilt_payload_platforms[@]} -gt 0 ]]; then
+  [[ ${#prebuilt_payload_platforms[@]} -eq ${#selected_platforms[@]} ]] ||
+    die "--prebuilt-payload must provide every selected platform exactly once"
+  for platform in "${selected_platforms[@]}"; do
+    found="false"
+    for existing_platform in "${prebuilt_payload_platforms[@]}"; do
+      [[ "${existing_platform}" != "${platform}" ]] || found="true"
+    done
+    [[ "${found}" == "true" ]] ||
+      die "--prebuilt-payload is missing selected platform: ${platform}"
+  done
+fi
+
 for required_arg in \
   source_root \
-  cloudflared_source \
   go_bin \
   python_bin \
-  source_preparer_bin \
-  oai_sbom_bin \
-  syft_bin \
-  syft_lock \
-  output_path; do
+  source_preparer_bin; do
   [[ -n "${!required_arg}" ]] || die "--${required_arg//_/-} is required"
 done
+if [[ "${flavor}" != "runtime" ]]; then
+  [[ -n "${cloudflared_source}" ]] || die "--cloudflared-source is required"
+fi
+if [[ -z "${payload_only_output}" ]]; then
+  for required_arg in oai_sbom_bin syft_bin syft_lock output_path; do
+    [[ -n "${!required_arg}" ]] || die "--${required_arg//_/-} is required"
+  done
+fi
 [[ "${source_root}" == /* && -d "${source_root}" ]] ||
   die "--source-root must be an absolute directory"
-[[ "${cloudflared_source}" == /* && -d "${cloudflared_source}" ]] ||
-  die "--cloudflared-source must be an absolute directory"
+if [[ -n "${cloudflared_source}" ]]; then
+  [[ "${cloudflared_source}" == /* && -d "${cloudflared_source}" ]] ||
+    die "--cloudflared-source must be an absolute directory"
+fi
 for executable in \
   "${go_bin}" \
-  "${python_bin}" \
-  "${oai_sbom_bin}" \
-  "${syft_bin}"; do
+  "${python_bin}"; do
   [[ "${executable}" == /* && -x "${executable}" ]] ||
     die "tool must be an absolute executable: ${executable}"
 done
+if [[ -z "${payload_only_output}" ]]; then
+  for executable in "${oai_sbom_bin}" "${syft_bin}"; do
+    [[ "${executable}" == /* && -x "${executable}" ]] ||
+      die "tool must be an absolute executable: ${executable}"
+  done
+fi
 [[ "${source_preparer_bin}" == /* && -f "${source_preparer_bin}" ]] ||
   die "--source-preparer must be an absolute file"
-[[ "${syft_lock}" == /* && -f "${syft_lock}" ]] ||
-  die "--syft-lock must be an absolute file"
-[[ "${output_path}" == /* ]] || die "--output must be an absolute path"
+if [[ -z "${payload_only_output}" ]]; then
+  [[ "${syft_lock}" == /* && -f "${syft_lock}" ]] ||
+    die "--syft-lock must be an absolute file"
+  [[ "${output_path}" == /* ]] || die "--output must be an absolute path"
+else
+  [[ "${payload_only_output}" == /* ]] ||
+    die "--payload-only-output must be an absolute path"
+fi
 if [[ "${flavor}" != "client" ]]; then
   [[ "${license_report_builder}" == /* && -x "${license_report_builder}" ]] ||
     die "--license-report-builder must be an absolute executable for runtime flavors"
@@ -218,7 +290,19 @@ fi
 [[ -n "${BAZEL_TEST:-}" ]] || die "BAZEL_TEST is required"
 [[ -n "${TEST_TMPDIR:-}" && "${TEST_TMPDIR}" == /* ]] ||
   die "TEST_TMPDIR is required under Bazel"
-for staged_path in "${source_root}" "${cloudflared_source}" "${output_path}"; do
+staged_paths=("${source_root}")
+if [[ -n "${cloudflared_source}" ]]; then
+  staged_paths+=("${cloudflared_source}")
+fi
+if [[ ${#prebuilt_payload_roots[@]} -gt 0 ]]; then
+  staged_paths+=("${prebuilt_payload_roots[@]}")
+fi
+if [[ -n "${payload_only_output}" ]]; then
+  staged_paths+=("${payload_only_output}")
+else
+  staged_paths+=("${output_path}")
+fi
+for staged_path in "${staged_paths[@]}"; do
   case "${staged_path}" in
     "${TEST_TMPDIR}"/*) ;;
     *) die "Bazel test staging must stay below TEST_TMPDIR: ${staged_path}" ;;
@@ -277,6 +361,12 @@ readonly go_path_dir="${tmp_dir}/go-path"
 readonly home_dir="${tmp_dir}/home"
 readonly runtime_tmp_dir="${tmp_dir}/tmp"
 readonly oai_sbom_cache_dir="${tmp_dir}/oai-sbom-cache"
+output_parent=""
+if [[ -n "${output_path}" ]]; then
+  output_parent="$(dirname "${output_path}")"
+else
+  output_parent="$(dirname "${payload_only_output}")"
+fi
 mkdir -p \
   "${canonical_source_root}" \
   "${payload_root}" \
@@ -286,7 +376,7 @@ mkdir -p \
   "${home_dir}" \
   "${runtime_tmp_dir}" \
   "${oai_sbom_cache_dir}" \
-  "$(dirname "${output_path}")"
+  "${output_parent}"
 
 clear_ambient_go_build_environment
 export LC_ALL=C
@@ -329,10 +419,12 @@ for required_file in "${required_source_files[@]}"; do
   [[ -f "${source_root}/${required_file}" ]] ||
     die "required source input is missing: ${required_file}"
 done
-for required_file in go.mod vendor/modules.txt cmd/cloudflared/main.go; do
-  [[ -f "${cloudflared_source}/${required_file}" ]] ||
-    die "required cloudflared source input is missing: ${required_file}"
-done
+if [[ "${include_cloudflared}" == "true" ]]; then
+  for required_file in go.mod vendor/modules.txt cmd/cloudflared/main.go; do
+    [[ -f "${cloudflared_source}/${required_file}" ]] ||
+      die "required cloudflared source input is missing: ${required_file}"
+  done
+fi
 
 required_go_version="$(
   awk '
@@ -395,6 +487,18 @@ fi
 artifact_ldflags="-X ${module_path}/pkg/version.semanticVersion=${BASELINE_SEMANTIC_VERSION} -X ${module_path}/pkg/version.GitSHA=${BASELINE_GIT_SHA} -X ${module_path}/pkg/version.GoVersion=${actual_go_version} -X ${module_path}/pkg/version.BuildFlags=-trimpath,-buildvcs=false -X ${module_path}/pkg/version.Flavor=${linked_flavor}"
 cloudflared_ldflags="-X main.Version=${cloudflared_version} -X main.BuildTime=${cloudflared_build_time}"
 
+prebuilt_payload_root_for_platform() {
+  local wanted_platform="$1"
+  local index
+  for ((index = 0; index < ${#prebuilt_payload_platforms[@]}; index++)); do
+    if [[ "${prebuilt_payload_platforms[index]}" == "${wanted_platform}" ]]; then
+      printf '%s\n' "${prebuilt_payload_roots[index]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 for platform in "${selected_platforms[@]}"; do
   goos="${platform%/*}"
   goarch="${platform#*/}"
@@ -402,6 +506,46 @@ for platform in "${selected_platforms[@]}"; do
   [[ "${goos}" == "windows" ]] && extension=".exe"
   payload_dir="${payload_root}/${goos}_${goarch}"
   mkdir -p "${payload_dir}"
+
+  if [[ ${#prebuilt_payload_platforms[@]} -gt 0 ]]; then
+    prebuilt_root="$(prebuilt_payload_root_for_platform "${platform}")" ||
+      die "prebuilt payload root is missing for ${platform}"
+    prebuilt_dir="${prebuilt_root}/payloads/${goos}_${goarch}"
+    [[ -d "${prebuilt_dir}" ]] ||
+      die "prebuilt payload is missing payloads/${goos}_${goarch}"
+    expected_payload_files=(
+      "${binary_name}${extension}"
+      "LICENSE"
+    )
+    if [[ "${include_runtime_sidecars}" == "true" ]]; then
+      expected_payload_files+=(
+        "NOTICE"
+        "${binary_name}-${goos}-${goarch}-licenses.txt"
+      )
+    fi
+    if [[ "${include_cloudflared}" == "true" ]]; then
+      expected_payload_files+=(
+        "cloudflared${extension}"
+        "cloudflared-manifest.json"
+      )
+    fi
+    actual_payload_file_count="$(
+      find "${prebuilt_dir}" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' '
+    )"
+    [[ "${actual_payload_file_count}" == "${#expected_payload_files[@]}" ]] ||
+      die "prebuilt payload has unexpected entries for ${platform}"
+    [[ -z "$(find "${prebuilt_dir}" -type l -print -quit)" ]] ||
+      die "prebuilt payload must not contain symlinks for ${platform}"
+    for expected_payload_file in "${expected_payload_files[@]}"; do
+      [[ -f "${prebuilt_dir}/${expected_payload_file}" ]] ||
+        die "prebuilt payload is missing ${platform}/${expected_payload_file}"
+    done
+    cp -pRL -- "${prebuilt_dir}/." "${payload_dir}/"
+    # Remote TreeArtifact inputs can be read-only. Keep the declared input
+    # immutable, but make this private copy removable by the EXIT cleanup.
+    chmod -R u+rwX "${payload_dir}"
+    continue
+  fi
 
   (
     cd "${canonical_source_root}"
@@ -464,6 +608,15 @@ for platform in "${selected_platforms[@]}"; do
     "${license_report_builder}" "${report_args[@]}" >/dev/null
   fi
 done
+
+if [[ -n "${payload_only_output}" ]]; then
+  [[ ! -e "${payload_only_output}" && ! -L "${payload_only_output}" ]] ||
+    die "--payload-only-output must not already exist"
+  mkdir -p "${payload_only_output}"
+  cp -pRL -- "${stable_root}/." "${payload_only_output}/"
+  printf 'built %s SBOM payload for %s\n' "${flavor}" "${requested_platform}"
+  exit 0
+fi
 
 oai_sbom_args=(
   generate-spdx

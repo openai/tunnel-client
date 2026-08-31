@@ -43,6 +43,28 @@ runfiles_helper="$(bootstrap_resolve_runfile "${TUNNEL_CLIENT_SBOM_RUNFILES_RUNF
 # shellcheck source=sbom_runfiles.sh
 source "${runfiles_helper}"
 
+materialize_payload_runfile() {
+  local logical_path="$1"
+  local platform_name="$2"
+  local materialized_root="${TEST_TMPDIR}/prebuilt-payloads/${platform_name}"
+  local runfile_root
+  runfile_root="$(sbom_resolve_runfile "${logical_path}")"
+  [[ -d "${runfile_root}" ]] || {
+    echo "declared SBOM payload runfile is not a directory: ${logical_path}" >&2
+    return 1
+  }
+  sbom_assert_tmpdir_child "${materialized_root}" || return 1
+  [[ ! -e "${materialized_root}" && ! -L "${materialized_root}" ]] || {
+    echo "materialized SBOM payload already exists: ${materialized_root}" >&2
+    return 1
+  }
+  mkdir -p "${materialized_root}"
+  # Bazel's runfiles tree represents TreeArtifact files as symlinks. Copy the
+  # declared runfile into test-private staging before strict payload validation.
+  cp -pRL -- "${runfile_root}/." "${materialized_root}/"
+  printf '%s\n' "${materialized_root}"
+}
+
 sbom_require_bazel_test_runfiles
 source_root="${TEST_TMPDIR}/${flavor}-source"
 cloudflared_extract_root="${TEST_TMPDIR}/cloudflared-source"
@@ -83,11 +105,6 @@ python_bin="$(sbom_resolve_runfile "${TUNNEL_CLIENT_PYTHON_RUNFILE:-}")"
   --vendor-archive "${vendor_archive}"
 cloudflared_archive="$(sbom_resolve_runfile "${TUNNEL_CLIENT_CLOUDFLARED_ARCHIVE_RUNFILE:-}")"
 cloudflared_extractor="$(sbom_resolve_runfile "${TUNNEL_CLIENT_CLOUDFLARED_EXTRACTOR_RUNFILE:-}")"
-cloudflared_source="$(
-  "${python_bin}" "${cloudflared_extractor}" \
-    --archive "${cloudflared_archive}" \
-    --output-root "${cloudflared_extract_root}"
-)"
 sbom_select_go_sdk
 
 generator="$(sbom_resolve_runfile "${TUNNEL_CLIENT_SBOM_GENERATOR_RUNFILE:-}")"
@@ -100,7 +117,6 @@ expected="$(sbom_resolve_runfile "${TUNNEL_CLIENT_SBOM_BASELINE_RUNFILE:-}")"
 generator_args=(
   --flavor "${flavor}"
   --source-root "${source_root}"
-  --cloudflared-source "${cloudflared_source}"
   --go "${SBOM_GO_BIN}"
   --python "${python_bin}"
   --source-preparer "${source_preparer}"
@@ -109,6 +125,14 @@ generator_args=(
   --syft-lock "${syft_lock}"
   --output "${generated_root}/${output_name}"
 )
+if [[ "${flavor}" != "runtime" ]]; then
+  cloudflared_source="$(
+    "${python_bin}" "${cloudflared_extractor}" \
+      --archive "${cloudflared_archive}" \
+      --output-root "${cloudflared_extract_root}"
+  )"
+  generator_args+=(--cloudflared-source "${cloudflared_source}")
+fi
 if [[ "${flavor}" != "client" ]]; then
   license_report_builder="$(sbom_resolve_runfile "${TUNNEL_CLIENT_LICENSE_REPORT_BUILDER_RUNFILE:-}")"
   base_license_report="$(sbom_resolve_runfile "${TUNNEL_CLIENT_BASE_LICENSE_REPORT_RUNFILE:-}")"
@@ -120,6 +144,27 @@ if [[ "${flavor}" != "client" ]]; then
     companion_license_report="$(sbom_resolve_runfile "${TUNNEL_CLIENT_COMPANION_LICENSE_REPORT_RUNFILE:-}")"
     generator_args+=(--companion-license-report "${companion_license_report}")
   fi
+fi
+
+if [[ -n "${TUNNEL_CLIENT_SBOM_PAYLOAD_LINUX_AMD64_RUNFILE:-}${TUNNEL_CLIENT_SBOM_PAYLOAD_LINUX_ARM64_RUNFILE:-}${TUNNEL_CLIENT_SBOM_PAYLOAD_DARWIN_AMD64_RUNFILE:-}${TUNNEL_CLIENT_SBOM_PAYLOAD_DARWIN_ARM64_RUNFILE:-}${TUNNEL_CLIENT_SBOM_PAYLOAD_WINDOWS_AMD64_RUNFILE:-}${TUNNEL_CLIENT_SBOM_PAYLOAD_WINDOWS_ARM64_RUNFILE:-}" ]]; then
+  [[ "${flavor}" != "client" ]] || {
+    echo "prebuilt SBOM payloads are only supported for runtime flavors" >&2
+    exit 1
+  }
+  payload_linux_amd64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_LINUX_AMD64_RUNFILE:-}" linux_amd64)"
+  payload_linux_arm64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_LINUX_ARM64_RUNFILE:-}" linux_arm64)"
+  payload_darwin_amd64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_DARWIN_AMD64_RUNFILE:-}" darwin_amd64)"
+  payload_darwin_arm64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_DARWIN_ARM64_RUNFILE:-}" darwin_arm64)"
+  payload_windows_amd64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_WINDOWS_AMD64_RUNFILE:-}" windows_amd64)"
+  payload_windows_arm64="$(materialize_payload_runfile "${TUNNEL_CLIENT_SBOM_PAYLOAD_WINDOWS_ARM64_RUNFILE:-}" windows_arm64)"
+  generator_args+=(
+    --prebuilt-payload "linux/amd64=${payload_linux_amd64}"
+    --prebuilt-payload "linux/arm64=${payload_linux_arm64}"
+    --prebuilt-payload "darwin/amd64=${payload_darwin_amd64}"
+    --prebuilt-payload "darwin/arm64=${payload_darwin_arm64}"
+    --prebuilt-payload "windows/amd64=${payload_windows_amd64}"
+    --prebuilt-payload "windows/arm64=${payload_windows_arm64}"
+  )
 fi
 
 "${generator}" "${generator_args[@]}"
