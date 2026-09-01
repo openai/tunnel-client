@@ -201,7 +201,8 @@ fi
 
 prebuilt_payload_platforms=()
 prebuilt_payload_roots=()
-for spec in "${prebuilt_payload_specs[@]}"; do
+# Bash 3.2 treats an empty array expansion as unbound under set -u.
+for spec in "${prebuilt_payload_specs[@]+"${prebuilt_payload_specs[@]}"}"; do
   [[ "${spec}" == *=* ]] ||
     die "--prebuilt-payload must be formatted as goos/goarch=absolute-directory"
   mapped_platform="${spec%%=*}"
@@ -214,7 +215,7 @@ for spec in "${prebuilt_payload_specs[@]}"; do
     die "--prebuilt-payload root must be an absolute directory: ${mapped_root}"
   [[ ! -L "${mapped_root}" ]] ||
     die "--prebuilt-payload root must not be a symlink: ${mapped_root}"
-  for existing_platform in "${prebuilt_payload_platforms[@]}"; do
+  for existing_platform in "${prebuilt_payload_platforms[@]+"${prebuilt_payload_platforms[@]}"}"; do
     [[ "${existing_platform}" != "${mapped_platform}" ]] ||
       die "duplicate --prebuilt-payload platform: ${mapped_platform}"
   done
