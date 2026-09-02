@@ -70,8 +70,10 @@ If you are debugging why `/readyz` is failing or why the client never becomes
   shared `/tmp` filename.
 - `/healthz` is liveness only. A `200 live` response means the process is up.
 - `/readyz` includes startup gating:
-  - `503 oauth discovery pending` while OAuth discovery is still in flight.
-  - `503 oauth discovery failed: ...` when required OAuth discovery fails.
+  - `503 oauth discovery pending` while OAuth discovery is still in flight,
+    including timeout-only startup cycles that are waiting to retry.
+  - `503 oauth discovery failed: ...` when required OAuth discovery reaches a
+    non-timeout failure.
   - `503 mcp probe failed: ...` when the MCP startup probe fails.
   - `200 ready (mcp initialize requires auth: ...)` when the MCP endpoint is
     reachable but requires auth during `initialize`.

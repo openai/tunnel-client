@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jpillora/backoff"
 	"go.uber.org/fx"
 
 	tclog "github.com/openai/tunnel-client/pkg/log"
@@ -17,6 +18,11 @@ import (
 )
 
 var errStartupCatalogAcknowledgementUnavailable = errors.New("oauth discovery: startup catalog acknowledgement unavailable")
+
+const (
+	oauthDiscoveryRetryMin = time.Second
+	oauthDiscoveryRetryMax = 30 * time.Second
+)
 
 // Module wires OAuth discovery state and fetcher.
 var Module = fx.Module(
@@ -43,6 +49,45 @@ type discoveryParams struct {
 }
 
 func startOAuthDiscovery(p discoveryParams) error {
+	return startOAuthDiscoveryWithRetryPolicy(p, defaultOAuthDiscoveryRetryPolicy())
+}
+
+type oauthDiscoveryRetryPolicy struct {
+	newBackoff func() *backoff.Backoff
+	wait       func(context.Context, time.Duration) bool
+}
+
+func defaultOAuthDiscoveryRetryPolicy() oauthDiscoveryRetryPolicy {
+	return oauthDiscoveryRetryPolicy{
+		newBackoff: newOAuthDiscoveryBackoff,
+		wait:       waitForOAuthDiscoveryRetry,
+	}
+}
+
+func newOAuthDiscoveryBackoff() *backoff.Backoff {
+	return &backoff.Backoff{
+		Min:    oauthDiscoveryRetryMin,
+		Max:    oauthDiscoveryRetryMax,
+		Factor: 2,
+		Jitter: true,
+	}
+}
+
+func (p oauthDiscoveryRetryPolicy) backoff() *backoff.Backoff {
+	if p.newBackoff != nil {
+		return p.newBackoff()
+	}
+	return newOAuthDiscoveryBackoff()
+}
+
+func (p oauthDiscoveryRetryPolicy) waitForRetry(ctx context.Context, delay time.Duration) bool {
+	if p.wait != nil {
+		return p.wait(ctx, delay)
+	}
+	return waitForOAuthDiscoveryRetry(ctx, delay)
+}
+
+func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDiscoveryRetryPolicy) error {
 	if p.Lifecycle == nil {
 		return fmt.Errorf("oauth discovery: lifecycle is required")
 	}
@@ -159,85 +204,115 @@ func startOAuthDiscovery(p discoveryParams) error {
 					return
 				}
 
-				fetchCtx, fetchCancel := context.WithTimeout(ctx, DefaultDiscoveryTimeout)
-				defer fetchCancel()
+				retryBackoff := retryPolicy.backoff()
+				// Retry the full discovery sequence with a fresh timeout so a
+				// transient startup timeout can observe recovered probe and metadata
+				// endpoints without terminally settling readiness.
+				for {
+					fetchCtx, fetchCancel := context.WithTimeout(ctx, DefaultDiscoveryTimeout)
+					start := time.Now()
+					candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger)
+					if err != nil {
+						if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+							fetchCancel()
+							return
+						}
+						p.State.Set(nil, err, nil, nil)
+						completeStartupCatalog(err)
+						logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
+						fetchCancel()
+						return
+					}
+					candidateStrings := candidatesToStrings(candidates)
+					if len(candidates) == 0 {
+						err := errors.New("oauth discovery metadata URLs are not configured")
+						p.State.Set(nil, err, probe, candidateStrings)
+						completeStartupCatalog(err)
+						logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
+						fetchCancel()
+						return
+					}
 
-				start := time.Now()
-				candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger)
-				if err != nil {
-					p.State.Set(nil, err, nil, nil)
-					completeStartupCatalog(err)
-					logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
-					return
-				}
-				candidateStrings := candidatesToStrings(candidates)
-				if len(candidates) == 0 {
-					err := errors.New("oauth discovery metadata URLs are not configured")
-					p.State.Set(nil, err, probe, candidateStrings)
-					completeStartupCatalog(err)
-					logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
-					return
-				}
-
-				resp, sourceURL, attempts, err := FetchOAuthMetadata(fetchCtx, p.HTTPClient, candidates, logger)
-				result := BuildDiscoveryResult(resp, sourceURL, start, attempts)
-				if err != nil {
-					p.State.Set(result, err, probe, candidateStrings)
-					if IsOptionalDiscoveryFailure(result, probe, err) {
-						if !startupCatalogBarrierEnabled {
-							completeStartupCatalog(nil)
-						} else if finalizeErr := hostbus.PublishAndWait(ctx, p.Bus, hostbus.URLBundle{}); finalizeErr != nil {
-							completeStartupCatalog(finalizeErr)
-							logger.ErrorContext(fetchCtx, "OAuth startup catalog finalization failed", slog.String("error", finalizeErr.Error()))
+					resp, sourceURL, attempts, err := FetchOAuthMetadata(fetchCtx, p.HTTPClient, candidates, logger)
+					result := BuildDiscoveryResult(resp, sourceURL, start, attempts)
+					if err != nil {
+						if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+							fetchCancel()
+							return
+						}
+						if classifyDiscoveryFailure(err) == discoveryFailureTypeTimeoutOnly {
+							retryIn := retryBackoff.Duration()
+							logger.WarnContext(fetchCtx, "OAuth discovery timed out; retrying",
+								slog.String("error", err.Error()),
+								slog.Duration("retry_in", retryIn),
+							)
+							fetchCancel()
+							if !retryPolicy.waitForRetry(ctx, retryIn) {
+								return
+							}
+							continue
+						}
+						p.State.Set(result, err, probe, candidateStrings)
+						if IsOptionalDiscoveryFailure(result, probe, err) {
+							if !startupCatalogBarrierEnabled {
+								completeStartupCatalog(nil)
+							} else if finalizeErr := hostbus.PublishAndWait(ctx, p.Bus, hostbus.URLBundle{}); finalizeErr != nil {
+								completeStartupCatalog(finalizeErr)
+								logger.ErrorContext(fetchCtx, "OAuth startup catalog finalization failed", slog.String("error", finalizeErr.Error()))
+							} else {
+								completeStartupCatalog(nil)
+							}
+						} else {
+							completeStartupCatalog(err)
+						}
+						logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
+						fetchCancel()
+						return
+					}
+					if resp == nil {
+						err := errors.New("oauth discovery returned nil response")
+						p.State.Set(result, err, probe, candidateStrings)
+						completeStartupCatalog(err)
+						logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
+						fetchCancel()
+						return
+					}
+					bundle, authServerMetaFetch, err := buildURLBundleFromPRMDWithAuthServerMetadata(
+						fetchCtx,
+						p.HTTPClient,
+						resp.Payload(),
+						start,
+						sourceURL,
+						URLBundleOptions{
+							UnixSocketPath: unixSocketPath,
+							UnixSocketURL:  serverURL,
+							TrustedMCPURL:  serverURL,
+						},
+						logger,
+					)
+					if result != nil && authServerMetaFetch != nil {
+						result.AuthServerMetadata = authServerMetaFetch
+					}
+					p.State.Set(result, nil, probe, candidateStrings)
+					if err != nil {
+						completeStartupCatalog(err)
+						logger.ErrorContext(fetchCtx, "OAuth discovery bundle build failed", slog.String("error", err.Error()))
+					} else {
+						logDiscoveredURLs(logger, bundle)
+						if err := publishDiscoveredBundle(bundle); err != nil {
+							completeStartupCatalog(err)
+							logger.ErrorContext(fetchCtx, "OAuth discovery bundle publish failed", slog.String("error", err.Error()))
 						} else {
 							completeStartupCatalog(nil)
 						}
-					} else {
-						completeStartupCatalog(err)
 					}
-					logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
+					logger.InfoContext(fetchCtx, "OAuth discovery ProtectedResourceMetaData fetched",
+						slog.Int("status_code", resp.ResponseCode()),
+						slog.Int64("latency_ms", time.Since(start).Milliseconds()),
+					)
+					fetchCancel()
 					return
 				}
-				if resp == nil {
-					err := errors.New("oauth discovery returned nil response")
-					p.State.Set(result, err, probe, candidateStrings)
-					completeStartupCatalog(err)
-					logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
-					return
-				}
-				bundle, authServerMetaFetch, err := buildURLBundleFromPRMDWithAuthServerMetadata(
-					fetchCtx,
-					p.HTTPClient,
-					resp.Payload(),
-					start,
-					sourceURL,
-					URLBundleOptions{
-						UnixSocketPath: unixSocketPath,
-						UnixSocketURL:  serverURL,
-						TrustedMCPURL:  serverURL,
-					},
-					logger,
-				)
-				if result != nil && authServerMetaFetch != nil {
-					result.AuthServerMetadata = authServerMetaFetch
-				}
-				p.State.Set(result, nil, probe, candidateStrings)
-				if err != nil {
-					completeStartupCatalog(err)
-					logger.ErrorContext(fetchCtx, "OAuth discovery bundle build failed", slog.String("error", err.Error()))
-				} else {
-					logDiscoveredURLs(logger, bundle)
-					if err := publishDiscoveredBundle(bundle); err != nil {
-						completeStartupCatalog(err)
-						logger.ErrorContext(fetchCtx, "OAuth discovery bundle publish failed", slog.String("error", err.Error()))
-					} else {
-						completeStartupCatalog(nil)
-					}
-				}
-				logger.InfoContext(fetchCtx, "OAuth discovery ProtectedResourceMetaData fetched",
-					slog.Int("status_code", resp.ResponseCode()),
-					slog.Int64("latency_ms", time.Since(start).Milliseconds()),
-				)
 			}()
 
 			return nil
@@ -249,6 +324,18 @@ func startOAuthDiscovery(p discoveryParams) error {
 	})
 
 	return nil
+}
+
+func waitForOAuthDiscoveryRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func waitForMCPStartupProbe(ctx context.Context, cfg *runtimeconfig.MCPConfig, probeState *mcpclient.ProbeState) error {

@@ -477,7 +477,7 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   - YAML: `mcp.startup_wait_timeout`
   - Default: `0s` (disabled)
   - When positive for an HTTP-streamable `main` MCP binding, tunnel-client
-    delays its first control-plane poll and one-shot OAuth discovery until the
+    delays its first control-plane poll and OAuth discovery until the
     MCP listener accepts a connection. It retries only pre-connect
     `connection refused` and missing Unix-socket errors during this window;
     any HTTP response, including `401 Unauthorized`, proves the listener is

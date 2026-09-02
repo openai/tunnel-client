@@ -68,7 +68,7 @@ func FetchOAuthMetadata(
 		if logger != nil {
 			logger.WarnContext(ctx, "oauth discovery timed out for all candidates; retrying with timeout backoff")
 		}
-		response, sourceURL, _, lastErr = runOAuthMetadataDiscoveryPass(
+		response, sourceURL, failureType, lastErr = runOAuthMetadataDiscoveryPass(
 			ctx,
 			client,
 			filtered,
@@ -84,7 +84,7 @@ func FetchOAuthMetadata(
 	if lastErr == nil {
 		lastErr = fmt.Errorf("oauth discovery: no responses")
 	}
-	return nil, nil, attempts, lastErr
+	return nil, nil, attempts, withDiscoveryFailureType(lastErr, failureType)
 }
 
 func runOAuthMetadataDiscoveryPass(
@@ -140,21 +140,24 @@ func runOAuthMetadataDiscoveryPass(
 			continue
 		}
 
-		failureType = discoveryFailureTypeNonTimeout
 		attempts[i].StatusCode = resp.StatusCode
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, protectedResourceMetadataBodyLimitBytes+1))
 		_ = resp.Body.Close()
 		if readErr != nil {
 			lastErr = fmt.Errorf("oauth discovery read %s: %w", urlForLog, readErr)
 			attempts[i].Error = lastErr.Error()
+			if classifyDiscoveryFailure(readErr) == discoveryFailureTypeNonTimeout {
+				failureType = discoveryFailureTypeNonTimeout
+			}
 			if (resp.StatusCode == http.StatusNotFound || resp.StatusCode >= 500) && i+1 < len(filtered) {
 				if logger != nil {
 					logger.DebugContext(ctx, "oauth discovery retrying after read failure", slog.String("url", urlForLog), slog.Int("status", resp.StatusCode))
 				}
 				continue
 			}
-			return nil, nil, discoveryFailureTypeNotApplicable, lastErr
+			return nil, nil, failureType, lastErr
 		}
+		failureType = discoveryFailureTypeNonTimeout
 		if len(body) > protectedResourceMetadataBodyLimitBytes {
 			lastErr = fmt.Errorf(
 				"oauth discovery response body from %s exceeds %d bytes",

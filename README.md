@@ -573,7 +573,9 @@ Starter prompts for Codex:
   additional configured channels can target their own MCP bindings, and
   `harpoon` is routable only when Harpoon has registered targets.
 - On startup, it fetches OAuth Protected Resource Metadata from the MCP server
-  for diagnostics.
+  for diagnostics. Timeout-only startup failures keep readiness pending and
+  retry with bounded exponential backoff until discovery succeeds or the
+  process stops; non-timeout discovery failures still settle readiness.
 - After configured and startup OAuth-discovered Harpoon targets settle, it
   emits one privacy-safe `harpoon startup catalog digest` INFO log. Compare
   replicas only when they use the same tunnel ID and control-plane runtime API
