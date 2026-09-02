@@ -1,6 +1,7 @@
 package runtimeharpoon
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -89,6 +90,32 @@ func TestRegisterHostBundleAllowsDisallowedRecordOnlyOnExactProtectedResourceOri
 	))
 	_, ok := registry.Lookup("oauth-registration-endpoint-0")
 	require.True(t, ok, "exact protected-resource origin should remain eligible")
+}
+
+func TestRegisterHostBundleLogsPlaintextLoopbackRemediation(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	registry, err := NewRegistry(logger, false, nil)
+	require.NoError(t, err)
+	classifier := hostclassifier.NewHostClassifier(runtimeconfig.HarpoonHostClassifierConfig{
+		IncludeLoopback: true,
+	})
+
+	record := runtimeOAuthURLRecordForTest(t, "http://127.0.0.1:8765/.well-known/oauth-protected-resource/mcp", "prmd-source")
+	require.NoError(t, registerHostBundle(
+		hostbus.URLBundle{URLs: []hostbus.URLRecord{record}},
+		classifier,
+		registry,
+		logger,
+	))
+
+	require.Zero(t, registry.Count(), "plaintext loopback target must remain rejected by default")
+	require.Contains(t, logs.String(), "harpoon host auto-registration failed")
+	require.Contains(t, logs.String(), "base URL must use https")
+	require.Contains(t, logs.String(), "--harpoon.allow-plaintext-http")
+	require.Contains(t, logs.String(), "HARPOON_ALLOW_PLAINTEXT_HTTP=true")
 }
 
 func TestStartupCatalogCaptureExcludesEarlierQueuedDynamicBundle(t *testing.T) {

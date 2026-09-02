@@ -657,7 +657,8 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	if !responseDelivered && errors.Is(context.Cause(ctx), errResponseDeadlineExceeded) {
 		return ctx.Err()
 	}
-	logger.InfoContext(ctx, "dispatcher forwarded command to MCP server")
+	logger.InfoContext(ctx, "dispatcher forwarded command to MCP server",
+		slog.String("channel", channel.String()))
 
 	return nil
 }

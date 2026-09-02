@@ -127,6 +127,10 @@ inside the customer network:
 - Protected-resource OAuth discovery is represented as a tunnel command and
   executed by `tunnel-client`, using the MCP server URL and the same outbound
   proxy/CA trust as other MCP HTTP traffic.
+- OAuth-discovered protected-resource targets follow Harpoon's HTTPS policy. If
+  a trusted local-development MCP endpoint uses plaintext HTTP (for example
+  `http://127.0.0.1:8765/mcp`), prefer HTTPS or explicitly set
+  `--harpoon.allow-plaintext-http` / `HARPOON_ALLOW_PLAINTEXT_HTTP=true`.
 - `authorization_servers[0]` from Protected Resource Metadata is the source of
   truth for auth-server metadata enrichment and Harpoon OAuth target
   registration.

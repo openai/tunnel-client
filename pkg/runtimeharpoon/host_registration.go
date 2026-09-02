@@ -27,6 +27,8 @@ const (
 	rolePRMDResource  = "prmd-resource"
 	rolePRMDSource    = "prmd-source"
 	registrationScope = "oauth-protected-resource-host"
+
+	loopbackPlaintextRemediation = "use HTTPS, or for trusted local HTTP MCP servers set --harpoon.allow-plaintext-http or HARPOON_ALLOW_PLAINTEXT_HTTP=true"
 )
 
 // HostBusSubscriberOut provides the named URL-bundle subscriber used by both
@@ -273,7 +275,7 @@ func registerHostBundle(bundle hostbus.URLBundle, classifier *hostclassifier.Hos
 			UnixSocketPath:  record.UnixSocketPath,
 		}
 		if err := registry.RegisterTarget(target); err != nil {
-			logger.Warn("harpoon host auto-registration failed",
+			attrs := []any{
 				slog.String("label", label),
 				slog.String("url", tclog.RedactURL(record.URL)),
 				slog.String("source", source),
@@ -281,7 +283,11 @@ func registerHostBundle(bundle hostbus.URLBundle, classifier *hostclassifier.Hos
 				slog.String("group", group),
 				slog.String("inclusion_reason", reason),
 				slog.String("error", err.Error()),
-			)
+			}
+			if reason == "loopback" && strings.EqualFold(record.URL.Scheme, "http") && !registry.allowPlaintext {
+				attrs = append(attrs, slog.String("remediation", loopbackPlaintextRemediation))
+			}
+			logger.Warn("harpoon host auto-registration failed", attrs...)
 			continue
 		}
 		logger.Info("harpoon host auto-registered",

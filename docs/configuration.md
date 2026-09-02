@@ -624,6 +624,9 @@ later OAuth discovery commands or registry mutations.
   - Flag: `--harpoon.allow-plaintext-http`
   - Env: `HARPOON_ALLOW_PLAINTEXT_HTTP`
   - Default: `false`
+  - OAuth-discovered protected-resource targets use this same policy. For a
+    trusted HTTP loopback MCP endpoint, prefer HTTPS or explicitly enable this
+    setting so its PRMD source target can be registered.
 - **Max response bytes**
   - Flag: `--harpoon.max-response-bytes`
   - Env: `HARPOON_MAX_RESPONSE_BYTES`

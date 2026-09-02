@@ -649,7 +649,8 @@ func TestProcessorRejectsUnsupportedChannel(t *testing.T) {
 func TestProcessorRoutesHarpoonChannel(t *testing.T) {
 	t.Parallel()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	responder := newRecordingResponder()
 
 	registry := newTestHarpoonRegistry(t)
@@ -700,6 +701,8 @@ func TestProcessorRoutesHarpoonChannel(t *testing.T) {
 
 	require.EqualValues(t, 1, harpoonTransport.calls.Load())
 	require.EqualValues(t, 0, mainTransport.calls.Load())
+	require.Contains(t, logs.String(), "dispatcher forwarded command to MCP server")
+	require.Contains(t, logs.String(), "channel=harpoon")
 }
 
 func TestProcessorRejectsHarpoonChannelWithoutTargets(t *testing.T) {
