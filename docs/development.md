@@ -56,9 +56,11 @@ bash ./scripts/generate_homebrew_formula_test.sh
 
 The standalone `Homebrew formula smoke` workflow downloads checksums from an
 already-published release, renders the Formula, and runs `brew readall`,
-`brew install`, and `brew test` without uploading artifacts or creating a
-release. `--allow-prerelease` exists only for explicit test paths; stable
-Formula generation continues to reject prereleases.
+`brew install`, `brew test`, and the documented `tunnel-client --version`
+and `tunnel-client help quickstart` startup commands on an arm64 macOS runner
+without uploading artifacts or creating a release. `--allow-prerelease`
+exists only for explicit test paths; stable Formula generation continues to
+reject prereleases.
 
 ## Unit tests
 

@@ -14,7 +14,7 @@ permissions:
 jobs:
   smoke:
     name: Test Homebrew formula from public release
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Derive release metadata
@@ -45,6 +45,8 @@ jobs:
           brew readall openai/tunnel-client-test
           brew install openai/tunnel-client-test/tunnel-client
           brew test openai/tunnel-client-test/tunnel-client
+          tunnel-client --version
+          tunnel-client help quickstart >/dev/null
           prefix="$(brew --prefix tunnel-client)"
           test -x "${prefix}/libexec/tunnel-client"
           test -x "${prefix}/libexec/cloudflared"

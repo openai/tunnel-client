@@ -15,6 +15,21 @@
 - **"MCP server URL is required"**
   - Set `MCP_SERVER_URL` or `--mcp.server-url=...`.
 
+## macOS Gatekeeper blocks a downloaded archive
+
+Directly downloaded macOS release ZIPs are not currently notarized and can be
+blocked by Gatekeeper before `tunnel-client --version` or
+`tunnel-client help quickstart` runs. Do not use **Open Anyway**, `xattr`,
+or `spctl` to bypass the check.
+
+Use the supported Homebrew installation path instead:
+
+```bash
+brew install openai/tools/tunnel-client
+tunnel-client --version
+tunnel-client help quickstart
+```
+
 ## Unexpected URLs / 404s
 
 - Ensure `CONTROL_PLANE_BASE_URL` is the host root (for example

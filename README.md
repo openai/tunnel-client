@@ -99,7 +99,11 @@ tool and connects it to the OpenAI Tunnel control plane.
 
 ## Install with Homebrew
 
-Install `tunnel-client` from the official OpenAI tap:
+On macOS, Homebrew is the supported installation path. Directly downloaded
+release ZIPs are not currently notarized and can be blocked by Gatekeeper. If
+a manually downloaded archive is blocked, do not use `xattr`, `spctl`, or
+**Open Anyway** to bypass the check; install from the official OpenAI tap
+instead:
 
 ```bash
 brew install openai/tools/tunnel-client
