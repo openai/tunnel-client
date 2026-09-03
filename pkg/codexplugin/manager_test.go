@@ -1,12 +1,16 @@
 package codexplugin
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -153,6 +157,235 @@ func TestConnectRejectsLiteralRuntimeSecretBeforePersistence(t *testing.T) {
 	requireNoFileContains(t, profileDir, secret)
 }
 
+func TestConcurrentConnectSameAliasStartsOnlyOneProcess(t *testing.T) {
+	t.Parallel()
+
+	root := pluginstate.Root{Path: t.TempDir()}
+	profileDir := filepath.Join(t.TempDir(), "profiles")
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz", "/readyz":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer healthServer.Close()
+
+	identity := session.ProcessIdentity{
+		StartTime:  "test-process-start",
+		Executable: "/test/tunnel-client",
+	}
+	var starts atomic.Int32
+	firstStarted := make(chan struct{})
+	releaseStarts := make(chan struct{})
+	var firstStartedOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseStarts) })
+	}
+	defer release()
+
+	runtime := session.Runtime{
+		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
+			return session.CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (session.Process, error) {
+			starts.Add(1)
+			if err := os.WriteFile(
+				session.ProfileHealthURLFile("docs-mcp", root),
+				[]byte(healthServer.URL+"/healthz\n"),
+				0o600,
+			); err != nil {
+				return nil, err
+			}
+			firstStartedOnce.Do(func() { close(firstStarted) })
+			<-releaseStarts
+			return managerTestProcess{pid: os.Getpid()}, nil
+		},
+		InspectProcess: func(pid int) (session.ProcessIdentity, error) {
+			return identity, nil
+		},
+	}
+	lookupEnv := testLookupEnv(map[string]string{
+		"TUNNEL_CLIENT_STATE_DIR":   root.Path,
+		"TUNNEL_CLIENT_PROFILE_DIR": profileDir,
+		"OPENAI_ADMIN_KEY":          "admin-key",
+		"CONTROL_PLANE_API_KEY":     "runtime-key",
+		"HOME":                      t.TempDir(),
+	})
+	opts := ConnectOptions{
+		CreateOptions: CreateOptions{
+			Alias:               "docs-mcp",
+			ControlPlaneBaseURL: healthServer.URL,
+		},
+		TunnelID:   "tunnel_0123456789abcdefghijklmnopqrstuv",
+		MCPCommand: "python server.py",
+	}
+	type connectResult struct {
+		payload map[string]any
+		err     error
+	}
+	results := make(chan connectResult, 2)
+	connect := func() {
+		payload, err := NewManager(lookupEnv, runtime).Connect(opts)
+		results <- connectResult{payload: payload, err: err}
+	}
+
+	go connect()
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first connect did not reach process start")
+	}
+	go connect()
+
+	require.Never(t, func() bool { return starts.Load() > 1 }, 250*time.Millisecond, 10*time.Millisecond)
+	release()
+
+	launched := 0
+	reused := 0
+	for i := 0; i < 2; i++ {
+		select {
+		case result := <-results:
+			require.NoError(t, result.err)
+			if result.payload["launched"] == true {
+				launched++
+			}
+			if result.payload["already_running"] == true {
+				reused++
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("concurrent connect did not finish")
+		}
+	}
+	require.EqualValues(t, 1, starts.Load())
+	require.Equal(t, 1, launched)
+	require.Equal(t, 1, reused)
+
+	processes, err := pluginstate.LoadProcesses(root)
+	require.NoError(t, err)
+	require.Equal(t, os.Getpid(), processes["docs-mcp"].PID)
+	require.Equal(t, identity.StartTime, processes["docs-mcp"].PIDStartTime)
+	require.Equal(t, identity.Executable, processes["docs-mcp"].PIDExecutable)
+}
+
+func TestConnectCleansUpNewProcessWhenProcessStateSaveFails(t *testing.T) {
+	t.Parallel()
+
+	root := pluginstate.Root{Path: t.TempDir()}
+	profileDir := filepath.Join(t.TempDir(), "profiles")
+	require.NoError(t, pluginstate.EnsureDirs(root))
+	// SaveProcesses writes through this deterministic temp path. A directory
+	// makes the final persistence step fail after the detached child starts.
+	require.NoError(t, os.Mkdir(pluginstate.ProcessesPath(root)+".tmp", 0o700))
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz", "/readyz":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer healthServer.Close()
+
+	identity := session.ProcessIdentity{StartTime: "new-process", Executable: "/test/tunnel-client"}
+	terminated := false
+	waited := false
+	runtime := session.Runtime{
+		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
+			return session.CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (session.Process, error) {
+			require.NoError(t, os.WriteFile(session.ProfileHealthURLFile("docs-mcp", root), []byte(healthServer.URL+"/healthz\n"), 0o600))
+			return managerTestProcess{pid: os.Getpid()}, nil
+		},
+		InspectProcess: func(pid int) (session.ProcessIdentity, error) {
+			return identity, nil
+		},
+		Terminate: func(pid int) error {
+			terminated = true
+			return nil
+		},
+		WaitForExit: func(pid int, expected session.ProcessIdentity) bool {
+			require.Equal(t, identity, expected)
+			waited = true
+			return true
+		},
+	}
+	lookupEnv := testLookupEnv(map[string]string{
+		"TUNNEL_CLIENT_STATE_DIR":   root.Path,
+		"TUNNEL_CLIENT_PROFILE_DIR": profileDir,
+		"OPENAI_ADMIN_KEY":          "admin-key",
+		"CONTROL_PLANE_API_KEY":     "runtime-key",
+		"HOME":                      t.TempDir(),
+	})
+
+	_, err := NewManager(lookupEnv, runtime).Connect(ConnectOptions{
+		CreateOptions: CreateOptions{
+			Alias:               "docs-mcp",
+			ControlPlaneBaseURL: healthServer.URL,
+		},
+		TunnelID:   "tunnel_0123456789abcdefghijklmnopqrstuv",
+		MCPCommand: "python server.py",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "processes.yaml.tmp")
+	require.True(t, terminated)
+	require.True(t, waited)
+}
+
+func TestConnectDoesNotPersistProcessWhenIdentityCaptureSafelyAborts(t *testing.T) {
+	t.Parallel()
+
+	root := pluginstate.Root{Path: t.TempDir()}
+	profileDir := filepath.Join(t.TempDir(), "profiles")
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer healthServer.Close()
+	aborted := false
+	runtime := session.Runtime{
+		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
+			return session.CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (session.Process, error) {
+			return managerTestProcess{pid: os.Getpid(), abort: func() error {
+				aborted = true
+				return nil
+			}}, nil
+		},
+		InspectProcess: func(pid int) (session.ProcessIdentity, error) {
+			return session.ProcessIdentity{}, errors.New("identity unavailable")
+		},
+	}
+	lookupEnv := testLookupEnv(map[string]string{
+		"TUNNEL_CLIENT_STATE_DIR":   root.Path,
+		"TUNNEL_CLIENT_PROFILE_DIR": profileDir,
+		"OPENAI_ADMIN_KEY":          "admin-key",
+		"CONTROL_PLANE_API_KEY":     "runtime-key",
+		"HOME":                      t.TempDir(),
+	})
+
+	_, err := NewManager(lookupEnv, runtime).Connect(ConnectOptions{
+		CreateOptions: CreateOptions{
+			Alias:               "docs-mcp",
+			ControlPlaneBaseURL: healthServer.URL,
+		},
+		TunnelID:   "tunnel_0123456789abcdefghijklmnopqrstuv",
+		MCPCommand: "python server.py",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safely aborted launched process before state persistence")
+	require.True(t, aborted)
+	processes, loadErr := pluginstate.LoadProcesses(root)
+	require.NoError(t, loadErr)
+	_, found := processes["docs-mcp"]
+	require.False(t, found)
+}
+
 func TestRepairCommandQuotesMCPCommandWithArguments(t *testing.T) {
 	t.Parallel()
 
@@ -203,11 +436,119 @@ func TestConnectPayloadIncludesLaunchDiagnosticsLogTail(t *testing.T) {
 	require.Equal(t, "launch failed", diagnostics["log_tail"])
 }
 
+func TestStopRejectsUnownedLegacyTmuxSessionWithoutChangingRecord(t *testing.T) {
+	t.Parallel()
+
+	root := pluginstate.Root{Path: t.TempDir()}
+	require.NoError(t, pluginstate.EnsureDirs(root))
+	require.NoError(t, pluginstate.SaveAliases(root, map[string]pluginstate.AliasRecord{
+		"docs-mcp": {
+			Alias:    "docs-mcp",
+			TunnelID: "tunnel_123",
+		},
+	}))
+	require.NoError(t, pluginstate.SaveProcesses(root, map[string]pluginstate.ProcessRecord{
+		"docs-mcp": {
+			Alias:       "docs-mcp",
+			TunnelID:    "tunnel_123",
+			Mode:        "tmux",
+			SessionName: "user-session",
+		},
+	}))
+
+	manager := NewManager(testLookupEnv(map[string]string{
+		"TUNNEL_CLIENT_STATE_DIR": root.Path,
+		"HOME":                    t.TempDir(),
+	}), session.Runtime{
+		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return session.CompletedProcess{}, nil
+		},
+	})
+
+	payload, err := manager.Stop(AliasOptions{Alias: "docs-mcp"})
+	require.Error(t, err)
+	require.Equal(t, false, payload["stopped"])
+	require.Contains(t, payload["stop_error"], "does not match tunnel-client-owned session")
+
+	processes, loadErr := pluginstate.LoadProcesses(root)
+	require.NoError(t, loadErr)
+	require.Equal(t, "tmux", processes["docs-mcp"].Mode)
+	require.Equal(t, "user-session", processes["docs-mcp"].SessionName)
+}
+
+func TestStopDoesNotSignalReusedPID(t *testing.T) {
+	t.Parallel()
+
+	root := pluginstate.Root{Path: t.TempDir()}
+	require.NoError(t, pluginstate.EnsureDirs(root))
+	require.NoError(t, pluginstate.SaveAliases(root, map[string]pluginstate.AliasRecord{
+		"docs-mcp": {
+			Alias:    "docs-mcp",
+			TunnelID: "tunnel_123",
+		},
+	}))
+	require.NoError(t, pluginstate.SaveProcesses(root, map[string]pluginstate.ProcessRecord{
+		"docs-mcp": {
+			Alias:         "docs-mcp",
+			TunnelID:      "tunnel_123",
+			Mode:          "process",
+			PID:           os.Getpid(),
+			PIDStartTime:  "stale-start",
+			PIDExecutable: "/test/tunnel-client",
+		},
+	}))
+	terminated := false
+	manager := NewManager(testLookupEnv(map[string]string{
+		"TUNNEL_CLIENT_STATE_DIR": root.Path,
+		"HOME":                    t.TempDir(),
+	}), session.Runtime{
+		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
+			return session.CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (session.Process, error) {
+			return managerTestProcess{pid: os.Getpid()}, nil
+		},
+		InspectProcess: func(pid int) (session.ProcessIdentity, error) {
+			return session.ProcessIdentity{StartTime: "different-start", Executable: "/test/tunnel-client"}, nil
+		},
+		Terminate: func(pid int) error {
+			terminated = true
+			return nil
+		},
+	})
+
+	payload, err := manager.Stop(AliasOptions{Alias: "docs-mcp"})
+	require.NoError(t, err)
+	require.Equal(t, true, payload["already_stopped"])
+	require.False(t, terminated)
+	processes, loadErr := pluginstate.LoadProcesses(root)
+	require.NoError(t, loadErr)
+	require.Equal(t, "stopped", processes["docs-mcp"].Mode)
+	require.Zero(t, processes["docs-mcp"].PID)
+}
+
 func testLookupEnv(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]
 		return value, ok
 	}
+}
+
+type managerTestProcess struct {
+	pid   int
+	abort func() error
+}
+
+func (p managerTestProcess) PID() int { return p.pid }
+
+func (managerTestProcess) Poll() *int { return nil }
+
+func (p managerTestProcess) Abort() error {
+	if p.abort != nil {
+		return p.abort()
+	}
+	return nil
 }
 
 func requireNoFileContains(t *testing.T, root string, needle string) {

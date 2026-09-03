@@ -292,6 +292,11 @@ func (m *Manager) Create(opts CreateOptions) (map[string]any, error) {
 	if err := pluginstate.EnsureDirs(root); err != nil {
 		return nil, err
 	}
+	unlock, err := pluginstate.AcquireStateLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 	aliases, err := pluginstate.LoadAliases(root)
 	if err != nil {
 		return nil, err
@@ -361,6 +366,11 @@ func (m *Manager) Connect(opts ConnectOptions) (map[string]any, error) {
 	if err := pluginstate.ValidateSecretReference(runtimeAPIKey, "runtime api_key"); err != nil {
 		return nil, err
 	}
+	unlock, err := pluginstate.AcquireStateLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 	aliases, err := pluginstate.LoadAliases(root)
 	if err != nil {
 		return nil, err
@@ -441,7 +451,7 @@ func (m *Manager) Connect(opts ConnectOptions) (map[string]any, error) {
 		_ = pluginstate.AppendHistory(root, "stale-process", alias, existingProcess.TunnelID, fmt.Sprintf("replacing with tunnel_id=%s", tunnelID))
 	}
 	launchEnv := runtimeLaunchEnvOverrides(runtimeAPIKey, m.lookupEnv)
-	launch, err := session.StartOrReuse(
+	launch, err := session.StartOrReuseWithExistingRuntime(
 		m.runtime,
 		alias,
 		profileName,
@@ -449,31 +459,31 @@ func (m *Manager) Connect(opts ConnectOptions) (map[string]any, error) {
 		opts.TunnelBin,
 		root,
 		launchEnv,
-		existingProcess.PID,
+		session.ExistingRuntime{
+			Mode:          existingProcess.Mode,
+			SessionName:   existingProcess.SessionName,
+			TmuxSocket:    existingProcess.TmuxSocket,
+			PID:           existingProcess.PID,
+			PIDStartTime:  existingProcess.PIDStartTime,
+			PIDExecutable: existingProcess.PIDExecutable,
+		},
 		replaceExistingRuntime,
 	)
 	if err != nil {
 		return nil, err
 	}
-	processes[alias] = pluginstate.ProcessRecord{
-		Alias:         alias,
-		TunnelID:      tunnelID,
-		AdminProfile:  adminProfile.Name,
-		ConfigPath:    configPath,
-		ProfileName:   profileName,
-		ProfileDir:    profileDir,
-		ProfilePath:   configPath,
-		HealthURLFile: healthURLFile,
-		TargetKind:    target.Kind,
-		TargetValue:   target.Value,
-		Command:       launch.Command,
-		StartedAt:     pluginstate.UTCNow(),
-		Mode:          launch.Mode,
-		SessionName:   launch.SessionName,
-		PID:           launch.PID,
-		LogPath:       launch.LogPath,
-	}
+	processes[alias] = runtimeProcessRecord(alias, tunnelID, adminProfile.Name, configPath, profileName, profileDir, healthURLFile, target, launch)
 	if err := pluginstate.SaveProcesses(root, processes); err != nil {
+		if launch.Launched && launch.Mode == "process" && launch.PID > 0 {
+			identity := session.ProcessIdentity{StartTime: launch.PIDStartTime, Executable: launch.PIDExecutable}
+			signaled, cleanupErr := m.runtime.TerminateOwnedProcess(launch.PID, identity)
+			if cleanupErr != nil {
+				return nil, fmt.Errorf("save process state: %w; clean up launched process: %v", err, cleanupErr)
+			}
+			if signaled && !m.runtime.WaitForOwnedProcessExit(launch.PID, identity) {
+				return nil, fmt.Errorf("save process state: %w; clean up launched process: process %d did not exit after SIGTERM", err, launch.PID)
+			}
+		}
 		return nil, err
 	}
 	_ = pluginstate.AppendHistory(root, "connect", alias, tunnelID, fmt.Sprintf("mode=%s session=%s pid=%d started=%t healthy=%t ready=%t", launch.Mode, valueOrDash(launch.SessionName), launch.PID, launch.Started, launch.Healthy, launch.Ready))
@@ -542,6 +552,11 @@ func (m *Manager) CleanupInventory(opts CleanupOptions) (map[string]any, error) 
 	if err := pluginstate.EnsureDirs(root); err != nil {
 		return nil, err
 	}
+	unlock, err := pluginstate.AcquireStateLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 	aliases, err := pluginstate.LoadAliases(root)
 	if err != nil {
 		return nil, err
@@ -667,6 +682,11 @@ func (m *Manager) Stop(opts AliasOptions) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := pluginstate.AcquireStateLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 	aliases, err := pluginstate.LoadAliases(root)
 	if err != nil {
 		return nil, err
@@ -690,35 +710,50 @@ func (m *Manager) Stop(opts AliasOptions) (map[string]any, error) {
 	if process.Alias == "" || process.Mode == "stopped" {
 		alreadyStopped = true
 	} else if process.Mode == "tmux" {
-		sessionName := firstNonEmpty(process.SessionName, session.TmuxSessionName(alias, root))
-		running, _ := session.TmuxHasSessionName(m.runtime, sessionName)
-		if running {
-			result, err := session.StopTmux(m.runtime, sessionName)
-			if err != nil {
-				stopError = err.Error()
-			} else if result.ReturnCode != 0 {
-				stopError = strings.TrimSpace(firstNonEmpty(result.Stderr, result.Stdout))
-			}
+		sessionName, err := session.OwnedTmuxSessionName(alias, root, process.SessionName)
+		if err != nil {
+			stopError = err.Error()
 		} else {
-			alreadyStopped = true
+			tmuxSocket, running, inspectErr := session.FindOwnedLegacyTmuxSession(m.runtime, sessionName, process.TmuxSocket)
+			if inspectErr != nil {
+				stopError = inspectErr.Error()
+			} else if running {
+				result, stopErr := session.StopTmuxOnResolvedSocket(m.runtime, sessionName, tmuxSocket)
+				if stopErr != nil {
+					stopError = stopErr.Error()
+				} else if result.ReturnCode != 0 {
+					stopError = strings.TrimSpace(firstNonEmpty(result.Stderr, result.Stdout))
+				}
+			} else {
+				alreadyStopped = true
+			}
 		}
 	} else if process.Mode == "process" && process.PID > 0 {
-		if err := session.TerminateProcess(process.PID); err != nil {
-			stopError = err.Error()
-		} else if !session.WaitForProcessExit(process.PID) {
+		identity := session.ProcessIdentity{StartTime: process.PIDStartTime, Executable: process.PIDExecutable}
+		signaled, terminateErr := m.runtime.TerminateOwnedProcess(process.PID, identity)
+		if terminateErr != nil {
+			stopError = terminateErr.Error()
+		} else if !signaled {
+			alreadyStopped = true
+		} else if !m.runtime.WaitForOwnedProcessExit(process.PID, identity) {
 			stopError = fmt.Sprintf("process %d did not exit after SIGTERM", process.PID)
 		}
 	} else {
 		alreadyStopped = true
 	}
-	session.ClearHealthURLFile(alias, root)
-	if process.Alias != "" {
-		process.Mode = "stopped"
-		process.SessionName = ""
-		process.PID = 0
-		processes[alias] = process
-		if err := pluginstate.SaveProcesses(root, processes); err != nil {
-			return nil, err
+	if stopError == "" {
+		session.ClearHealthURLFile(alias, root)
+		if process.Alias != "" {
+			process.Mode = "stopped"
+			process.SessionName = ""
+			process.TmuxSocket = ""
+			process.PID = 0
+			process.PIDStartTime = ""
+			process.PIDExecutable = ""
+			processes[alias] = process
+			if err := pluginstate.SaveProcesses(root, processes); err != nil {
+				return nil, err
+			}
 		}
 	}
 	detail := fmt.Sprintf("previous_mode=%s already_stopped=%t", valueOrDash(previousMode), alreadyStopped)
@@ -742,6 +777,11 @@ func (m *Manager) Remove(opts AliasOptions) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := pluginstate.AcquireStateLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 	aliases, err := pluginstate.LoadAliases(root)
 	if err != nil {
 		return nil, err
@@ -967,6 +1007,40 @@ func (m *Manager) newAdminClient(adminProfile effectiveAdminProfile, keyRef stri
 	})
 }
 
+func runtimeProcessRecord(
+	alias string,
+	tunnelID string,
+	adminProfile string,
+	configPath string,
+	profileName string,
+	profileDir string,
+	healthURLFile string,
+	target session.Target,
+	launch session.LaunchResult,
+) pluginstate.ProcessRecord {
+	return pluginstate.ProcessRecord{
+		Alias:         alias,
+		TunnelID:      tunnelID,
+		AdminProfile:  adminProfile,
+		ConfigPath:    configPath,
+		ProfileName:   profileName,
+		ProfileDir:    profileDir,
+		ProfilePath:   configPath,
+		HealthURLFile: healthURLFile,
+		TargetKind:    target.Kind,
+		TargetValue:   target.Value,
+		Command:       launch.Command,
+		StartedAt:     pluginstate.UTCNow(),
+		Mode:          launch.Mode,
+		SessionName:   launch.SessionName,
+		TmuxSocket:    launch.TmuxSocket,
+		PID:           launch.PID,
+		PIDStartTime:  launch.PIDStartTime,
+		PIDExecutable: launch.PIDExecutable,
+		LogPath:       launch.LogPath,
+	}
+}
+
 func (m *Manager) connectPayload(root pluginstate.Root, alias string, tunnel adminapi.Tunnel, adminProfile effectiveAdminProfile, record pluginstate.AliasRecord, process pluginstate.ProcessRecord, launch session.LaunchResult, remoteErr string) map[string]any {
 	local := m.localRuntimeDetails(root, alias, record, process)
 	effectiveHealth := local["effective_health"].(map[string]any)
@@ -1103,8 +1177,18 @@ func (m *Manager) localRuntimeDetails(root pluginstate.Root, alias string, recor
 	log["tail"] = readLogTail(logPath, 20)
 
 	tmuxSession := firstNonEmpty(process.SessionName, session.TmuxSessionName(alias, root))
-	tmuxRunning, _ := session.TmuxHasSessionName(m.runtime, tmuxSession)
-	processRunning := process.PID > 0 && session.PIDIsRunning(process.PID)
+	tmuxRunning := false
+	if process.Mode == "tmux" {
+		if ownedSession, err := session.OwnedTmuxSessionName(alias, root, process.SessionName); err == nil {
+			tmuxSession = ownedSession
+			_, tmuxRunning, _ = session.FindOwnedLegacyTmuxSession(m.runtime, tmuxSession, process.TmuxSocket)
+		}
+	}
+	processRunning := false
+	if process.PID > 0 {
+		identity := session.ProcessIdentity{StartTime: process.PIDStartTime, Executable: process.PIDExecutable}
+		processRunning, _ = m.runtime.ProcessIdentityMatches(process.PID, identity)
+	}
 	runtimeRunning := tmuxRunning || processRunning
 	reportedProcessRunning := processRunning
 	if process.Mode == "tmux" && tmuxRunning {
@@ -1633,6 +1717,9 @@ func localIssues(process pluginstate.ProcessRecord, tmuxRunning bool, processRun
 	}
 	if process.Mode == "process" && process.PID > 0 && !processRunning {
 		issues = append(issues, "recorded process pid is not running")
+	}
+	if process.Mode == "process" && process.PID > 0 && (process.PIDStartTime == "" || process.PIDExecutable == "") {
+		issues = append(issues, "recorded process identity is missing; refusing to reuse or signal a bare PID")
 	}
 	if process.ProfilePath != "" && !profileExists {
 		issues = append(issues, "recorded runtime profile is missing")

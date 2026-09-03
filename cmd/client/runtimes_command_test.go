@@ -6,13 +6,80 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/openai/tunnel-client/pkg/codexplugin/session"
 )
+
+type runtimesTestProcess struct {
+	cmd  *exec.Cmd
+	done <-chan struct{}
+}
+
+func (p *runtimesTestProcess) PID() int {
+	return p.cmd.Process.Pid
+}
+
+func (p *runtimesTestProcess) Poll() *int {
+	select {
+	case <-p.done:
+		exitCode := p.cmd.ProcessState.ExitCode()
+		return &exitCode
+	default:
+		return nil
+	}
+}
+
+func startRuntimesTestProcess(t *testing.T, healthPath string, healthURL string) session.Process {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRuntimesManagedProcessHelper$")
+	cmd.Env = append(
+		os.Environ(),
+		"TUNNEL_CLIENT_RUNTIME_TEST_HELPER=1",
+		"TUNNEL_CLIENT_RUNTIME_TEST_HEALTH_PATH="+healthPath,
+		"TUNNEL_CLIENT_RUNTIME_TEST_HEALTH_URL="+healthURL,
+	)
+	require.NoError(t, cmd.Start())
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timed out waiting for managed process test helper to exit")
+		}
+	})
+	return &runtimesTestProcess{cmd: cmd, done: done}
+}
+
+func TestRuntimesManagedProcessHelper(t *testing.T) {
+	if os.Getenv("TUNNEL_CLIENT_RUNTIME_TEST_HELPER") != "1" {
+		return
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	healthPath := os.Getenv("TUNNEL_CLIENT_RUNTIME_TEST_HEALTH_PATH")
+	healthURL := os.Getenv("TUNNEL_CLIENT_RUNTIME_TEST_HEALTH_URL")
+	require.NotEmpty(t, healthPath)
+	require.NotEmpty(t, healthURL)
+	require.NoError(t, os.MkdirAll(filepath.Dir(healthPath), 0o755))
+	require.NoError(t, os.WriteFile(healthPath, []byte(healthURL), 0o600))
+	<-signals
+}
 
 func TestAdminProfilesSetAndListJSON(t *testing.T) {
 	t.Parallel()
@@ -94,52 +161,15 @@ func TestRuntimesCreateConnectStatusStopJSON(t *testing.T) {
 		"CONTROL_PLANE_BASE_URL":  server.URL,
 		"CONTROL_PLANE_URL_PATH":  "/chatgpttunnelgateway/dev/us",
 	}
-	activeTmuxSessions := map[string]bool{}
 	runtime := session.Runtime{
 		Run: func(args []string, env map[string]string) (session.CompletedProcess, error) {
-			if len(args) >= 2 && args[0] == "tmux" && args[1] == "-V" {
-				return session.CompletedProcess{ReturnCode: 0, Stdout: "tmux 3.4\n"}, nil
-			}
-			if len(args) >= 4 && args[0] == "tmux" && args[1] == "has-session" {
-				name := args[3][1:]
-				if activeTmuxSessions[name] {
-					return session.CompletedProcess{ReturnCode: 0}, nil
-				}
-				return session.CompletedProcess{ReturnCode: 1}, nil
-			}
-			if len(args) >= 2 && args[0] == "tmux" && args[1] == "list-panes" {
-				return session.CompletedProcess{ReturnCode: 0, Stdout: "%42\n"}, nil
-			}
-			if len(args) >= 5 && args[0] == "tmux" && args[1] == "new-session" {
-				name := ""
-				for index := 0; index+1 < len(args); index++ {
-					if args[index] == "-s" {
-						name = args[index+1]
-						break
-					}
-				}
-				require.NotEmpty(t, name)
-				activeTmuxSessions[name] = true
-				healthPath := filepath.Join(codexHome, "health", "docs-mcp.url")
-				require.NoError(t, os.MkdirAll(filepath.Dir(healthPath), 0o755))
-				require.NoError(t, os.WriteFile(healthPath, []byte(healthServer.URL+"/healthz"), 0o600))
-				return session.CompletedProcess{ReturnCode: 0}, nil
-			}
-			if len(args) >= 4 && args[0] == "tmux" && args[1] == "kill-session" {
-				name := args[3][1:]
-				delete(activeTmuxSessions, name)
-				return session.CompletedProcess{ReturnCode: 0}, nil
-			}
+			t.Fatalf("unexpected tmux command: %v", args)
 			return session.CompletedProcess{}, nil
 		},
-		RunInput: func(args []string, env map[string]string, stdin string) (session.CompletedProcess, error) {
-			require.Equal(t, []string{"tmux", "source-file", "-"}, args)
-			require.Contains(t, stdin, "set-environment")
-			return session.CompletedProcess{ReturnCode: 0}, nil
-		},
 		Start: func(args []string, env map[string]string, logPath string) (session.Process, error) {
-			t.Fatalf("unexpected process start fallback: %v", args)
-			return nil, nil
+			require.Equal(t, "docs-mcp", args[5])
+			healthPath := filepath.Join(codexHome, "health", "docs-mcp.url")
+			return startRuntimesTestProcess(t, healthPath, healthServer.URL+"/healthz"), nil
 		},
 	}
 
@@ -160,8 +190,9 @@ func TestRuntimesCreateConnectStatusStopJSON(t *testing.T) {
 	require.Equal(t, true, connectPayload["healthy"])
 	require.Equal(t, "ready", connectPayload["runtime_state"])
 	require.Equal(t, true, connectPayload["process_running"])
+	require.Equal(t, "process", connectPayload["mode"])
 	_, hasPID := connectPayload["pid"]
-	require.False(t, hasPID)
+	require.True(t, hasPID)
 	profilePath := connectPayload["profile_path"].(string)
 	profileContents, err := os.ReadFile(profilePath)
 	require.NoError(t, err)
@@ -180,13 +211,14 @@ func TestRuntimesCreateConnectStatusStopJSON(t *testing.T) {
 	processPayload, ok := statusPayload["process"].(map[string]any)
 	require.True(t, ok)
 	_, hasProcessPID := processPayload["pid"]
-	require.False(t, hasProcessPID)
+	require.True(t, hasProcessPID)
 
 	stdout.Reset()
 	stderr.Reset()
 	cmd = newRuntimesCommandWithRuntime(lookupEnvMap(env), &stdout, &stderr, runtime)
 	cmd.SetArgs([]string{"stop", "docs-mcp", "--json"})
-	require.NoError(t, cmd.Execute())
+	err = cmd.Execute()
+	require.NoErrorf(t, err, "stdout=%s stderr=%s", stdout.String(), stderr.String())
 	require.Contains(t, stdout.String(), `"stopped": true`)
 
 	stdout.Reset()

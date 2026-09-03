@@ -23,9 +23,10 @@ Health/debug signals:
 - `launch_diagnostics`: exit code and runtime log tail captured during launch
   failures
 
-If `tmux` is available, tunnel-client prefers a tmux-managed runtime. When
-`tmux` is unavailable, it falls back to a detached background process and
-records PID/log path in local state.
+New managed runtimes use a detached background process and record PID/log path
+in local state. Status and stop continue to recognize a tmux-managed runtime
+recorded by an older client; reconnect migrates only that exact owned session
+to process supervision.
 
 If `readyz` is failing:
 

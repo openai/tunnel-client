@@ -201,18 +201,19 @@ Codex, prefer `tunnel-client runtimes connect ...`; do not use `nohup` or
 `disown` as the tunnel-client supervision path.
 
 `status` reports local runtime state first and also surfaces `ui_url`, logs,
-tmux/process state, stale recorded URLs, live admin URLs, `/healthz`,
-`/readyz`, and `control_plane_poll_health`. `connect` success means a usable
-local runtime exists: the managed process or tmux session is alive, the health
-URL file is populated, and `/healthz` is reachable. After `runtimes connect`,
+process state plus any legacy tmux session state, stale recorded URLs, live
+admin URLs, `/healthz`, `/readyz`, and `control_plane_poll_health`. `connect`
+success means a usable local runtime exists: the managed process or legacy tmux
+session is alive, the health URL file is populated, and `/healthz` is reachable.
+After `runtimes connect`,
 run `tunnel-client runtimes status <alias>` before reporting success. Only
 report success when status shows the managed runtime running with health
 reported; use `--json` when Codex needs explicit `process_running`, `healthy`,
 and `ready` fields.
 
 `stop` and `disconnect` are local runtime controls only. They stop the managed
-tmux runtime or detached process, clear the local health URL file, and leave
-the remote tunnel intact. `runtimes cleanup --apply` removes only
+detached process or a recorded legacy tmux runtime, clear the local health URL
+file, and leave the remote tunnel intact. `runtimes cleanup --apply` removes only
 `stale_alias` entries; `missing_profile` entries are left for reconnect or
 manual review.
 
@@ -248,7 +249,7 @@ Main environment knobs:
 - `TUNNEL_CLIENT_STATE_DIR`: native local runtime/admin-profile state root.
 
 State files include `aliases.yaml`, `admin_profiles.yaml`, `processes.yaml`,
-`history.md`, `health/<alias>.url`, and `logs/<alias>.log` when the fallback
+`history.md`, `health/<alias>.url`, and `logs/<alias>.log` when the managed
 detached-process launcher is used. Generated runtime profiles are native
 `tunnel-client` profiles and include control plane, MCP, health, admin UI, and
 log sections without persisting literal secrets.

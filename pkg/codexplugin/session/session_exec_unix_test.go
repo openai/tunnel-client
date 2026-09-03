@@ -49,8 +49,10 @@ func TestStartProcessReexecsCurrentExecutableWithFixedArgs(t *testing.T) {
 	require.Equal(t, executable, osProcess.cmd.Path)
 	require.Equal(t, append([]string{executable}, tunnelClientRunArgs("profile", payload)...), osProcess.cmd.Args)
 	select {
-	case exitCode := <-osProcess.waitCh:
-		require.Zero(t, exitCode)
+	case <-osProcess.done:
+		exitCode := osProcess.Poll()
+		require.NotNil(t, exitCode)
+		require.Zero(t, *exitCode)
 	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for process exit")
 	}

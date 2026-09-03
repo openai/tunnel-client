@@ -70,7 +70,10 @@ type ProcessRecord struct {
 	ProfilePath   string `json:"profile_path,omitempty"`
 	Mode          string `json:"mode,omitempty"`
 	SessionName   string `json:"session_name,omitempty"`
+	TmuxSocket    string `json:"tmux_socket,omitempty"`
 	PID           int    `json:"pid,omitempty"`
+	PIDStartTime  string `json:"pid_start_time,omitempty"`
+	PIDExecutable string `json:"pid_executable,omitempty"`
 	LogPath       string `json:"log_path,omitempty"`
 }
 

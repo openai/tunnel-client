@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,10 +18,45 @@ import (
 type fakeProcess struct {
 	pid      int
 	exitCode *int
+	abort    func() error
 }
 
 func (p *fakeProcess) PID() int   { return p.pid }
 func (p *fakeProcess) Poll() *int { return p.exitCode }
+func (p *fakeProcess) Abort() error {
+	if p.abort != nil {
+		return p.abort()
+	}
+	return nil
+}
+
+func newHealthyRuntimeServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz", "/readyz":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func writeRuntimeHealthURL(t *testing.T, alias string, root state.Root, healthURL string) {
+	t.Helper()
+	require.NoError(t, state.EnsureDirs(root))
+	require.NoError(t, os.WriteFile(ProfileHealthURLFile(alias, root), []byte(healthURL), 0o600))
+}
+
+func mustCurrentProcessIdentity(t *testing.T) ProcessIdentity {
+	t.Helper()
+	identity, err := CaptureProcessIdentity(os.Getpid())
+	require.NoError(t, err)
+	return identity
+}
 
 func TestWriteRuntimeProfileUsesExistingJSONCompatibleShape(t *testing.T) {
 	t.Parallel()
@@ -166,32 +202,606 @@ func TestProbeHealthEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, probe.Readyz.Status)
 }
 
-func TestStartOrReuseFallsBackToProcessMode(t *testing.T) {
+func TestStartOrReuseUsesProcessModeWithoutTmux(t *testing.T) {
 	t.Parallel()
 
 	root := state.Root{Path: t.TempDir()}
-	require.NoError(t, state.EnsureDirs(root))
-
-	healthURL := "http://127.0.0.1:43199/healthz"
-	require.NoError(t, os.WriteFile(ProfileHealthURLFile("docs-mcp", root), []byte(healthURL), 0o600))
+	healthServer := newHealthyRuntimeServer(t)
+	started := false
 	rt := Runtime{
 		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
-			if len(args) >= 2 && args[0] == "tmux" && args[1] == "-V" {
-				return CompletedProcess{}, os.ErrNotExist
-			}
+			t.Fatalf("unexpected tmux command: %v", args)
 			return CompletedProcess{}, nil
 		},
 		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
 			require.Equal(t, "docs-mcp", args[5])
+			require.Equal(t, "/tmp/example.AppImage", env["APPIMAGE"])
+			require.Equal(t, "tunnel-client", env["ARGV0"])
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
 			return &fakeProcess{pid: os.Getpid()}, nil
 		},
 	}
 
-	result, err := StartOrReuse(rt, "docs-mcp", "docs-mcp", t.TempDir(), "", root, nil, 0, false)
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		map[string]string{"APPIMAGE": "/tmp/example.AppImage", "ARGV0": "tunnel-client"},
+		ExistingRuntime{},
+		false,
+	)
 	require.NoError(t, err)
+	require.True(t, started)
 	require.Equal(t, "process", result.Mode)
 	require.True(t, result.Launched)
+	require.True(t, result.Healthy)
+	require.True(t, result.Ready)
 	require.Equal(t, os.Getpid(), result.PID)
+	require.Empty(t, result.SessionName)
+}
+
+func TestStartOrReuseReusesExistingProcess(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			t.Fatalf("unexpected process launch: %v", args)
+			return nil, nil
+		},
+	}
+
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{
+			Mode:          "process",
+			PID:           os.Getpid(),
+			PIDStartTime:  mustCurrentProcessIdentity(t).StartTime,
+			PIDExecutable: mustCurrentProcessIdentity(t).Executable,
+		},
+		false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "process", result.Mode)
+	require.True(t, result.AlreadyRunning)
+	require.True(t, result.Healthy)
+	require.Equal(t, os.Getpid(), result.PID)
+}
+
+func TestStartOrReuseDoesNotReuseOrTerminateMismatchedProcessIdentity(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	actual := ProcessIdentity{StartTime: "actual", Executable: "/tmp/tunnel-client"}
+	terminated := false
+	startCalls := 0
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			startCalls++
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+			return &fakeProcess{pid: os.Getpid()}, nil
+		},
+		InspectProcess: func(pid int) (ProcessIdentity, error) {
+			return actual, nil
+		},
+		Terminate: func(pid int) error {
+			terminated = true
+			return nil
+		},
+	}
+
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{
+			Mode:          "process",
+			PID:           os.Getpid(),
+			PIDStartTime:  "stale",
+			PIDExecutable: actual.Executable,
+		},
+		true,
+	)
+	require.NoError(t, err)
+	require.False(t, terminated)
+	require.Equal(t, 1, startCalls)
+	require.True(t, result.Launched)
+}
+
+func TestStartOrReuseWaitsForOwnedProcessBeforeReplacement(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	identity := ProcessIdentity{StartTime: "owned", Executable: "/tmp/tunnel-client"}
+	terminated := false
+	waited := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			require.True(t, waited, "replacement started before old process exit was observed")
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+			return &fakeProcess{pid: os.Getpid()}, nil
+		},
+		InspectProcess: func(pid int) (ProcessIdentity, error) {
+			return identity, nil
+		},
+		Terminate: func(pid int) error {
+			terminated = true
+			return nil
+		},
+		WaitForExit: func(pid int, expected ProcessIdentity) bool {
+			require.True(t, terminated)
+			require.Equal(t, identity, expected)
+			waited = true
+			return true
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{
+			Mode:          "process",
+			PID:           os.Getpid(),
+			PIDStartTime:  identity.StartTime,
+			PIDExecutable: identity.Executable,
+		},
+		true,
+	)
+	require.NoError(t, err)
+	require.True(t, terminated)
+	require.True(t, waited)
+}
+
+func TestStartOrReuseDoesNotLaunchWhenOwnedProcessDoesNotExit(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	identity := ProcessIdentity{StartTime: "owned", Executable: "/tmp/tunnel-client"}
+	started := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
+			return nil, nil
+		},
+		InspectProcess: func(pid int) (ProcessIdentity, error) {
+			return identity, nil
+		},
+		Terminate: func(pid int) error { return nil },
+		WaitForExit: func(pid int, expected ProcessIdentity) bool {
+			return false
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{
+			Mode:          "process",
+			PID:           os.Getpid(),
+			PIDStartTime:  identity.StartTime,
+			PIDExecutable: identity.Executable,
+		},
+		true,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "did not exit after SIGTERM")
+	require.False(t, started)
+}
+
+func TestStartOrReuseSafelyAbortsWhenIdentityCaptureFails(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	aborted := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			return &fakeProcess{pid: os.Getpid(), abort: func() error {
+				aborted = true
+				return nil
+			}}, nil
+		},
+		InspectProcess: func(pid int) (ProcessIdentity, error) {
+			return ProcessIdentity{}, errors.New("identity unavailable")
+		},
+	}
+
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{},
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "safely aborted launched process before state persistence")
+	require.True(t, result.Launched)
+	require.Zero(t, result.PID)
+	require.True(t, aborted)
+}
+
+func TestStartOrReuseReportsFastExitBeforeIdentityFailure(t *testing.T) {
+	t.Parallel()
+
+	exitCode := 7
+	aborted := false
+	rt := Runtime{
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			return &fakeProcess{pid: os.Getpid(), exitCode: &exitCode, abort: func() error {
+				aborted = true
+				return nil
+			}}, nil
+		},
+		InspectProcess: func(pid int) (ProcessIdentity, error) {
+			return ProcessIdentity{}, errors.New("identity unavailable")
+		},
+	}
+
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		state.Root{Path: t.TempDir()},
+		nil,
+		ExistingRuntime{},
+		false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.ExitCode)
+	require.Equal(t, exitCode, *result.ExitCode)
+	require.Zero(t, result.PID)
+	require.False(t, aborted)
+}
+
+func TestStartOrReuseRejectsLivePIDWithoutStableIdentity(t *testing.T) {
+	t.Parallel()
+
+	_, err := StartOrReuse(
+		Runtime{},
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		state.Root{Path: t.TempDir()},
+		nil,
+		os.Getpid(),
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "without a stable process identity")
+}
+
+func TestStartOrReuseMigratesOwnedTmuxSessionToProcess(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	sessionName := TmuxSessionName("docs-mcp", root)
+	var gotRunArgs [][]string
+	started := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
+			switch args[3] {
+			case "has-session", "kill-session":
+				return CompletedProcess{ReturnCode: 0}, nil
+			default:
+				t.Fatalf("unexpected tmux command: %v", args)
+				return CompletedProcess{}, nil
+			}
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
+			require.Equal(t, [][]string{
+				{"tmux", "-L", "default", "has-session", "-t", "=" + sessionName},
+				{"tmux", "-L", "default", "kill-session", "-t", "=" + sessionName},
+			}, gotRunArgs)
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+			return &fakeProcess{pid: os.Getpid()}, nil
+		},
+	}
+
+	result, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.NoError(t, err)
+	require.True(t, started)
+	require.Equal(t, "process", result.Mode)
+	require.True(t, result.Healthy)
+	require.Equal(t, os.Getpid(), result.PID)
+	require.Empty(t, result.SessionName)
+}
+
+func TestStartOrReuseRecoversAmbientLegacyTmuxSocket(t *testing.T) {
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	sessionName := TmuxSessionName("docs-mcp", root)
+	const socketPath = "/tmp/tmux-501/custom"
+	t.Setenv("TMUX", socketPath+",123,0")
+	var gotRunArgs [][]string
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+			return &fakeProcess{pid: os.Getpid()}, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{
+		{"tmux", "-S", socketPath, "has-session", "-t", "=" + sessionName},
+		{"tmux", "-S", socketPath, "kill-session", "-t", "=" + sessionName},
+	}, gotRunArgs)
+}
+
+func TestStartOrReuseStopsDefaultLegacyTmuxAfterAmbientMiss(t *testing.T) {
+	root := state.Root{Path: t.TempDir()}
+	healthServer := newHealthyRuntimeServer(t)
+	sessionName := TmuxSessionName("docs-mcp", root)
+	const ambientSocket = "/tmp/tmux-501/custom"
+	t.Setenv("TMUX", ambientSocket+",123,0")
+	var gotRunArgs [][]string
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
+			if args[1] == "-S" {
+				return CompletedProcess{ReturnCode: 1, Stderr: "error connecting to " + ambientSocket + " (No such file or directory)"}, nil
+			}
+			return CompletedProcess{ReturnCode: 0}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			writeRuntimeHealthURL(t, "docs-mcp", root, healthServer.URL+"/healthz")
+			return &fakeProcess{pid: os.Getpid()}, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{
+		{"tmux", "-S", ambientSocket, "has-session", "-t", "=" + sessionName},
+		{"tmux", "-L", "default", "has-session", "-t", "=" + sessionName},
+		{"tmux", "-L", "default", "kill-session", "-t", "=" + sessionName},
+	}, gotRunArgs)
+}
+
+func TestStartOrReuseFailsClosedWhenLegacyTmuxSocketProvenanceIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	sessionName := TmuxSessionName("docs-mcp", root)
+	started := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			return CompletedProcess{ReturnCode: 1, Stderr: "can't find session: " + sessionName}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
+			return nil, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no socket provenance")
+	require.False(t, started)
+}
+
+func TestStartOrReuseFailsClosedOnUnexpectedTmuxInspectionFailure(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	sessionName := TmuxSessionName("docs-mcp", root)
+	started := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			return CompletedProcess{ReturnCode: 2, Stderr: "permission denied"}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
+			return nil, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tmux has-session failed: permission denied")
+	require.False(t, started)
+}
+
+func TestTmuxSessionIsKnownAbsentDistinguishesMissingSocketFromFailures(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, tmuxSessionIsKnownAbsent(CompletedProcess{
+		ReturnCode: 1,
+		Stderr:     "error connecting to /tmp/tmux-501/custom (No such file or directory)",
+	}))
+	require.True(t, tmuxSessionIsKnownAbsent(CompletedProcess{
+		ReturnCode: 1,
+		Stderr:     "can't find session: docs-mcp",
+	}))
+	require.False(t, tmuxSessionIsKnownAbsent(CompletedProcess{
+		ReturnCode: 1,
+		Stderr:     "permission denied",
+	}))
+	require.False(t, tmuxSessionIsKnownAbsent(CompletedProcess{
+		ReturnCode: 2,
+		Stderr:     "can't find session: docs-mcp",
+	}))
+}
+
+func TestStartOrReuseDoesNotLaunchWhenLegacyTmuxStopFails(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	sessionName := TmuxSessionName("docs-mcp", root)
+	started := false
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			switch args[3] {
+			case "has-session":
+				return CompletedProcess{ReturnCode: 0}, nil
+			case "kill-session":
+				return CompletedProcess{ReturnCode: 1, Stderr: "boom"}, nil
+			default:
+				t.Fatalf("unexpected tmux command: %v", args)
+				return CompletedProcess{}, nil
+			}
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			started = true
+			return nil, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: sessionName},
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tmux kill-session failed: boom")
+	require.False(t, started)
+}
+
+func TestStartOrReuseRejectsUnownedLegacyTmuxSession(t *testing.T) {
+	t.Parallel()
+
+	root := state.Root{Path: t.TempDir()}
+	rt := Runtime{
+		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
+			t.Fatalf("unexpected tmux command: %v", args)
+			return CompletedProcess{}, nil
+		},
+		Start: func(args []string, env map[string]string, logPath string) (Process, error) {
+			t.Fatalf("unexpected process launch: %v", args)
+			return nil, nil
+		},
+	}
+
+	_, err := StartOrReuseWithExistingRuntime(
+		rt,
+		"docs-mcp",
+		"docs-mcp",
+		t.TempDir(),
+		"",
+		root,
+		nil,
+		ExistingRuntime{Mode: "tmux", SessionName: "user-session"},
+		false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match tunnel-client-owned session")
 }
 
 func TestStartTmuxUsesSourceFileForSecretEnv(t *testing.T) {
@@ -205,7 +815,7 @@ func TestStartTmuxUsesSourceFileForSecretEnv(t *testing.T) {
 	rt := Runtime{
 		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
 			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
-			if len(args) >= 2 && args[0] == "tmux" && args[1] == "list-panes" {
+			if len(args) >= 4 && args[0] == "tmux" && args[3] == "list-panes" {
 				return CompletedProcess{ReturnCode: 0, Stdout: "%42\n"}, nil
 			}
 			return CompletedProcess{ReturnCode: 0}, nil
@@ -228,11 +838,11 @@ func TestStartTmuxUsesSourceFileForSecretEnv(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, [][]string{
-		{"tmux", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
-		{"tmux", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
-		{"tmux", "respawn-pane", "-k", "-t", "%42", executable, "run", "--profile-dir", "/tmp/profiles", "--profile", "docs-mcp"},
+		{"tmux", "-L", "default", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
+		{"tmux", "-L", "default", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
+		{"tmux", "-L", "default", "respawn-pane", "-k", "-t", "%42", executable, "run", "--profile-dir", "/tmp/profiles", "--profile", "docs-mcp"},
 	}, gotRunArgs)
-	require.Equal(t, []string{"tmux", "source-file", "-"}, gotArgs)
+	require.Equal(t, []string{"tmux", "-L", "default", "source-file", "-"}, gotArgs)
 	require.Contains(t, gotStdin, "set-environment -t ='tunnel-mcp__docs-mcp__deadbeef' 'OPENAI_TUNNEL_KEY_PROD' 'sk-proj-runtime-secret'")
 	require.NotContains(t, gotStdin, "respawn-pane")
 	require.NotContains(t, gotStdin, ">>")
@@ -284,6 +894,8 @@ func TestStartTmuxPassesDirectCommandArgv(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		"tmux",
+		"-L",
+		"default",
 		"new-session",
 		"-d",
 		"-s",
@@ -367,6 +979,25 @@ func TestStartTmuxRejectsSymlinkLogFile(t *testing.T) {
 	require.Contains(t, err.Error(), "must not be a symlink")
 }
 
+func TestStartProcessRejectsSymlinkLogFile(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "target.log")
+	logPath := filepath.Join(dir, "runtime.log")
+	require.NoError(t, os.WriteFile(targetPath, []byte("existing"), 0o600))
+	require.NoError(t, os.Symlink(targetPath, logPath))
+	args, err := currentTunnelClientInvocation("docs-mcp", t.TempDir())
+	require.NoError(t, err)
+
+	_, err = startProcess(args, nil, logPath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must not be a symlink")
+}
+
 func TestStartTmuxCleansUpSessionWhenSourceFileFails(t *testing.T) {
 	t.Parallel()
 
@@ -374,7 +1005,7 @@ func TestStartTmuxCleansUpSessionWhenSourceFileFails(t *testing.T) {
 	rt := Runtime{
 		Run: func(args []string, env map[string]string) (CompletedProcess, error) {
 			gotRunArgs = append(gotRunArgs, append([]string{}, args...))
-			if len(args) >= 2 && args[0] == "tmux" && args[1] == "list-panes" {
+			if len(args) >= 4 && args[0] == "tmux" && args[3] == "list-panes" {
 				return CompletedProcess{ReturnCode: 0, Stdout: "%42\n"}, nil
 			}
 			return CompletedProcess{ReturnCode: 0}, nil
@@ -396,8 +1027,8 @@ func TestStartTmuxCleansUpSessionWhenSourceFileFails(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, result.ReturnCode)
 	require.Equal(t, [][]string{
-		{"tmux", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
-		{"tmux", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
-		{"tmux", "kill-session", "-t", "=tunnel-mcp__docs-mcp__deadbeef"},
+		{"tmux", "-L", "default", "new-session", "-d", "-s", "tunnel-mcp__docs-mcp__deadbeef"},
+		{"tmux", "-L", "default", "list-panes", "-t", "=tunnel-mcp__docs-mcp__deadbeef", "-F", "#{pane_id}"},
+		{"tmux", "-L", "default", "kill-session", "-t", "=tunnel-mcp__docs-mcp__deadbeef"},
 	}, gotRunArgs)
 }
