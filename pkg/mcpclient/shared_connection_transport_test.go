@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -150,6 +151,24 @@ func TestNewSharedConnectionTransportReconnectsAfterClose(t *testing.T) {
 	require.NotNil(t, conn2)
 	require.NotSame(t, conn, conn2)
 	require.Equal(t, 2, closer.connectCalls)
+}
+
+func TestSharedConnectionReadAfterCloseReturnsClosedPipe(t *testing.T) {
+	t.Parallel()
+
+	shared := NewSharedConnectionTransport(&countingTransport{
+		connectFn: func() (mcp.Connection, error) {
+			return &closeTrackingConn{}, nil
+		},
+	})
+	require.NotNil(t, shared)
+
+	conn, err := shared.Connect(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	_, err = conn.Read(context.Background())
+	require.ErrorIs(t, err, io.ErrClosedPipe)
 }
 
 func TestNewSharedConnectionTransportReconnectsAfterForwardingWriteError(t *testing.T) {

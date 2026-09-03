@@ -2,6 +2,7 @@ package mcpclient
 
 import (
 	"context"
+	"io"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -101,7 +102,7 @@ func (c *sharedConnection) preserveConnectionOnContextCancellation() bool {
 func (c *sharedConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
 	base := c.currentBase()
 	if base == nil {
-		return nil, nil
+		return nil, io.ErrClosedPipe
 	}
 	return base.Read(ctx)
 }
