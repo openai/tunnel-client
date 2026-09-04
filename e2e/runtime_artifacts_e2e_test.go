@@ -543,10 +543,8 @@ func buildRuntimeArtifact(t *testing.T, packagePath, binaryName, flavor string) 
 		packagePath,
 	)
 	cmd.Dir = runtimeArtifactModuleRoot(t)
-	cmd.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOCACHE="+filepath.Join(os.TempDir(), "tunnel-client-go-build-cache"),
-	)
+	// Keep the caller's build cache across temporary test checkouts.
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "build %s:\n%s", packagePath, output)
 	return binaryPath
