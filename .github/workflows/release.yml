@@ -41,6 +41,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: |
+            go.sum
+            Makefile
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -169,6 +172,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: |
+            go.sum
+            Makefile
       - name: Build and stage release artifacts; runtime_zip_contents_test and runtime_cloudflared_zip_contents_test
         env:
           GOOS: ${{ matrix.goos }}
@@ -519,6 +525,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: |
+            go.sum
+            Makefile
       - name: Build and verify runtime source exports
         env:
           TAG: ${{ github.ref_name }}

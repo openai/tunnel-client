@@ -603,9 +603,10 @@ func runtimeArtifactBazelBinary(t *testing.T, packagePath string) string {
 
 func runtimeArtifactModuleRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	return filepath.Dir(filepath.Dir(file))
+	// Go runs tests from the package directory.
+	root, err := filepath.Abs("..")
+	require.NoError(t, err)
+	return root
 }
 
 type runtimeArtifactProcess struct {
