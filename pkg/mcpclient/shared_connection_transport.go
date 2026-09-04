@@ -116,7 +116,7 @@ func (c *sharedConnection) Write(ctx context.Context, msg jsonrpc.Message) error
 	}
 	base := c.currentBase()
 	if base == nil {
-		return nil
+		return io.ErrClosedPipe
 	}
 	err := base.Write(ctx, msg)
 	if err == nil {

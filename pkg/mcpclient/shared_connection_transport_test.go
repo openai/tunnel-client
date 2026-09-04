@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -171,6 +172,72 @@ func TestSharedConnectionReadAfterCloseReturnsClosedPipe(t *testing.T) {
 	require.ErrorIs(t, err, io.ErrClosedPipe)
 }
 
+func TestSharedConnectionWriteAfterCloseReturnsClosedPipe(t *testing.T) {
+	t.Parallel()
+
+	base := &closeTrackingConn{}
+	shared := NewSharedConnectionTransport(&countingTransport{
+		connectFn: func() (mcp.Connection, error) { return base, nil },
+	})
+	conn, err := shared.Connect(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	err = conn.Write(context.Background(), &jsonrpc.Request{Method: "notifications/initialized"})
+	require.ErrorIs(t, err, io.ErrClosedPipe)
+	require.Empty(t, base.writes)
+}
+
+func TestSharedConnectionLateCloseReturnsWriteErrorAndReconnects(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id, err := jsonrpc.MakeID("request-a")
+	require.NoError(t, err)
+	response := &jsonrpc.Response{ID: id}
+	var connections []*responseTrackingSharedConn
+	base := &countingTransport{
+		connectFn: func() (mcp.Connection, error) {
+			conn := &responseTrackingSharedConn{response: response}
+			connections = append(connections, conn)
+			return conn, nil
+		},
+	}
+	transport := NewSerializedForwardingTransport(NewForwardingTransport(NewSharedConnectionTransport(base)))
+	first, err := transport.Connect(ctx)
+	require.NoError(t, err)
+	_, err = first.Write(ctx, nil, &jsonrpc.Request{ID: id, Method: "tools/list"})
+	require.NoError(t, err)
+	msg, err := first.Read(ctx)
+	require.NoError(t, err)
+	require.Same(t, response, msg)
+
+	// Reading the terminal response admits another command before response-post cleanup.
+	second, err := transport.Connect(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, base.connectCalls)
+	require.NoError(t, first.Close())
+	_, err = second.Write(ctx, nil, &jsonrpc.Request{Method: "notifications/initialized"})
+	require.ErrorIs(t, err, io.ErrClosedPipe)
+	require.Equal(t, []string{"tools/list"}, connections[0].writtenMethods())
+	require.Equal(t, 1, connections[0].closed)
+
+	// The failed write releases serialization and the next command gets a fresh connection.
+	third, err := transport.Connect(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, base.connectCalls)
+	require.Len(t, connections, 2)
+	require.NotSame(t, connections[0], connections[1])
+	_, err = third.Write(ctx, nil, &jsonrpc.Request{Method: "notifications/initialized"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"tools/list"}, connections[0].writtenMethods())
+	require.Equal(t, []string{"notifications/initialized"}, connections[1].writtenMethods())
+	require.Zero(t, connections[1].closed)
+	require.NoError(t, second.Close())
+	require.NoError(t, third.Close())
+}
+
 func TestNewSharedConnectionTransportReconnectsAfterForwardingWriteError(t *testing.T) {
 	t.Parallel()
 
@@ -226,6 +293,15 @@ type closeTrackingConn struct {
 	readErr  error
 	writeErr error
 	writes   []jsonrpc.Message
+}
+
+type responseTrackingSharedConn struct {
+	closeTrackingConn
+	response jsonrpc.Message
+}
+
+func (c *responseTrackingSharedConn) Read(context.Context) (jsonrpc.Message, error) {
+	return c.response, nil
 }
 
 func (c *closeTrackingConn) Read(context.Context) (jsonrpc.Message, error) {
