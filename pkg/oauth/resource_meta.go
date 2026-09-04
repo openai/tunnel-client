@@ -224,7 +224,7 @@ func tryWWWAuthenticateProbe(
 		return nil, fmt.Errorf("oauth discovery: WWW-Authenticate probe %s got status %d", method, resp.StatusCode)
 	}
 
-	header := resp.Header.Get("WWW-Authenticate")
+	header := strings.Join(resp.Header.Values("WWW-Authenticate"), ", ")
 	if header == "" {
 		return nil, fmt.Errorf("oauth discovery: WWW-Authenticate header missing (%s %d)", method, resp.StatusCode)
 	}

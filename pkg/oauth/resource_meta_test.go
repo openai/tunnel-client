@@ -333,6 +333,57 @@ func TestBuildOAuthDiscoveryCandidatesProbeFirst(t *testing.T) {
 	require.Equal(t, expected, candidateURLsToStrings(candidates))
 }
 
+func TestOAuthDiscoveryWithMultipleAuthenticateChallenges(t *testing.T) {
+	t.Parallel()
+
+	const bearer = `Bearer resource_metadata="{metadata}"`
+	for _, tc := range []struct {
+		name    string
+		headers []string
+	}{
+		{name: "single", headers: []string{bearer}},
+		{name: "combined", headers: []string{`Basic realm="enterprise", ` + bearer}},
+		{name: "bearer_first", headers: []string{bearer, `Basic realm="enterprise"`}},
+		{name: "bearer_last", headers: []string{`Basic realm="enterprise"`, bearer}},
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodGet} {
+			t.Run(tc.name+"/"+method, func(t *testing.T) {
+				t.Parallel()
+
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.URL.Path == "/mcp" && r.Method == method:
+						for _, header := range tc.headers {
+							w.Header().Add("WWW-Authenticate", strings.ReplaceAll(header, "{metadata}", "http://"+r.Host+"/custom-metadata"))
+						}
+						w.WriteHeader(http.StatusUnauthorized)
+					case r.URL.Path == "/custom-metadata":
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = fmt.Fprintf(w, `{"resource":"http://%s/mcp"}`, r.Host)
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				t.Cleanup(server.Close)
+
+				endpoint, err := url.Parse(server.URL + "/mcp")
+				require.NoError(t, err)
+				candidates, probe, err := BuildOAuthDiscoveryCandidates(t.Context(), server.Client(), endpoint, testLogger())
+				require.NoError(t, err)
+				require.NotNil(t, probe)
+				require.Empty(t, probe.Error)
+				require.Equal(t, server.URL+"/custom-metadata", probe.URL)
+				require.Equal(t, DiscoverySourceWWWAuthenticate, candidates[0].Source)
+
+				response, sourceURL, _, err := FetchOAuthMetadata(t.Context(), server.Client(), candidates, testLogger())
+				require.NoError(t, err)
+				require.Equal(t, server.URL+"/custom-metadata", sourceURL.String())
+				require.JSONEq(t, fmt.Sprintf(`{"resource":"%s/mcp"}`, server.URL), string(response.Payload()))
+			})
+		}
+	}
+}
+
 func TestBuildOAuthDiscoveryCandidatesPreservesCrossOriginHeaderDestination(t *testing.T) {
 	t.Parallel()
 
