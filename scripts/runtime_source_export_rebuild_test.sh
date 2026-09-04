@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep source verification separate while reusing the action's private Go cache.
+if [[ "${1:-}" == "--both-flavors" ]]; then
+  [[ $# -eq 4 ]] || {
+    echo "usage: runtime_source_export_rebuild_test.sh --both-flavors <platform> <runtime-archive> <runtime-cloudflared-archive>" >&2
+    exit 1
+  }
+  status=0
+  "${BASH_SOURCE[0]}" runtime --platform="$2" --archive="$3" || status=$?
+  "${BASH_SOURCE[0]}" runtime-cloudflared --platform="$2" --archive="$4" || status=$?
+  exit "${status}"
+fi
+
 flavor=""
 platform=""
 archive=""
