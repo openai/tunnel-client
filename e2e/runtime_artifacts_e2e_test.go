@@ -527,10 +527,20 @@ func buildRuntimeArtifact(t *testing.T, packagePath, binaryName, flavor string) 
 		return binaryPath
 	}
 
+	runtimeArtifactBuilds.Lock()
+	defer runtimeArtifactBuilds.Unlock()
+	key := runtimeArtifactBuildKey{packagePath: packagePath, binaryName: binaryName, flavor: flavor}
+	if binaryPath := runtimeArtifactBuilds.paths[key]; binaryPath != "" {
+		return binaryPath
+	}
+
+	buildDir, err := os.MkdirTemp("", "tunnel-client-runtime-build-")
+	require.NoError(t, err)
+	runtimeArtifactBuilds.dirs = append(runtimeArtifactBuilds.dirs, buildDir)
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
-	binaryPath := filepath.Join(t.TempDir(), binaryName)
+	binaryPath := filepath.Join(buildDir, binaryName)
 	cmd := exec.Command(
 		"go",
 		"build",
@@ -547,6 +557,7 @@ func buildRuntimeArtifact(t *testing.T, packagePath, binaryName, flavor string) 
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "build %s:\n%s", packagePath, output)
+	runtimeArtifactBuilds.paths[key] = binaryPath
 	return binaryPath
 }
 
