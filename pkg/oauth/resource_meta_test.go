@@ -277,6 +277,56 @@ func TestBuildOAuthDiscoveryCandidatesProbeUsesDiscoveryContext(t *testing.T) {
 	require.Equal(t, DiscoverySourceWWWAuthenticate, candidates[0].Source)
 }
 
+func TestOAuthDiscoveryUsesAllWWWAuthenticateFields(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		fields []string
+	}{
+		{name: "single bearer", fields: []string{`Bearer resource_metadata="%s"`}},
+		{name: "combined challenges", fields: []string{`Basic realm="legacy", Bearer resource_metadata="%s"`}},
+		{name: "bearer after basic", fields: []string{`Basic realm="legacy"`, `Bearer resource_metadata="%s"`}},
+		{name: "bearer before basic", fields: []string{`Bearer resource_metadata="%s"`, `Basic realm="legacy"`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var serverURL string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/mcp":
+					for _, field := range test.fields {
+						w.Header().Add("WWW-Authenticate", strings.ReplaceAll(field, "%s", serverURL+"/custom-metadata"))
+					}
+					w.WriteHeader(http.StatusUnauthorized)
+				case "/custom-metadata":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"resource":%q,"authorization_servers":[%q]}`, serverURL+"/mcp", serverURL+"/issuer")
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+			serverURL = server.URL
+			endpoint, err := url.Parse(server.URL + "/mcp")
+			require.NoError(t, err)
+
+			candidates, probe, err := BuildOAuthDiscoveryCandidates(context.Background(), server.Client(), endpoint, testLogger())
+			require.NoError(t, err)
+			response, sourceURL, attempts, err := FetchOAuthMetadata(context.Background(), server.Client(), candidates, testLogger())
+			require.NoError(t, err, "discovery must work when only the advertised custom metadata endpoint exists")
+			require.NotNil(t, response)
+			require.Equal(t, server.URL+"/custom-metadata", sourceURL.String())
+			require.NotNil(t, probe)
+			require.Empty(t, probe.Error)
+			require.Equal(t, sourceURL.String(), probe.URL)
+			require.Equal(t, DiscoverySourceWWWAuthenticate, candidates[0].Source)
+			require.True(t, attempts[0].Selected)
+		})
+	}
+}
+
 func TestBuildOAuthDiscoveryCandidatesRequiresLogger(t *testing.T) {
 	t.Parallel()
 
