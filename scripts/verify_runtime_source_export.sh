@@ -106,6 +106,18 @@ fi
 [[ -n "${archive}" ]] || die "--archive is required"
 [[ -f "${archive}" ]] || die "archive does not exist: ${archive}"
 
+rebuilt_binary=""
+binary_runfile="${TUNNEL_CLIENT_REBUILT_RUNTIME_RUNFILE:-}"
+if [[ "${flavor}" == "runtime-cloudflared" ]]; then
+  binary_runfile="${TUNNEL_CLIENT_REBUILT_CLOUDFLARED_RUNFILE:-}"
+fi
+if runtime_is_bazel_test && [[ -n "${binary_runfile}" ]]; then
+  [[ -n "${platform}" ]] || die "declared rebuilt binaries require --platform"
+  rebuilt_binary="$(runtime_resolve_declared_runfile "${binary_runfile}")" ||
+    die "declared rebuilt binary is missing from runfiles"
+  [[ -f "${rebuilt_binary}" ]] || die "rebuilt binary does not exist: ${rebuilt_binary}"
+fi
+
 command -v go >/dev/null 2>&1 || die "go is required"
 if [[ -z "${TUNNEL_CLIENT_RUNTIME_PYTHON:-}" ]]; then
   command -v python3 >/dev/null 2>&1 || die "python3 is required"
@@ -528,7 +540,28 @@ for platform in "${selected_platforms[@]}"; do
   if [[ "${goos}" == "windows" ]]; then
     output_path="${output_path}.exe"
   fi
-  if ! env \
+  if [[ -n "${rebuilt_binary}" ]]; then
+    go version -m -json "${rebuilt_binary}" >"${tmp_dir}/build-info.json" ||
+      die "cannot read rebuilt binary metadata for ${platform}"
+    runtime_python - "${tmp_dir}/build-info.json" "${module_path}" "${target#./}" \
+      "${goos}" "${goarch}" "$(go env GOVERSION)" <<'PYINFO'
+import json
+import sys
+
+path, module, target, goos, goarch, go_version = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    info = json.load(stream)
+settings = {setting["Key"]: setting["Value"] for setting in info.get("Settings", [])}
+expected = {"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": "0", "-trimpath": "true"}
+if (
+    info.get("Path") != f"{module}/{target}"
+    or info.get("Main", {}).get("Path") != module
+    or info.get("GoVersion") != go_version
+    or any(settings.get(key) != value for key, value in expected.items())
+):
+    raise SystemExit(f"rebuilt binary metadata does not match {target} for {goos}/{goarch}")
+PYINFO
+  elif ! env \
     GOCACHE="${GO_CACHE_DIR}" \
     GOMODCACHE="${GO_MOD_CACHE_DIR}" \
     "${archive_root}/scripts/rebuild_runtime_from_source.sh" \
