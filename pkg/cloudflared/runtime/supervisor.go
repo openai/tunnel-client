@@ -323,7 +323,7 @@ func (s *Supervisor) monitorReadiness(ctx context.Context) {
 			ready, err := s.probeReady(probeCtx)
 			cancel()
 			if ready {
-				s.state.setReady()
+				s.markReadyIfRunning()
 				continue
 			}
 			if err != nil {

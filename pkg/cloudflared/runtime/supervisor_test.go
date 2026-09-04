@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -227,6 +228,68 @@ func TestSupervisorSurfacesUnexpectedExitAfterReady(t *testing.T) {
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
 	require.NoError(t, supervisor.Stop(stopCtx))
+}
+
+func TestSupervisorMonitorKeepsExitFailureAfterInFlightReadyProbe(t *testing.T) {
+	t.Parallel()
+
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	var signalProbe sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		signalProbe.Do(func() { close(probeStarted) })
+		<-releaseProbe
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseProbe) })
+	}
+	t.Cleanup(release)
+
+	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token")
+	exited := make(chan struct{})
+	supervisor.mu.Lock()
+	supervisor.metricsAddr = strings.TrimPrefix(server.URL, "http://")
+	supervisor.exited = exited
+	supervisor.mu.Unlock()
+	state.setReady()
+
+	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	t.Cleanup(monitorCancel)
+	monitorDone := make(chan struct{})
+	go func() {
+		defer close(monitorDone)
+		supervisor.monitorReadiness(monitorCtx)
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for in-flight readiness probe")
+	}
+
+	// Match waitForExit's publication order: record the terminal exit under
+	// the supervisor lock, publish failed readiness, then release exit waiters.
+	supervisor.mu.Lock()
+	supervisor.exitedDone = true
+	supervisor.waitErr = errors.New("exit status 23")
+	supervisor.mu.Unlock()
+	state.setNotReady("cloudflared process exited: exit status 23")
+	close(exited)
+
+	release()
+	select {
+	case <-monitorDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for readiness monitor to stop")
+	}
+
+	ready, reason := state.Readiness()
+	require.False(t, ready)
+	require.Equal(t, "cloudflared process exited: exit status 23", reason)
 }
 
 func TestSupervisorForcesManagementDiagnosticsOffInChild(t *testing.T) {
