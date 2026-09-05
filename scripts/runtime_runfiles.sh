@@ -301,7 +301,7 @@ materialize_tunnel_client_runfiles() {
           relative_path="${logical_path#"${logical_prefix}"}"
           [[ -n "${relative_path}" && -n "${physical_path}" ]] || continue
           destination_path="${staged_root}/${relative_path}"
-          mkdir -p "$(dirname "${destination_path}")"
+          [[ -d "${destination_path%/*}" ]] || mkdir -p "${destination_path%/*}"
           cp -pL -- "${physical_path}" "${destination_path}"
           ;;
       esac
@@ -310,7 +310,7 @@ materialize_tunnel_client_runfiles() {
     while IFS= read -r -d '' source_path; do
       relative_path="${source_path#"${runfiles_root}/"}"
       destination_path="${staged_root}/${relative_path}"
-      mkdir -p "$(dirname "${destination_path}")"
+      [[ -d "${destination_path%/*}" ]] || mkdir -p "${destination_path%/*}"
       cp -pL -- "${source_path}" "${destination_path}"
     done < <(find "${runfiles_root}" \( -type f -o -type l \) -print0)
   else

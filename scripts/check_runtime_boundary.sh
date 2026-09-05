@@ -226,6 +226,7 @@ check_flavor() {
     fi
 
     while IFS= read -r import_path; do
+      [[ "${import_path}" == "${MODULE_PATH}" || "${import_path}" == "${MODULE_PATH}/"* ]] || continue
       relative_path="$(relative_import_path "${import_path}")" || continue
 
       if reason="$(common_exclusion_reason "${relative_path}")"; then
