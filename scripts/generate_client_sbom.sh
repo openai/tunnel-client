@@ -397,12 +397,21 @@ export GOENV=off
 export GOTELEMETRY=off
 export GOFLAGS=
 
-selected_goroot="$(
-  unset GOROOT
-  "${go_bin}" env GOROOT
-)" || die "could not derive GOROOT from --go"
-[[ "${selected_goroot}" == /* && -d "${selected_goroot}/src" ]] ||
-  die "--go reported an invalid GOROOT: ${selected_goroot}"
+if [[ ${#prebuilt_payload_platforms[@]} -gt 0 ]]; then
+  # Version and module metadata need only the declared Go executable. Keep
+  # GOROOT beside that input without resolving runfile symlinks to a full SDK.
+  selected_goroot="$(dirname "${go_bin}")"
+  # The mode is file-backed; prevent telemetry from outliving private staging.
+  export XDG_CONFIG_HOME="${home_dir}/.config" APPDATA="${home_dir}/.config"
+  GOROOT="${selected_goroot}" "${go_bin}" telemetry off
+else
+  selected_goroot="$(
+    unset GOROOT
+    "${go_bin}" env GOROOT
+  )" || die "could not derive GOROOT from --go"
+  [[ "${selected_goroot}" == /* && -d "${selected_goroot}/src" ]] ||
+    die "--go reported an invalid GOROOT: ${selected_goroot}"
+fi
 export GOROOT="${selected_goroot}"
 
 required_source_files=(
