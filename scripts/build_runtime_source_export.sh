@@ -163,7 +163,7 @@ if [[ -z "${dependency_evidence_dir}" ]]; then
   if [[ -n "${platform}" ]]; then
     boundary_args+=(--platform "${platform}")
   fi
-  "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
+  runtime_run_materialized_script "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
 fi
 
 readonly MODULE_PATH="$(env GOWORK=off GOCACHE="${GO_CACHE_DIR}" GOMODCACHE="${GO_MOD_CACHE_DIR}" go list -m -f '{{.Path}}')"

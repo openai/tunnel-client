@@ -146,7 +146,7 @@ boundary_args=(--flavor "${flavor}")
 if [[ -n "${platform}" ]]; then
   boundary_args+=(--platform "${platform}")
 fi
-"${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
+runtime_run_materialized_script "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
 
 if runtime_is_bazel_test; then
   tmp_dir="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-source-verify.XXXXXX")"

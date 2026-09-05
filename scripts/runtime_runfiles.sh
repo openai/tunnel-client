@@ -338,6 +338,16 @@ materialize_tunnel_client_runfiles() {
   RUNTIME_PROJECT_ROOT="${staged_root}"
 }
 
+# Nested scripts use the regular source files and offline tools already staged
+# by their caller, just as they do in a standalone source checkout.
+runtime_run_materialized_script() {
+  if [[ -n "${RUNTIME_RUNFILES_TEMP_ROOT:-}" ]]; then
+    BAZEL_TEST= TEST_SRCDIR= TEST_WORKSPACE= TUNNEL_CLIENT_BAZEL_GO_RUNFILE= "$@"
+  else
+    "$@"
+  fi
+}
+
 runtime_runfiles_cleanup() {
   if [[ -n "${RUNTIME_RUNFILES_TEMP_ROOT:-}" ]]; then
     rm -rf "${RUNTIME_RUNFILES_TEMP_ROOT}"
