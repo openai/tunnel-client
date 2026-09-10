@@ -123,14 +123,12 @@ func classifyTunnelFailure(statusCode int, err error) tunnelFailure {
 		return failure
 	}
 
-	var nonProtocolResponse *mcpclient.NonProtocolResponseError
-	if errors.As(err, &nonProtocolResponse) {
+	if _, ok := errors.AsType[*mcpclient.NonProtocolResponseError](err); ok {
 		failure.Source = tunnelFailureSourceProtocol
 		return failure
 	}
 
-	var protocolFailure *protocolFailureError
-	if errors.As(err, &protocolFailure) {
+	if _, ok := errors.AsType[*protocolFailureError](err); ok {
 		failure.Source = tunnelFailureSourceProtocol
 		return failure
 	}
@@ -147,8 +145,7 @@ func classifyTunnelFailure(statusCode int, err error) tunnelFailure {
 		return failure
 	}
 
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		failure.Source = tunnelFailureSourceDNS
 		return failure
 	}
@@ -184,15 +181,13 @@ func classifyTunnelFailure(statusCode int, err error) tunnelFailure {
 }
 
 func classifyTransportErrorKind(statusCode int, err error) transportErrorKind {
-	var nonProtocolResponse *mcpclient.NonProtocolResponseError
-	if errors.As(err, &nonProtocolResponse) {
+	if nonProtocolResponse, ok := errors.AsType[*mcpclient.NonProtocolResponseError](err); ok {
 		return transportErrorKindFromNonProtocolResponse(nonProtocolResponse.Kind())
 	}
 	if statusCode >= http.StatusBadRequest && statusCode <= 599 {
 		return transportErrorKindHTTPStatus
 	}
-	var protocolFailure *protocolFailureError
-	if errors.As(err, &protocolFailure) {
+	if _, ok := errors.AsType[*protocolFailureError](err); ok {
 		return transportErrorKindInvalidProtocolResponse
 	}
 
@@ -211,8 +206,7 @@ func classifyTransportErrorKind(statusCode int, err error) transportErrorKind {
 		return transportErrorKindConnectionAborted
 	}
 
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		return transportErrorKindDNS
 	}
 	if isTLSFailure(err) {
