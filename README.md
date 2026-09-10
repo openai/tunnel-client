@@ -193,6 +193,14 @@ tunnel-client run --profile local-stdio
 tunnel-client run --profile-file ./profiles/local-stdio.yaml
 ```
 
+**Stdio deployment limit:** run only one active `tunnel-client` instance per
+tunnel ID when using `--mcp.command` / `MCP_COMMAND`. Multiple active instances
+sharing that tunnel ID are **not supported**, including overlap during a
+restart. Each instance launches a separate MCP child, and initialization and
+later requests can reach different children. Stop the old instance before
+starting its replacement, or use distinct tunnel IDs for independent instances.
+See [stdio deployment limits](docs/configuration.md#stdio-deployment-limits).
+
 If you need the tunnel id or runtime/admin keys first, open the matching URL
 above before running `init`. If your rollout has self-serve tunnel access,
 create the tunnel yourself in Tunnels management or with

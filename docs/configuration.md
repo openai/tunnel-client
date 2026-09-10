@@ -463,7 +463,9 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   - Legacy form: `--mcp.command="npx -y @org/main-mcp"` (defaults to `main`)
   - Channel-qualified form: `--mcp.command="channel=bar,command=npx -y @org/bar-mcp"`
   - Behavior: spawns the command once and uses the child process stdin/stdout for MCP frames
-  - Note: stdio transport does not support MCP sessions
+  - Deployment limit: multiple active `tunnel-client` instances sharing a
+    tunnel ID with stdio bindings are **not supported**. See
+    [stdio deployment limits](#stdio-deployment-limits).
   - Note: when using `MCP_COMMAND` with multiple entries, separate entries with
     newlines so semicolons remain part of the command.
 - **Stdio initialized notification shim (optional)**
@@ -590,6 +592,34 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
 
 All response payloads posted to `/v1/tunnels/{tunnel_id}/response` include the
 resolved `channel` value.
+
+### Stdio deployment limits
+
+Run only **one active `tunnel-client` instance per tunnel ID** when using
+`--mcp.command` / `MCP_COMMAND`. Multiple active instances sharing that tunnel
+ID are **not supported**, whether they run on the same host, on different
+hosts, in containers, or in Kubernetes Pods. This also includes temporary
+overlap during a rolling restart or upgrade.
+
+Each instance starts a separate stdio MCP child with its own initialization
+and session state. Tunnel requests are not pinned to the instance that
+handled initialization: `initialize` can reach one child and a later
+`tools/call` another. Calls can therefore time out even when every instance
+reports healthy and ready. Setting `--mcp.max-concurrent-requests=1` limits
+work within each instance; it does not provide routing between instances.
+
+Stop the old instance before starting its replacement. For a Kubernetes
+Deployment using stdio, use `replicas: 1` and `strategy.type: Recreate` to avoid
+overlap during updates; `replicas: 1` alone can still permit a rolling-update
+surge. To run independent instances, give each a distinct tunnel ID. Multiple
+stdio bindings on different channels within one instance remain supported.
+
+Stdio uses one shared child connection per channel, without independent MCP
+session isolation. The `proc_affinity` capability declares a need for process
+affinity; it does not implement routing affinity. The
+`--mcp.stdio-send-initialized-notification` option only sends the notification
+after a successful forwarded `initialize` response. It does not initialize
+every replica or make multiple stdio instances safe.
 
 ## Harpoon MCP (outbound HTTP allowlist)
 

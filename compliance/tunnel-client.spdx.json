@@ -35,18 +35,18 @@
     "SPDXRef-File-staged-be4e6770f63ad0f8",
     "SPDXRef-File-staged-db7af02381876a75"
   ],
-  "documentNamespace": "https://github.com/openai/tunnel-client/sbom/baseline/a04883d6682752fdffc7d9b5cb59bfca28b986838504548b3be68599c425671a",
+  "documentNamespace": "https://github.com/openai/tunnel-client/sbom/baseline/509035fc68483e972c07520a3dc95e526bc588642d1a7b4d0c5a2825a7fce1c2",
   "files": [
     {
       "SPDXID": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "43809845abaa0d2945f8232bedabb6afbf0b6702"
+          "checksumValue": "e68fe65b5813223e9ae6873da9d22a9bb7df8f1d"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "86665f805e307750d34e57af08fbf8f352a1d3426b6950af9429c58b4381b3ff"
+          "checksumValue": "67419e9c4644a216134876032dc091de1e5dbdddc9eea66f81ccf22468c976af"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -65,11 +65,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "06bdd36975882c51a4e92726d7393aaa03db5817"
+          "checksumValue": "0cba93208693a1025deecdc1f43f78c90249bebc"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "a95ae37569c2d9005244a6bea2e1f782f046fd39278205abced4ab2b745b1b4e"
+          "checksumValue": "54d500f43f5ce7fb080975814eb9d4850a69696486b5e3026ae3e64f6da3c59f"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -111,11 +111,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "19b6166a39b5bfda9b1b31638317ab277ca30803"
+          "checksumValue": "fb62cb34c96b27d66a234564319739c8adf6dadd"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "93134762102cf545339a5dc521c570e1ca6e023ce381402ed71675343bd3db57"
+          "checksumValue": "7842417a3e173e18c0decf63066ee402566912253e29b23f348d363e28196c07"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -157,11 +157,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "b427b51f0810ecb416ff5a14ad9546d2c506f4c1"
+          "checksumValue": "1058f3631cf473b14bf861057a453f73da460eff"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "e2ff2f25b548c97827b0aa013947922cb725f4497713b6af4388ffc96e8c37ba"
+          "checksumValue": "19ef55fae7315efafe323403994e1d13b2dabcb99d7fe92e0bf5a2a41bbfc3ad"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -203,11 +203,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "3c7dffc88fd670ef492fb159ebee2d8215f92b3c"
+          "checksumValue": "59369e1da663a0d3b635ccde7c9ca3f0263dc51e"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "780a2a470eb7318923d0d69dc343d98998a85f030b8c526f8eb2337f8d318cac"
+          "checksumValue": "c9bcd87fce290d46ab404931b98f92dfb23e4bf96d40fa7af0d1f2acad8b1fce"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -249,11 +249,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "3d3b9222e5928af49f27d150c8ab72b54617abe0"
+          "checksumValue": "ae3fd46e429b89963a1d98ad45fb73f2e35a6be4"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "0732a9c889f797bdb0a4404e6776742a1b96f709d95cd8ed4289bc282a0f3bb9"
+          "checksumValue": "119a5236aa8b383a7ce9681c59e6f91aacd1652b07c416e1c02d564b3e98adf3"
         }
       ],
       "copyrightText": "NOASSERTION",

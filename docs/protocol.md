@@ -193,6 +193,11 @@ command, or endpoint. This reader-first client protocol prerequisite does not
 provide service-side lazy-owner/FIFO behavior; that is a separate service
 implementation.
 
+In particular, `proc_affinity` does not make multiple active stdio clients
+sharing a tunnel ID supported. Operators must keep one active instance per
+tunnel ID for stdio bindings, including during restarts. See
+[stdio deployment limits](configuration.md#stdio-deployment-limits).
+
 Treat tunnel IDs, request IDs, and shard tokens as opaque strings. Do not parse
 them or infer routing from their contents.
 

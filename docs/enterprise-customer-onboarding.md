@@ -515,10 +515,16 @@ If you expect long-running MCP calls, coordinate timeout values with OpenAI.
   HTTP MCP host or a load balancer that keeps MCP sessions sticky to the right
   backend. Tunnel service keeps one shared queue per tunnel and does not assign
   messages to a specific `tunnel-client` replica. Each queued message is
-  delivered to whichever replica polls it first. For `stdio`, `localhost`, or
-  non-sticky per-replica MCP servers, related session messages can land on
-  different clients/backends and fail. In those cases, keep one `tunnel-client`
-  per tunnel or use distinct tunnel IDs per replica.
+  delivered to whichever replica polls it first. For stateful `localhost` or
+  non-sticky per-replica HTTP MCP servers, keep one active `tunnel-client` per
+  tunnel or use distinct tunnel IDs per replica.
+- **Stdio deployments**: multiple active `tunnel-client` instances sharing a
+  tunnel ID with stdio bindings are **not supported**. Each instance starts a
+  separate MCP child, so initialization and later tool calls can reach
+  different children. Run one active instance per tunnel ID and stop it before
+  starting its replacement, including during upgrades. On Kubernetes, use
+  `replicas: 1` with `strategy.type: Recreate` to avoid update overlap. See
+  [stdio deployment limits](configuration.md#stdio-deployment-limits).
 - **Secrets hygiene**: treat all API keys/tokens as secrets; store them in a
   secrets manager and rotate them on your standard cadence.
 - **Logging safety**: do not enable raw HTTP logging except in tightly controlled

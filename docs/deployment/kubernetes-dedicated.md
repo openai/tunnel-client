@@ -62,7 +62,17 @@ balancer.
 
 Tunnel service keeps one shared queue per tunnel and does not assign messages to
 a specific `tunnel-client` replica. Each queued message is delivered to
-whichever replica polls it first. For `stdio`, `localhost`, or non-sticky
-per-replica MCP servers, related session messages can land on different
-clients/backends and fail. In those cases, keep one `tunnel-client` per tunnel
-or use distinct tunnel IDs per replica.
+whichever replica polls it first.
+
+**Multiple active instances sharing a tunnel ID with stdio MCP bindings are
+not supported.** Each instance launches a separate child: `initialize` can
+reach one child while `tools/call` reaches another. For a stdio Deployment,
+use `replicas: 1` and `strategy.type: Recreate`, and stop the old instance
+before starting its replacement. A Deployment with `replicas: 1` and the
+default rolling-update strategy can still run overlapping instances. See
+[stdio deployment limits](../configuration.md#stdio-deployment-limits).
+
+For stateful `localhost` or non-sticky per-replica HTTP MCP servers, related
+session messages can likewise land on different backends and fail. Keep one
+`tunnel-client` per tunnel or use distinct tunnel IDs per replica unless the
+HTTP backend provides the session handling described above.
