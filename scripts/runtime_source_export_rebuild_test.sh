@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bound Go parallelism in concurrently run Bazel test actions.
+if [[ -n "${BAZEL_TEST:-}" ]]; then
+  export GOMAXPROCS="${GOMAXPROCS:-4}"
+fi
+
 # Keep source verification separate while reusing the action's private Go cache.
 if [[ "${1:-}" == "--both-flavors" ]]; then
   [[ $# -eq 4 ]] || {
