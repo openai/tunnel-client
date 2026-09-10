@@ -294,6 +294,7 @@ materialize_tunnel_client_runfiles() {
   staged_root="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-runfiles.XXXXXX")"
 
   local logical_path physical_path relative_path destination_path source_path
+  local copy_pairs=()
   if [[ -f "${manifest}" ]]; then
     while IFS=' ' read -r logical_path physical_path; do
       case "${logical_path}" in
@@ -301,8 +302,7 @@ materialize_tunnel_client_runfiles() {
           relative_path="${logical_path#"${logical_prefix}"}"
           [[ -n "${relative_path}" && -n "${physical_path}" ]] || continue
           destination_path="${staged_root}/${relative_path}"
-          [[ -d "${destination_path%/*}" ]] || mkdir -p "${destination_path%/*}"
-          cp -pL -- "${physical_path}" "${destination_path}"
+          copy_pairs+=("${physical_path}" "${destination_path}")
           ;;
       esac
     done < <(LC_ALL=C grep -F -- "${logical_prefix}" "${manifest}")
@@ -310,8 +310,7 @@ materialize_tunnel_client_runfiles() {
     while IFS= read -r -d '' source_path; do
       relative_path="${source_path#"${runfiles_root}/"}"
       destination_path="${staged_root}/${relative_path}"
-      [[ -d "${destination_path%/*}" ]] || mkdir -p "${destination_path%/*}"
-      cp -pL -- "${source_path}" "${destination_path}"
+      copy_pairs+=("${source_path}" "${destination_path}")
     done < <(find "${runfiles_root}" \( -type f -o -type l \) -print0)
   else
     rm -rf "${staged_root}"
@@ -319,15 +318,29 @@ materialize_tunnel_client_runfiles() {
     return 1
   fi
 
+  runtime_select_declared_python || {
+    rm -rf "${staged_root}"
+    return 1
+  }
+  # Copy declared files in one process, preserving real files, modes and times.
+  runtime_python - "${copy_pairs[@]}" <<'PYTHON' || {
+from pathlib import Path
+import shutil
+import sys
+
+for source, destination in zip(sys.argv[1::2], sys.argv[2::2], strict=True):
+    Path(destination).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+PYTHON
+    rm -rf "${staged_root}"
+    return 1
+  }
+
   if [[ ! -f "${staged_root}/go.mod" || ! -x "${staged_root}/scripts/check_runtime_boundary.sh" ]]; then
     rm -rf "${staged_root}"
     echo "runtime runfiles are missing declared project inputs" >&2
     return 1
   fi
-  runtime_select_declared_python || {
-    rm -rf "${staged_root}"
-    return 1
-  }
   runtime_stage_declared_vendor "${staged_root}" || {
     rm -rf "${staged_root}"
     return 1
