@@ -253,8 +253,8 @@ func TestProtocolObservationToolBoundsAndDeterminism(t *testing.T) {
 		require.Equal(t, size > maxObservationToolBytes, page.limited)
 		require.Equal(t, size <= maxObservationToolBytes, len(page.names) == 1)
 	}
-	var names []string
-	for i := 0; i < 125; i++ {
+	names := make([]string, 0, 126)
+	for i := range 125 {
 		names = append(names, fmt.Sprintf("a%03d", i)+strings.Repeat("x", 124))
 	}
 	names = append(names, "zzzzz")
@@ -300,7 +300,7 @@ func TestProtocolObservationInputAndPagingBounds(t *testing.T) {
 	}
 	o, generation := newObservationFixture(t)
 	observationInitialize(t, o, generation)
-	for i := 0; i < maxObservationPages; i++ {
+	for i := range maxObservationPages {
 		params := ""
 		if i > 0 {
 			params = fmt.Sprintf(`{"cursor":"%d"}`, i)
@@ -352,7 +352,7 @@ func TestProtocolObservationConcurrentInvalidationAndSnapshot(t *testing.T) {
 	go func() {
 		defer group.Done()
 		<-parsed
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			snapshot := observationDetails(o)
 			if snapshot.Initialize.ObservedAt != nil {
 				*snapshot.Initialize.ObservedAt = time.Time{}
@@ -414,7 +414,7 @@ func TestStdioProtocolObservationMatchesForwardedExchanges(t *testing.T) {
 			if initializedShim {
 				methods = []string{"initialize", initializedNotificationMethod, "tools/list"}
 			}
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				o.Snapshot(time.Time{})
 			}
 			require.Equal(t, methods, base.writtenMethods())
