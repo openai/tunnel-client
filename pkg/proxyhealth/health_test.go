@@ -22,7 +22,7 @@ func TestComponentHealthBoundedPrivateAndDefensive(t *testing.T) {
 	t.Parallel()
 	checker := &Checker{routeStatus: make(map[string]*routeStatus)}
 	now := time.Now()
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		checker.routeStatus[fmt.Sprintf("secret-%02d", i)] = &routeStatus{route: proxy.Route{Kind: proxy.RouteKindControlPlane, Name: "secret-name", ProxyURL: &url.URL{Host: "private.example"}}, healthState: HealthStateHealthy, lastCheck: now, lastSuccess: now, history: []CheckRecord{{ErrorReason: "secret-history"}}}
 	}
 	h := newComponentHealth()
@@ -82,7 +82,7 @@ func TestComponentHealthIncludesFailuresOutsideRouteSample(t *testing.T) {
 	checker := &Checker{routeStatus: make(map[string]*routeStatus)}
 	var last proxy.Route
 	now := time.Now()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		route := proxy.Route{Kind: proxy.RouteKindMCPChannel, Name: fmt.Sprintf("channel-%02d", i), RouteMode: proxy.RouteModeProxy}
 		checker.routeStatus[routeKey(route)] = &routeStatus{route: route, healthState: HealthStateHealthy, lastCheck: now}
 		last = route
@@ -112,7 +112,7 @@ func TestComponentHealthDetailsJSONStableAcrossInsertionOrder(t *testing.T) {
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	encodeDetails := func(reverse bool) []byte {
 		checker := &Checker{routeStatus: make(map[string]*routeStatus)}
-		for offset := 0; offset < routeCount; offset++ {
+		for offset := range routeCount {
 			i := offset
 			if reverse {
 				i = routeCount - 1 - offset

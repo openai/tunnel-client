@@ -230,7 +230,7 @@ func TestComponentHealthRegistrationAndMetadataBounds(t *testing.T) {
 
 func TestComponentHealthEncodingBudgets(t *testing.T) {
 	components := make([]healthstate.Component, 0, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		components = append(components, &fixedHealthComponent{name: fmt.Sprintf("component-%02d", i), value: healthstate.ComponentSnapshot{Status: healthstate.StatusOK, State: "discovered", Details: healthstate.MCPDetails{ToolsList: healthstate.MCPToolsList{ToolNames: []string{strings.Repeat("x", 16*1024)}}}}})
 	}
 	h, err := newComponentHealth(components, false, func() bool { return true })

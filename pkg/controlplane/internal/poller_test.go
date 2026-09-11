@@ -68,10 +68,7 @@ func (f *recordingFetcher) Poll(ctx context.Context, limit int) ([]controlplane.
 	if len(f.data) == 0 {
 		return nil, "", nil
 	}
-	n := limit
-	if n > len(f.data) {
-		n = len(f.data)
-	}
+	n := min(limit, len(f.data))
 
 	out := make([]controlplane.PolledCommand, n)
 	copy(out, f.data[:n])
