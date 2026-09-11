@@ -122,6 +122,8 @@ func runStdioInitializeThenToolScenario(t *testing.T, sendInitializedNotificatio
 }
 
 func TestHarnessStdioResponseDeadlineKeepsServingAfterTimedOutRequest(t *testing.T) {
+	t.Parallel()
+
 	const (
 		timedOutRequestID = "cmd-timeout"
 		recoveryRequestID = "cmd-recovery"
@@ -130,9 +132,6 @@ func TestHarnessStdioResponseDeadlineKeepsServingAfterTimedOutRequest(t *testing
 	)
 
 	invocationLog := t.TempDir() + "/stdio-invocations.log"
-	t.Setenv("MOCK_MCP_DROP_RESPONSE_NAME", "timeout")
-	t.Setenv("MOCK_MCP_SERVER_REQUEST_BEFORE_RESPONSE_NAME", "recovered")
-	t.Setenv("MOCK_MCP_INVOCATION_LOG", invocationLog)
 
 	timedOutCommand := mocktunnelservice.CommandResponse{
 		Command: withResponseTimeout(t, mocktunnelservice.NewCommand(
@@ -188,7 +187,12 @@ func TestHarnessStdioResponseDeadlineKeepsServingAfterTimedOutRequest(t *testing
 	}
 
 	var logs bytes.Buffer
-	commandArgs := mockmcpserver.StdioServerCommand(t)
+	commandArgs := append([]string{
+		"env",
+		"MOCK_MCP_DROP_RESPONSE_NAME=timeout",
+		"MOCK_MCP_SERVER_REQUEST_BEFORE_RESPONSE_NAME=recovered",
+		"MOCK_MCP_INVOCATION_LOG=" + invocationLog,
+	}, mockmcpserver.StdioServerCommand(t)...)
 	h := harnesspkg.NewHarness(t,
 		harnesspkg.WithMCPCommand(commandArgs),
 		harnesspkg.WithLogWriter(&logs),

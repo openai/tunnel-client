@@ -2,6 +2,8 @@ package runtimeconfig
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -3278,7 +3280,8 @@ func writeTempSecretFile(t *testing.T, contents string) string {
 func writeTempClientCertPair(t *testing.T) (string, string) {
 	t.Helper()
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	// These tests exercise certificate configuration, so use fast, fresh P-256 keys.
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
@@ -3297,8 +3300,12 @@ func writeTempClientCertPair(t *testing.T) (string, string) {
 		t.Fatalf("create certificate: %v", err)
 	}
 
+	keyDER, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "client.crt")
