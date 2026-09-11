@@ -901,7 +901,7 @@ func TestProcessorStreamableNotificationsBeforeResponse(t *testing.T) {
 	got := responder.waitForResponses(t, 4)
 	require.Len(t, got, 4)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		notif := got[i]
 		require.Equal(t, command.id, notif.requestID)
 		require.Equal(t, types.ResponseTypeJSONRPCNotification, notif.response.Type())

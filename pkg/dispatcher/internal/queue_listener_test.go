@@ -48,12 +48,12 @@ func TestQueueListenerProcessesCommands(t *testing.T) {
 
 	listener.Start(ctx)
 
-	for i := 0; i < commandCount; i++ {
+	for i := range commandCount {
 		queue <- newTestCommand(i)
 	}
 	close(queue)
 
-	for i := 0; i < commandCount; i++ {
+	for i := range commandCount {
 		select {
 		case <-processor.finished:
 		case <-time.After(time.Second):

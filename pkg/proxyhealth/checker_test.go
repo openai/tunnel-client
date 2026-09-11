@@ -18,7 +18,7 @@ import (
 
 func TestRecordResultHistoryRetention(t *testing.T) {
 	checker, route := newTestChecker(t)
-	for i := 0; i < maxHistoryEntries+2; i++ {
+	for i := range maxHistoryEntries + 2 {
 		record := CheckRecord{Timestamp: time.Now().Add(time.Duration(i) * time.Second)}
 		checker.recordResult(route, record, i%2 == 0)
 	}
@@ -58,7 +58,7 @@ func TestHealthSummariesReturnsDeterministicRouteOrder(t *testing.T) {
 		},
 	}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		summaries := checker.HealthSummaries()
 		if len(summaries) != 2 {
 			t.Fatalf("expected 2 summaries, got %d", len(summaries))

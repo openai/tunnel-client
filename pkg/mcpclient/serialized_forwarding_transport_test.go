@@ -683,7 +683,7 @@ func TestSerializedForwardingTransportPreservesStdioPipesAfterCanceledRead(t *te
 	serverReadErrs := make(chan error, 2)
 	go func() {
 		reader := bufio.NewReader(serverReader)
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			_, err := reader.ReadBytes('\n')
 			serverReadErrs <- err
 			if err != nil {
@@ -963,7 +963,7 @@ func TestSerializedForwardingTransportFailsClosedWhenRetiredResponseLimitReached
 		conn: baseConn,
 	})
 	serializedTransport := transport.(*serializedForwardingTransport)
-	for i := 0; i < maxRetiredResponseIDs; i++ {
+	for i := range maxRetiredResponseIDs {
 		id, err := jsonrpc.MakeID(float64(i))
 		require.NoError(t, err)
 		require.True(t, serializedTransport.retireResponseID(id))

@@ -10,7 +10,7 @@ import (
 func TestCallBufferOrdersNewestFirst(t *testing.T) {
 	buffer := NewCallBuffer()
 
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		buffer.RecordCall(CallEntry{
 			Timestamp: time.Unix(int64(i), 0).UTC(),
 			Label:     "svc",

@@ -122,7 +122,7 @@ func TestPollerWritesAtMostQueueCapacity(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		received = append(received, waitForQueue())
 	}
 
@@ -420,7 +420,7 @@ func TestPollerDoesNotDropCommandsWhenFetcherExceedsLimit(t *testing.T) {
 	// Drain slowly to force backpressure on the second/third enqueue while ensuring
 	// all commands are eventually observed.
 	got := make([]string, 0, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		select {
 		case <-time.After(2 * time.Second):
 			t.Fatalf("timed out waiting for command %d", i+1)
@@ -829,7 +829,7 @@ func (f *timeoutRecordingFetcher) waitForCalls(t *testing.T, want int) {
 	if f.pollCh == nil {
 		t.Fatal("timeoutRecordingFetcher poll channel was nil")
 	}
-	for i := 0; i < want; i++ {
+	for i := range want {
 		select {
 		case <-f.pollCh:
 		case <-time.After(2 * time.Second):
