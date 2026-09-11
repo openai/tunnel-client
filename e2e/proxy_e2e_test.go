@@ -1,7 +1,14 @@
 package e2e_test
 
 import (
+	"context"
 	"crypto/x509"
+	"flag"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,16 +79,68 @@ func TestProxyE2ESucceedsThroughProxy(t *testing.T) {
 }
 
 func TestProxyE2EFailsWithoutProxy(t *testing.T) {
+	t.Parallel()
+
+	const childEnv = "TUNNEL_CLIENT_E2E_NO_PROXY_CHILD"
+	if os.Getenv(childEnv) != "1" {
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		if parentDeadline, ok := t.Deadline(); ok {
+			deadline = parentDeadline.Add(-time.Second)
+		}
+		ctx, cancel := context.WithDeadline(t.Context(), deadline)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, executable,
+			"-test.run=^TestProxyE2EFailsWithoutProxy$", "-test.count=1", "-test.v=true")
+		cmd.WaitDelay = time.Second
+		for _, entry := range os.Environ() {
+			key, _, _ := strings.Cut(entry, "=")
+			if runtime.GOOS == "windows" {
+				key = strings.ToUpper(key)
+			}
+			switch key {
+			case "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy",
+				childEnv, "GO_TEST_WRAP", "XML_OUTPUT_FILE", "COVERAGE_OUTPUT_FILE":
+				continue
+			}
+			cmd.Env = append(cmd.Env, entry)
+		}
+		cmd.Env = append(cmd.Env, childEnv+"=1", "GO_TEST_WRAP=0",
+			"HTTP_PROXY=", "http_proxy=", "HTTPS_PROXY=", "https_proxy=", "NO_PROXY=", "no_proxy=")
+		// Keep child coverage in the normal collector without sharing output files.
+		if os.Getenv("COVERAGE_OUTPUT_FILE") != "" {
+			cmd.Env = append(cmd.Env, "COVERAGE_OUTPUT_FILE="+filepath.Join(t.TempDir(), "child.coverage"))
+		}
+		if coverDir := flag.Lookup("test.gocoverdir"); coverDir != nil && coverDir.Value.String() != "" {
+			cmd.Args = append(cmd.Args, "-test.gocoverdir="+coverDir.Value.String())
+		}
+		// A short launch directory avoids Windows CreateProcess path limits;
+		// the test runner restores the child's runfiles directory during init.
+		if runtime.GOOS == "windows" && os.Getenv("TEST_SRCDIR") != "" {
+			cmd.Dir = os.TempDir()
+			cmd.Env = append(cmd.Env, "GO_TEST_RUN_FROM_BAZEL=1")
+		}
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("no-proxy child failed: %v\n%s", err, output)
+		}
+		if !strings.Contains(string(output), "\n--- PASS: TestProxyE2EFailsWithoutProxy (") {
+			t.Fatalf("no-proxy child did not complete the scenario:\n%s", output)
+		}
+		return
+	}
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"} {
+		if os.Getenv(key) != "" {
+			t.Fatalf("no-proxy child inherited %s", key)
+		}
+	}
 	const (
 		controlPlaneURL = "http://127.0.0.1:1"
 		mcpURL          = "https://127.0.0.1:1/mcp"
 	)
-	t.Setenv("HTTP_PROXY", "")
-	t.Setenv("http_proxy", "")
-	t.Setenv("HTTPS_PROXY", "")
-	t.Setenv("https_proxy", "")
-	t.Setenv("NO_PROXY", "")
-	t.Setenv("no_proxy", "")
 
 	harness := harnesspkg.NewHarness(t,
 		harnesspkg.WithPreserveClientURLs(),

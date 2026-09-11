@@ -24,16 +24,18 @@ func TestHarnessExecuteScenarioWithStdioCommand(t *testing.T) {
 }
 
 func TestHarnessStdioOptInInitializesBeforeToolCallWhenControlPlaneOmitsNotification(t *testing.T) {
-	t.Setenv("MOCK_MCP_REQUIRE_INITIALIZED", "1")
-	runStdioInitializeThenToolScenario(t, true, "initialize\nnotifications/initialized\ntools/call\n")
+	t.Parallel()
+
+	runStdioInitializeThenToolScenario(t, true, "MOCK_MCP_REQUIRE_INITIALIZED=1", "initialize\nnotifications/initialized\ntools/call\n")
 }
 
 func TestHarnessStdioLegacyDefaultDoesNotInjectInitializedNotification(t *testing.T) {
-	t.Setenv("MOCK_MCP_REJECT_INITIALIZED", "1")
-	runStdioInitializeThenToolScenario(t, false, "initialize\ntools/call\n")
+	t.Parallel()
+
+	runStdioInitializeThenToolScenario(t, false, "MOCK_MCP_REJECT_INITIALIZED=1", "initialize\ntools/call\n")
 }
 
-func runStdioInitializeThenToolScenario(t *testing.T, sendInitializedNotification bool, wantMessages string) {
+func runStdioInitializeThenToolScenario(t *testing.T, sendInitializedNotification bool, serverEnv, wantMessages string) {
 	t.Helper()
 
 	const (
@@ -44,7 +46,11 @@ func runStdioInitializeThenToolScenario(t *testing.T, sendInitializedNotificatio
 	)
 
 	messageLog := t.TempDir() + "/stdio-messages.log"
-	t.Setenv("MOCK_MCP_MESSAGE_LOG", messageLog)
+	commandArgs := append([]string{
+		"env",
+		serverEnv,
+		"MOCK_MCP_MESSAGE_LOG=" + messageLog,
+	}, mockmcpserver.StdioServerCommand(t)...)
 
 	initializeCommand := mocktunnelservice.CommandResponse{
 		Command: mocktunnelservice.NewCommand(
@@ -98,7 +104,7 @@ func runStdioInitializeThenToolScenario(t *testing.T, sendInitializedNotificatio
 	}
 
 	options := []harnesspkg.HarnessOption{
-		harnesspkg.WithMCPCommand(mockmcpserver.StdioServerCommand(t)),
+		harnesspkg.WithMCPCommand(commandArgs),
 		harnesspkg.WithScenarioTimeout(3 * time.Second),
 		harnesspkg.WithControlPlaneOptions(
 			mocktunnelservice.WithCommandResponses(initializeCommand, toolCommand),

@@ -39,8 +39,6 @@ import (
 // Leave room for failure state dumps and cleanup before the outer runner stops the test.
 const testDeadlineReserve = 5 * time.Second
 
-const tunnelIntegrationSocketEnv = "TUNNEL_INTEGRATION_TUNNEL_SERVICE_SOCKET_PATH"
-
 // TestClientInstanceHeader identifies harnessed tunnel-client instances in mock control-plane requests.
 const TestClientInstanceHeader = "X-Test-Tunnel-Client-Instance"
 
@@ -307,10 +305,10 @@ func NewHarness(t testing.TB, opts ...HarnessOption) *Harness {
 		mocktunnelservice.WithAPIKey(cfg.apiKey),
 		mocktunnelservice.WithTunnelID(string(cfg.tunnelID)),
 	)
+	controlPlaneSocketPath := ""
 	if cfg.useUnixControlPlane {
-		socketPath := newUnixSocketPath(t, "control-plane.sock")
-		t.Setenv(tunnelIntegrationSocketEnv, socketPath)
-		controlPlaneOpts = append(controlPlaneOpts, mocktunnelservice.WithUnixSocketPath(socketPath))
+		controlPlaneSocketPath = newUnixSocketPath(t, "control-plane.sock")
+		controlPlaneOpts = append(controlPlaneOpts, mocktunnelservice.WithUnixSocketPath(controlPlaneSocketPath))
 	}
 	controlPlaneOpts = append(controlPlaneOpts, cfg.controlPlaneOptions...)
 	controlPlane := mocktunnelservice.NewMockTunnelService(controlPlaneOpts...)
@@ -326,6 +324,7 @@ func NewHarness(t testing.TB, opts ...HarnessOption) *Harness {
 	clientCfg := &config.Config{
 		ControlPlane: config.ControlPlaneConfig{
 			BaseURL:             nil,
+			UnixSocketPath:      controlPlaneSocketPath,
 			TunnelID:            cfg.tunnelID,
 			APIKey:              cfg.apiKey,
 			MaxInFlightRequests: 10,
