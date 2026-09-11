@@ -140,26 +140,29 @@ cd "${PROJECT_ROOT}"
 readonly GO_CACHE_DIR="${GOCACHE:-${TMPDIR:-/tmp}/tunnel-client-runtime-go-cache}"
 readonly GO_MOD_CACHE_DIR="${GOMODCACHE:-${TMPDIR:-/tmp}/tunnel-client-runtime-go-mod-cache}"
 mkdir -p "${GO_CACHE_DIR}" "${GO_MOD_CACHE_DIR}"
-readonly GO_MOD_FLAG="$(runtime_go_mod_flag_for_root "${PROJECT_ROOT}")"
 
-target=""
 archive_stem=""
 case "${flavor}" in
   runtime)
-    target="./cmd/client-runtime"
     archive_stem="tunnel-client-runtime-source-${version}"
     ;;
   runtime-cloudflared)
-    target="./cmd/client-runtime-cloudflared"
     archive_stem="tunnel-client-runtime-cloudflared-source-${version}"
     ;;
 esac
+
+if runtime_is_bazel_test; then
+  tmp_dir="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-source-build.XXXXXX")"
+else
+  tmp_dir="$(mktemp -d)"
+fi
+trap 'rm -rf "${tmp_dir}"; runtime_runfiles_cleanup' EXIT
 
 # Closure actions already run this exact gate before writing their evidence.
 # The ordinary public path keeps the gate inline; only Bazel's internal
 # evidence path skips the duplicate serial six-platform scan.
 if [[ -z "${dependency_evidence_dir}" ]]; then
-  boundary_args=(--flavor "${flavor}")
+  boundary_args=(--flavor "${flavor}" --dependency-json-dir "${tmp_dir}/dependency-json")
   if [[ -n "${platform}" ]]; then
     boundary_args+=(--platform "${platform}")
   fi
@@ -189,13 +192,6 @@ fi
 readonly SOURCE_DATE_EPOCH="${source_date_epoch}"
 [[ "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]] ||
   die "SOURCE_DATE_EPOCH must be a non-negative integer"
-
-if runtime_is_bazel_test; then
-  tmp_dir="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-source-build.XXXXXX")"
-else
-  tmp_dir="$(mktemp -d)"
-fi
-trap 'rm -rf "${tmp_dir}"; runtime_runfiles_cleanup' EXIT
 
 archive_root="${tmp_dir}/${archive_stem}"
 metadata_root="${archive_root}/${METADATA_DIR}"
@@ -345,7 +341,6 @@ reject_export_path() {
   return 1
 }
 
-platform_json="${tmp_dir}/platform.json"
 if [[ -n "${dependency_evidence_dir}" ]]; then
   for platform in "${selected_platforms[@]}"; do
     goos="${platform%/*}"
@@ -375,17 +370,8 @@ else
     goos="${platform%/*}"
     goarch="${platform#*/}"
     manifest_path="${dependency_root}/${goos}_${goarch}.txt"
-
-    if ! env \
-      GOWORK=off \
-      GOCACHE="${GO_CACHE_DIR}" \
-      GOMODCACHE="${GO_MOD_CACHE_DIR}" \
-      GOOS="${goos}" \
-      GOARCH="${goarch}" \
-      CGO_ENABLED=0 \
-      go list -buildvcs=false "${GO_MOD_FLAG}" -deps -json "${target}" >"${platform_json}"; then
-      die "${flavor} dependency listing failed for ${platform}"
-    fi
+    # Reuse only this invocation's fresh, successfully checked dependency list.
+    platform_json="${tmp_dir}/dependency-json/${goos}_${goarch}.json"
 
     relative_package_manifest "${platform_json}" "${manifest_path}"
     append_selected_source_files "${platform_json}" >>"${source_files}"

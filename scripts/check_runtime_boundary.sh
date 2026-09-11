@@ -27,7 +27,7 @@ readonly -a PLATFORMS=(
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/check_runtime_boundary.sh [--flavor runtime|runtime-cloudflared|all] [--platform <goos>/<goarch>] [--binary <path>]
+  ./scripts/check_runtime_boundary.sh [--flavor runtime|runtime-cloudflared|all] [--platform <goos>/<goarch>] [--binary <path>] [--dependency-json-dir <directory>]
 
 Checks the first-party Go dependency closure for every release platform by
 default, or for one explicit release platform when --platform is supplied.
@@ -35,6 +35,8 @@ The normal runtime must stay free of support, development, and companion
 packages. The companion runtime may add only its runtime-specific package.
 When --binary is supplied, the same public-safe gate validates the already
 built artifact's first-party markers instead of rebuilding its closure.
+With one explicit flavor, --dependency-json-dir writes fresh Go dependency
+JSON into a new absolute directory after each platform passes its gate.
 EOF
 }
 
@@ -51,6 +53,7 @@ die() {
 flavor="all"
 binary=""
 platform=""
+dependency_json_dir=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flavor)
@@ -68,6 +71,11 @@ while [[ $# -gt 0 ]]; do
     --platform=*)
       platform="${1#*=}"
       shift
+      ;;
+    --dependency-json-dir)
+      [[ $# -ge 2 && -n "$2" ]] || die "--dependency-json-dir requires a directory"
+      dependency_json_dir="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -88,6 +96,17 @@ case "${platform}" in
   ""|linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64) ;;
   *) die "--platform must be one supported goos/goarch release platform" ;;
 esac
+
+if [[ -n "${dependency_json_dir}" ]]; then
+  [[ "${flavor}" != "all" ]] || die "--dependency-json-dir requires one explicit flavor"
+  [[ -z "${binary}" ]] || die "--dependency-json-dir cannot be combined with --binary"
+  [[ "${dependency_json_dir}" == /* ]] || die "--dependency-json-dir must be absolute"
+  [[ ! -e "${dependency_json_dir}" && ! -L "${dependency_json_dir}" ]] ||
+    die "--dependency-json-dir must not already exist"
+  if [[ -z "${TUNNEL_CLIENT_RUNTIME_PYTHON:-}" ]]; then
+    command -v python3 >/dev/null 2>&1 || die "python3 is required"
+  fi
+fi
 
 selected_platforms=("${PLATFORMS[@]}")
 if [[ -n "${platform}" ]]; then
@@ -116,6 +135,37 @@ mkdir -p "${GO_CACHE_DIR}" "${GO_MOD_CACHE_DIR}"
 readonly GO_MOD_FLAG="$(runtime_go_mod_flag_for_root "${PROJECT_ROOT}")"
 readonly MODULE_PATH="$(env GOWORK=off GOCACHE="${GO_CACHE_DIR}" GOMODCACHE="${GO_MOD_CACHE_DIR}" go list -m -f '{{.Path}}')"
 [[ -n "${MODULE_PATH}" ]] || die "could not determine the Go module path"
+if [[ -n "${dependency_json_dir}" ]]; then
+  mkdir -m 700 "${dependency_json_dir}" ||
+    die "could not create dependency JSON directory: ${dependency_json_dir}"
+fi
+
+dependency_json_import_paths() {
+  runtime_python - "$1" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+decoder = json.JSONDecoder()
+offset = 0
+while offset < len(payload):
+    while offset < len(payload) and payload[offset].isspace():
+        offset += 1
+    if offset == len(payload):
+        break
+    try:
+        record, offset = decoder.raw_decode(payload, offset)
+    except json.JSONDecodeError:
+        raise SystemExit("go list output is not valid JSON")
+    if not isinstance(record, dict):
+        raise SystemExit("go list output record is not an object")
+    import_path = record.get("ImportPath")
+    if not isinstance(import_path, str):
+        raise SystemExit("go list output record is missing ImportPath")
+    print(import_path)
+PY
+}
 
 # Exclusion helpers set the caller-local reason on a matching path.
 common_exclusion_reason() {
@@ -198,8 +248,14 @@ check_flavor() {
   esac
 
   local platform goos goarch import_path relative_path reason
-  local package_list
+  local package_list package_output
+  local -a format_args=(-f '{{.ImportPath}}')
   package_list="$(mktemp)"
+  package_output="${package_list}"
+  if [[ -n "${dependency_json_dir}" ]]; then
+    format_args=(-json)
+    package_output="${dependency_json_dir}/.platform.json"
+  fi
 
   for platform in "${selected_platforms[@]}"; do
     goos="${platform%/*}"
@@ -211,8 +267,12 @@ check_flavor() {
       GOOS="${goos}" \
       GOARCH="${goarch}" \
       CGO_ENABLED=0 \
-      go list -buildvcs=false "${GO_MOD_FLAG}" -deps -f '{{.ImportPath}}' "${target}" >"${package_list}"; then
+      go list -buildvcs=false "${GO_MOD_FLAG}" -deps "${format_args[@]}" "${target}" >"${package_output}"; then
       die "${selected_flavor} dependency listing failed for ${platform}"
+    fi
+    if [[ -n "${dependency_json_dir}" ]] &&
+      ! dependency_json_import_paths "${package_output}" >"${package_list}"; then
+      die "${selected_flavor} dependency JSON is invalid for ${platform}"
     fi
 
     while IFS= read -r import_path; do
@@ -231,6 +291,9 @@ check_flavor() {
       fi
     done <"${package_list}"
 
+    if [[ -n "${dependency_json_dir}" ]]; then
+      mv "${package_output}" "${dependency_json_dir}/${goos}_${goarch}.json"
+    fi
     printf '%s dependency boundary: %s passed\n' "${selected_flavor}" "${platform}"
   done
 
