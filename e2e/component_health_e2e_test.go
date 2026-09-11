@@ -32,11 +32,15 @@ import (
 // TestHealthDetailsControlPlaneAndQueue holds real work and response uploads
 // at deterministic barriers while querying the running application's routes.
 func TestHealthDetailsControlPlaneAndQueue(t *testing.T) {
+	t.Parallel()
+
 	for _, unix := range []bool{false, true} {
 		t.Run(fmt.Sprintf("unix_%t", unix), func(t *testing.T) {
 			if unix && runtime.GOOS == "windows" {
 				t.Skip("Unix health socket is unavailable on Windows")
 			}
+			t.Parallel()
+
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
 			firstGate, moreGate := make(chan struct{}), make(chan struct{})
@@ -214,9 +218,13 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stdio shell fixture requires bash")
 	}
+	t.Parallel()
+
 	for _, unix := range []bool{false, true} {
 		for _, initializedNotification := range []bool{false, true} {
 			t.Run(fmt.Sprintf("unix_%t/initialized_notification_%t", unix, initializedNotification), func(t *testing.T) {
+				t.Parallel()
+
 				dir := t.TempDir()
 				launches := filepath.Join(dir, "launches")
 				messages := filepath.Join(dir, "messages")

@@ -21,10 +21,14 @@ import (
 const harpoonConnectionTTLE2E = 250 * time.Millisecond
 
 func TestHarpoonChannelReconnectsAfterConnectionTTL(t *testing.T) {
+	t.Parallel()
+
 	runHarpoonChannelReconnectAfterTTLs(t, 1)
 }
 
 func TestHarpoonChannelReconnectsAfterRepeatedConnectionTTLs(t *testing.T) {
+	t.Parallel()
+
 	runHarpoonChannelReconnectAfterTTLs(t, 2)
 }
 

@@ -142,18 +142,19 @@ case "${flavor}" in
     ;;
 esac
 
-boundary_args=(--flavor "${flavor}")
-if [[ -n "${platform}" ]]; then
-  boundary_args+=(--platform "${platform}")
-fi
-runtime_run_materialized_script "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
-
 if runtime_is_bazel_test; then
   tmp_dir="$(mktemp -d "${TEST_TMPDIR}/tunnel-client-runtime-source-verify.XXXXXX")"
 else
   tmp_dir="$(mktemp -d)"
 fi
+tmp_dir="$(cd "${tmp_dir}" && pwd)"
 trap 'rm -rf "${tmp_dir}"; runtime_runfiles_cleanup' EXIT
+
+boundary_args=(--flavor "${flavor}" --dependency-json-dir "${tmp_dir}/dependency-json")
+if [[ -n "${platform}" ]]; then
+  boundary_args+=(--platform "${platform}")
+fi
+runtime_run_materialized_script "${SCRIPT_DIR}/check_runtime_boundary.sh" "${boundary_args[@]}"
 
 member_list="${tmp_dir}/members.txt"
 tar -tzf "${archive}" >"${member_list}"
@@ -162,11 +163,13 @@ if LC_ALL=C grep -E '(^/|(^|/)\.\.(/|$))' "${member_list}" >/dev/null; then
   die "archive contains an unsafe path"
 fi
 
-tar -xzf "${archive}" -C "${tmp_dir}"
+extraction_root="${tmp_dir}/extracted"
+mkdir "${extraction_root}"
+tar -xzf "${archive}" -C "${extraction_root}"
 roots=()
 while IFS= read -r root; do
   roots+=("${root}")
-done < <(find "${tmp_dir}" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+done < <(find "${extraction_root}" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
 [[ "${#roots[@]}" -eq 1 ]] || die "archive must contain exactly one root directory"
 archive_root="${roots[0]}"
 metadata_root="${archive_root}/${METADATA_DIR}"
@@ -457,25 +460,28 @@ relative_package_manifest() {
   local goarch="$4"
   local output_path="$5"
   local selected_files_output="${6:-}"
-  local module_path json_path absolute_path relative_path go_mod_flag
+  local json_path="${7:-}"
+  local module_path absolute_path relative_path go_mod_flag
 
   root="$(cd "${root}" && pwd)"
   go_mod_flag="$(runtime_go_mod_flag_for_root "${root}")"
   module_path="$(cd "${root}" && env GOWORK=off GOCACHE="${GO_CACHE_DIR}" GOMODCACHE="${GO_MOD_CACHE_DIR}" go list -m -f '{{.Path}}')"
   [[ -n "${module_path}" ]] || die "could not determine the Go module path under ${root}"
-  json_path="${tmp_dir}/$(basename "${root}")-${goos}_${goarch}.json"
-  if ! (
-    cd "${root}"
-    env \
-      GOWORK=off \
-      GOCACHE="${GO_CACHE_DIR}" \
-      GOMODCACHE="${GO_MOD_CACHE_DIR}" \
-      GOOS="${goos}" \
-      GOARCH="${goarch}" \
-      CGO_ENABLED=0 \
-      go list -buildvcs=false "${go_mod_flag}" -deps -json "${selected_target}"
-  ) >"${json_path}"; then
-    die "dependency listing failed under ${root} for ${goos}/${goarch}"
+  if [[ -z "${json_path}" ]]; then
+    json_path="${tmp_dir}/$(basename "${root}")-${goos}_${goarch}.json"
+    if ! (
+      cd "${root}"
+      env \
+        GOWORK=off \
+        GOCACHE="${GO_CACHE_DIR}" \
+        GOMODCACHE="${GO_MOD_CACHE_DIR}" \
+        GOOS="${goos}" \
+        GOARCH="${goarch}" \
+        CGO_ENABLED=0 \
+        go list -buildvcs=false "${go_mod_flag}" -deps -json "${selected_target}"
+    ) >"${json_path}"; then
+      die "dependency listing failed under ${root} for ${goos}/${goarch}"
+    fi
   fi
 
   go_list_json_records "${json_path}" "${module_path}" packages |
@@ -524,7 +530,9 @@ for platform in "${selected_platforms[@]}"; do
 
   current_manifest="${tmp_dir}/current-${goos}_${goarch}.txt"
   exported_manifest="${tmp_dir}/exported-${goos}_${goarch}.txt"
-  relative_package_manifest "${PROJECT_ROOT}" "${target}" "${goos}" "${goarch}" "${current_manifest}"
+  # Reuse this invocation's checked current-source listing; the archive stays independent.
+  relative_package_manifest "${PROJECT_ROOT}" "${target}" "${goos}" "${goarch}" "${current_manifest}" \
+    "" "${tmp_dir}/dependency-json/${goos}_${goarch}.json"
   relative_package_manifest "${archive_root}" "${target}" "${goos}" "${goarch}" "${exported_manifest}" "${exported_selected_files}"
 
   if ! diff -u "${expected_manifest}" "${current_manifest}"; then

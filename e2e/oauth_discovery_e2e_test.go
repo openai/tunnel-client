@@ -482,6 +482,8 @@ func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T
 }
 
 func TestOAuthDiscoveredHarpoonTargetsHandoverAcrossRedundantClientsE2E(t *testing.T) {
+	t.Parallel()
+
 	const (
 		customerHost = "active-active-mcp.internal.preproduction.smp.bigco-example.com"
 	)
@@ -804,6 +806,8 @@ func TestOAuthDiscoveredHarpoonTargetsHandoverAcrossRedundantClientsE2E(t *testi
 }
 
 func TestOAuthDiscoveredHarpoonTargetIsUnavailableAfterSecondaryDiscoveryMissE2E(t *testing.T) {
+	t.Parallel()
+
 	// Characterize the current proc-affinity boundary. Once dynamic Harpoon
 	// targets become replica-safe, this test should flip from rejection to success.
 	const (
@@ -986,6 +990,8 @@ func TestOAuthDiscoveredHarpoonTargetIsUnavailableAfterSecondaryDiscoveryMissE2E
 }
 
 func TestOAuthDiscoveryRejectsOffOriginPrivateMetadataEndpointsE2E(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name                 string
 		issuerMismatch       bool
