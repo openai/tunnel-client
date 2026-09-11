@@ -28,8 +28,10 @@ var Module = fx.Module(
 		runtimeharpoon.NewHostBusSubscriber,
 		runtimeharpoon.NewHostBus,
 		runtimeharpoon.NewStartupCatalogDigestState,
+		runtimeharpoon.NewHealth,
+		fx.Annotate(runtimeharpoon.HealthComponent, fx.ResultTags(`group:"runtime_health_components"`)),
 	),
-	fx.Invoke(registerAdditionalTransport, runtimeharpoon.StartHostRegistration, runtimeharpoon.StartCatalogDigestLogging),
+	fx.Invoke(runtimeharpoon.AttachHealth, registerAdditionalTransport, runtimeharpoon.StartHostRegistration, runtimeharpoon.StartCatalogDigestLogging),
 )
 
 func newRuntimeRegistryCounter(registry *Registry) runtimeharpoon.RegistryCounter {

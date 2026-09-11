@@ -28,6 +28,7 @@ const (
 var Module = fx.Module(
 	"oauth",
 	fx.Provide(NewDiscoveryState, hostbus.NewStartupCatalogState),
+	fx.Provide(fx.Annotate(newComponentHealth, fx.ResultTags(`group:"runtime_health_components"`))),
 	fx.Invoke(startOAuthDiscovery),
 )
 

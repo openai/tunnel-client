@@ -1083,6 +1083,7 @@ func (m *Manager) connectPayload(root pluginstate.Root, alias string, tunnel adm
 	if launch.ExitCode != nil {
 		payload["exit_code"] = *launch.ExitCode
 	}
+	copyHealthDetailsURLs(payload, local)
 	return payload
 }
 
@@ -1129,7 +1130,17 @@ func (m *Manager) statusPayload(root pluginstate.Root, alias string, record plug
 	if process.Alias != "" {
 		payload["process"] = processToMap(process)
 	}
+	copyHealthDetailsURLs(payload, local)
 	return payload
+}
+
+func copyHealthDetailsURLs(payload, local map[string]any) {
+	health, _ := local["effective_health"].(map[string]any)
+	for _, key := range []string{"health_details_url", "mcp_health_url"} {
+		if value, ok := health[key].(string); ok && value != "" {
+			payload[key] = value
+		}
+	}
 }
 
 func (m *Manager) localRuntimeDetails(root pluginstate.Root, alias string, record pluginstate.AliasRecord, process pluginstate.ProcessRecord) map[string]any {
@@ -1160,12 +1171,30 @@ func (m *Manager) localRuntimeDetails(root pluginstate.Root, alias string, recor
 	}
 	health["healthz"] = endpointToMap(probe.Healthz)
 	health["readyz"] = endpointToMap(probe.Readyz)
+	if probe.Healthz.OK {
+		if detailsURL, mcpURL := session.DiscoverHealthDetails(rawHealthURL); detailsURL != "" {
+			health["health_details_url"] = detailsURL
+			health["mcp_health_url"] = mcpURL
+		}
+	}
 	effectiveHealth := map[string]any{
 		"base_url": effectiveProbe.BaseURL,
 		"url":      effectiveProbe.Healthz.URL,
 		"ui":       uiURLFromBase(effectiveProbe.BaseURL),
 		"healthz":  endpointToMap(effectiveProbe.Healthz),
 		"readyz":   endpointToMap(effectiveProbe.Readyz),
+	}
+	if effectiveProbe.BaseURL == probe.BaseURL {
+		for _, key := range []string{"health_details_url", "mcp_health_url"} {
+			if value, ok := health[key]; ok {
+				effectiveHealth[key] = value
+			}
+		}
+	} else if effectiveProbe.Healthz.OK {
+		if detailsURL, mcpURL := session.DiscoverHealthDetails(effectiveProbe.BaseURL); detailsURL != "" {
+			effectiveHealth["health_details_url"] = detailsURL
+			effectiveHealth["mcp_health_url"] = mcpURL
+		}
 	}
 
 	profile := pathDetails(profilePath)

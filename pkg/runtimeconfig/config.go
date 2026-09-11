@@ -160,6 +160,7 @@ var commonFlagAliases = []flagAlias{
 	{Canonical: "health.listen-addr", Alias: "health-listen-addr", Kind: "string"},
 	{Canonical: "health.unix-socket", Alias: "health-unix-socket", Kind: "string"},
 	{Canonical: "health.url-file", Alias: "health-url-file", Kind: "string"},
+	{Canonical: "health.show-details", Alias: "health-show-details", Kind: "bool"},
 }
 
 // Config captures the runtime values required to start the tunnel client.
@@ -226,9 +227,10 @@ type LoggingConfig struct {
 
 // HealthConfig defines the health server behavior.
 type HealthConfig struct {
-	ListenAddr string
-	UnixSocket string
-	URLFile    string
+	ListenAddr  string
+	UnixSocket  string
+	URLFile     string
+	ShowDetails bool
 }
 
 // ProcessConfig defines process-level runtime settings.
@@ -488,6 +490,7 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.String("health.listen-addr", defaultHealthListenAddr, "Address the health HTTP server listens on (ip:port). Use :8080 to listen on all interfaces, or 127.0.0.1:0 to request a loopback ephemeral port from the OS. Ignored when health.unix-socket is set. (env.HEALTH_LISTEN_ADDR)")
 	fs.String("health.unix-socket", "", "Unix socket path for the health HTTP server. When set, tunnel-client serves health over the socket instead of binding TCP. (env.HEALTH_UNIX_SOCKET)")
 	fs.String("health.url-file", "", "File to write the health base URL to after startup (env.HEALTH_URL_FILE)")
+	fs.Bool("health.show-details", false, "Include component details in GET /health by default; details=true or details=false overrides each request (env.HEALTH_SHOW_DETAILS)")
 	fs.String("pid.file", "", "File to write the tunnel-client process ID to (env.PID_FILE)")
 	fs.String("http-proxy", "", "Global outbound HTTP proxy (applies to control-plane, MCP, and Harpoon) (format <url|env:VAR>)")
 	fs.StringArray("mcp.server-url", nil, "Target MCP server URL (repeatable; format url=...,channel=...,unix-socket=...,http-proxy=...,client-cert=...,client-key=...) (env.MCP_SERVER_URL)")
@@ -614,7 +617,10 @@ func loadRuntimeFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, b
 	if err != nil {
 		return nil, nil, lookupEnv, err
 	}
-	health := buildHealthConfig(fs, lookupEnv)
+	health, err := buildHealthConfig(fs, lookupEnv)
+	if err != nil {
+		return nil, nil, lookupEnv, err
+	}
 	process := buildProcessConfig(fs, lookupEnv)
 	harpoon, err := buildHarpoonConfig(fs, lookupEnv, globalProxy, globalProxySource)
 	if err != nil {
@@ -1633,7 +1639,11 @@ func buildLoggingConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 	}, nil
 }
 
-func buildHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) HealthConfig {
+func buildHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (HealthConfig, error) {
+	showDetails, err := getBool(fs, lookupEnv, "health.show-details", "HEALTH_SHOW_DETAILS")
+	if err != nil {
+		return HealthConfig{}, err
+	}
 	listenAddr := firstSet(
 		getValue(fs, "health.listen-addr"),
 		envOrDefault(lookupEnv, "HEALTH_LISTEN_ADDR", defaultHealthListenAddr),
@@ -1648,10 +1658,11 @@ func buildHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool))
 	)
 
 	return HealthConfig{
-		ListenAddr: listenAddr,
-		UnixSocket: unixSocket,
-		URLFile:    urlFile,
-	}
+		ListenAddr:  listenAddr,
+		UnixSocket:  unixSocket,
+		URLFile:     urlFile,
+		ShowDetails: showDetails,
+	}, nil
 }
 
 func buildProcessConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) ProcessConfig {

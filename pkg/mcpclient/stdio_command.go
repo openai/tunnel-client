@@ -21,9 +21,11 @@ import (
 )
 
 type stdioCommandTransport struct {
-	logger     *slog.Logger
-	lifecycle  fx.Lifecycle
-	shutdowner fx.Shutdowner
+	logger                *slog.Logger
+	lifecycle             fx.Lifecycle
+	shutdowner            fx.Shutdowner
+	observation           *ProtocolObservation
+	observationGeneration string
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -136,11 +138,15 @@ func (t *stdioCommandTransport) start(ctx context.Context) error {
 		return nil
 	}
 	t.started = true
+	t.observationGeneration = t.observation.beginChild()
+	generation := t.observationGeneration
 	t.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
+		t.observation.childClosed(generation, "child_start_failed")
 		return fmt.Errorf("mcpclient: start stdio command: %w", err)
 	}
+	t.observation.childStarted(generation)
 
 	t.logInfo(ctx, "stdio MCP command started", slog.String("command", t.commandLabel))
 	t.startSignalForwarding()
@@ -165,6 +171,7 @@ func (t *stdioCommandTransport) stop(ctx context.Context) error {
 	if cmd == nil || !started {
 		return nil
 	}
+	t.closeObservation("child_stopped")
 
 	if stdin != nil {
 		_ = stdin.Close()
@@ -194,6 +201,7 @@ func (t *stdioCommandTransport) waitForExit() {
 	}
 
 	err := cmd.Wait()
+	t.closeObservation("child_exited")
 	stopping := t.isStopping()
 	if err != nil {
 		t.logWarn(context.Background(), "stdio MCP command exited", slog.String("command", t.commandLabel), slog.String("error", err.Error()))
@@ -220,6 +228,7 @@ func (t *stdioCommandTransport) requestShutdown(reason string, cause error) {
 	if t == nil || t.isStopping() {
 		return
 	}
+	t.closeObservation("child_transport_closed")
 	t.shutdownOnce.Do(func() {
 		attrs := []any{slog.String("reason", reason), slog.String("command", t.commandLabel)}
 		if cause != nil {
@@ -234,6 +243,13 @@ func (t *stdioCommandTransport) requestShutdown(reason string, cause error) {
 			t.logWarn(context.Background(), "stdio MCP shutdown request failed", slog.String("error", err.Error()))
 		}
 	})
+}
+
+func (t *stdioCommandTransport) closeObservation(reason string) {
+	t.mu.Lock()
+	generation := t.observationGeneration
+	t.mu.Unlock()
+	t.observation.childClosed(generation, reason)
 }
 
 func (t *stdioCommandTransport) startSignalForwarding() {

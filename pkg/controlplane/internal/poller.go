@@ -50,6 +50,7 @@ type poller struct {
 	pollTimeout    time.Duration
 	pollGuardrail  time.Duration
 	metrics        *pollerMetrics
+	health         *controlplane.PollHealth
 	hadPollError   bool
 	retrySleep     func(context.Context, time.Duration) bool
 }
@@ -58,7 +59,7 @@ type poller struct {
 // backpressure handling. A nil logger defaults to slog.Default(). backoffMin /
 // backoffMax override the default retry window when non-zero; zero values
 // preserve defaults.
-func NewPoller(q queue, fetcher controlplane.Fetcher, logger *slog.Logger, meter metric.Meter, pollTimeout, pollDeadlineGuardrail, backoffMin, backoffMax time.Duration) (Poller, error) {
+func NewPoller(q queue, fetcher controlplane.Fetcher, logger *slog.Logger, meter metric.Meter, pollTimeout, pollDeadlineGuardrail, backoffMin, backoffMax time.Duration, health ...*controlplane.PollHealth) (Poller, error) {
 	if q == nil {
 		return nil, fmt.Errorf("controlplane internal poller: queue cannot be nil")
 	}
@@ -99,6 +100,9 @@ func NewPoller(q queue, fetcher controlplane.Fetcher, logger *slog.Logger, meter
 		pollGuardrail:  pollDeadlineGuardrail,
 		retrySleep:     sleepWithContext,
 	}
+	if len(health) > 0 {
+		p.health = health[0]
+	}
 	if m, err := newPollerMetrics(meter, q); err != nil {
 		return nil, err
 	} else {
@@ -109,6 +113,7 @@ func NewPoller(q queue, fetcher controlplane.Fetcher, logger *slog.Logger, meter
 
 // Run starts the polling loop and blocks until the context is cancelled.
 func (p *poller) Run(ctx context.Context) {
+	defer func() { p.health.Stopped(time.Now()) }()
 	p.logger.InfoContext(ctx, "poller started")
 	defer func() {
 		if err := ctx.Err(); err != nil {
@@ -138,6 +143,7 @@ func (p *poller) Run(ctx context.Context) {
 		p.metrics.totalCyclesStarted.Add(ctx, 1)
 
 		pollStart := time.Now()
+		p.health.StartAttempt(pollStart)
 		pollDeadline := (runtimeconfig.ControlPlaneConfig{
 			PollTimeout:           p.pollTimeout,
 			PollDeadlineGuardrail: p.pollGuardrail,
@@ -189,6 +195,8 @@ func (p *poller) Run(ctx context.Context) {
 			} else {
 				p.logger.WarnContext(ctx, "poll failed; backing off", attrs...)
 			}
+			category, code := healthFailure(err)
+			p.health.Failed(time.Now(), category, code, delay)
 			if !p.waitForRetry(ctx, delay) {
 				return
 			}
@@ -206,6 +214,7 @@ func (p *poller) Run(ctx context.Context) {
 
 		p.backoff.Reset()
 		p.metrics.lastSuccessUnixSeconds.Store(time.Now().Unix())
+		p.health.Succeeded(time.Now())
 
 		pulled := len(commands)
 		if pulled == 0 {
@@ -305,6 +314,11 @@ func pollLimit(available int) int {
 }
 
 func (p *poller) waitForQueue(ctx context.Context) bool {
+	p.health.Backpressured(time.Now())
+	if observed, ok := p.queue.(interface{ Backpressure(time.Time, bool) }); ok {
+		observed.Backpressure(time.Now(), true)
+		defer func() { observed.Backpressure(time.Now(), false) }()
+	}
 	timer := time.NewTimer(p.queueFullDelay)
 	defer timer.Stop()
 

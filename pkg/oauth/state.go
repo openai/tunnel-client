@@ -27,13 +27,15 @@ type DiscoveryResult struct {
 
 // DiscoveryState tracks the result of a background OAuth ProtectedResourceMetaData fetch.
 type DiscoveryState struct {
-	done   chan struct{}
-	mu     sync.Mutex
-	result *DiscoveryResult
-	err    error
-	probe  *WWWAuthenticateProbeStatus
-	urls   []string
-	once   sync.Once
+	done            chan struct{}
+	mu              sync.Mutex
+	result          *DiscoveryResult
+	err             error
+	probe           *WWWAuthenticateProbeStatus
+	urls            []string
+	once            sync.Once
+	completedAt     time.Time
+	optionalFailure bool
 }
 
 // NewDiscoveryState constructs a DiscoveryState ready for updates.
@@ -69,6 +71,8 @@ func (s *DiscoveryState) Set(
 		defer s.mu.Unlock()
 		s.result = result
 		s.err = err
+		s.completedAt = time.Now().UTC()
+		s.optionalFailure = IsOptionalDiscoveryFailure(result, probe, err)
 		if probe != nil {
 			probeCopy := *probe
 			s.probe = &probeCopy

@@ -3,17 +3,20 @@ package runtime
 import (
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 )
 
 // State tracks whether the optional cloudflared companion is currently ready.
 // It intentionally stores no token material.
 type State struct {
-	mu      sync.RWMutex
-	enabled bool
-	ready   bool
-	reason  string
+	mu         sync.RWMutex
+	enabled    bool
+	ready      bool
+	reason     string
+	observedAt time.Time
 }
 
 // NewState creates readiness state from the effective cloudflared runtimeconfig.
@@ -61,6 +64,9 @@ func (s *State) setReady() {
 		return
 	}
 	s.mu.Lock()
+	if !s.ready || s.observedAt.IsZero() {
+		s.observedAt = time.Now().UTC()
+	}
 	s.ready = true
 	s.reason = ""
 	s.mu.Unlock()
@@ -71,7 +77,33 @@ func (s *State) setNotReady(reason string) {
 		return
 	}
 	s.mu.Lock()
+	if s.ready || s.observedAt.IsZero() {
+		s.observedAt = time.Now().UTC()
+	}
 	s.ready = false
 	s.reason = strings.TrimSpace(reason)
 	s.mu.Unlock()
 }
+
+func (*State) Name() string { return "cloudflared" }
+
+func (s *State) Snapshot(time.Time) healthstate.ComponentSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := healthstate.ComponentSnapshot{Status: healthstate.StatusDisabled, State: "disabled", Details: healthstate.CloudflaredDetails{Enabled: s.enabled, Ready: s.ready}}
+	if !s.enabled {
+		return result
+	}
+	result.Status, result.State = healthstate.StatusUnknown, "pending"
+	if !s.observedAt.IsZero() {
+		observed := s.observedAt
+		result.ObservedAt = &observed
+		result.Status, result.State, result.ReasonCode = healthstate.StatusDegraded, "not_ready", "companion_not_ready"
+	}
+	if s.ready {
+		result.Status, result.State, result.ReasonCode = healthstate.StatusOK, "ready", ""
+	}
+	return result
+}
+
+func componentHealth(state *State) healthstate.Component { return state }

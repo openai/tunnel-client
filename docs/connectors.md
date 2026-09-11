@@ -177,6 +177,11 @@ Common deployment additions:
 
 ## Troubleshooting connector-specific failures
 
+Use the local `/health?details=true` and `/health/mcp` endpoints to distinguish
+startup readiness from discovery actually observed from the main stdio child.
+These reads do not trigger connector discovery. See [component health](health.md)
+for control-plane polling, response delivery, queue, and dispatcher details.
+
 - **Connector discovery fails but `/healthz` is live**: check `/readyz`. Readiness
   is gated on startup probes and OAuth discovery; liveness only means the
   process is running.

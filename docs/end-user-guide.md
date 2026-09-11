@@ -189,7 +189,12 @@ tunnel-client run --profile local-stdio
 What to look for:
 
 - `/healthz` returns HTTP 200 when the process is alive.
-- `/readyz` returns HTTP 200 when the startup checks and downstream MCP readiness checks have passed.
+- `/readyz` returns HTTP 200 when the existing startup readiness policy allows
+  work. The stdio startup probe skips protocol discovery, so this can be ready
+  before the child has answered initialize or tools/list.
+- `/health/mcp` reports discovery actually observed from the main stdio child;
+  `/health?details=true` also explains polling, uploads, queues, and active
+  work. Reads never initiate discovery. See [component health](health.md).
 - `/ui` gives you the local operator dashboard.
 
 If `doctor --explain` says the runtime key is missing, fix `CONTROL_PLANE_API_KEY`.

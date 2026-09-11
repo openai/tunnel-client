@@ -743,6 +743,23 @@ later OAuth discovery commands or registry mutations.
 
 ## Health/admin server
 
+See [local health and component details](health.md) for the route contract,
+HTTP and Unix examples, and component meanings. Existing `/healthz`, `/readyz`,
+and `/metrics` behavior is unchanged.
+
+- **Show component details by default**
+  - Flag: `--health.show-details`
+  - Env: `HEALTH_SHOW_DETAILS`
+  - YAML: `health.show_details`
+  - Default: `false`, in all three binary flavors.
+  - Precedence: explicit flag, environment, YAML/profile, default. Explicit
+    false overrides true from a lower-precedence source.
+  - `/health?details=true` and `/health?details=false` override the default for
+    one request. `/health/mcp` always returns component details.
+  - All new `/health` routes require loopback TCP or the configured Unix
+    socket. This setting controls output only; it does not initiate probes or
+    expand access, including when `--allow-remote-ui` is set.
+
 - **Listen address**
   - Flag: `--health.listen-addr`
   - Env: `HEALTH_LISTEN_ADDR`

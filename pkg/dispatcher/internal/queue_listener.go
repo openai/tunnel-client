@@ -45,13 +45,20 @@ func (p *antsWorkerPool) Running() int { return p.base.Running() }
 // QueueListener drains the polled command queue and forwards work to the processor
 // using a bounded worker pool.
 type QueueListener struct {
-	logger    *slog.Logger
-	processor Processor
-	queue     controlplane.PolledCommandQueue
-	pool      workerPool
-	metrics   *queueListenerMetrics
+	logger         *slog.Logger
+	processor      Processor
+	queue          controlplane.PolledCommandQueue
+	pool           workerPool
+	metrics        *queueListenerMetrics
+	queueHealth    *controlplane.QueueHealth
+	activityHealth *ActivityHealth
 
 	listenerWG sync.WaitGroup
+}
+
+// ObserveHealth attaches observers before Start; it does not change work scheduling.
+func (l *QueueListener) ObserveHealth(queue *controlplane.QueueHealth, activity *ActivityHealth) {
+	l.queueHealth, l.activityHealth = queue, activity
 }
 
 type queueListenerMetrics struct {
@@ -158,6 +165,7 @@ func newQueueListener(logger *slog.Logger, processor Processor, queue controlpla
 
 // Start begins draining the queue until the provided context is canceled or the queue is closed.
 func (l *QueueListener) Start(ctx context.Context) {
+	l.activityHealth.Accepting(true)
 	l.listenerWG.Add(1)
 	go func() {
 		defer l.listenerWG.Done()
@@ -172,10 +180,12 @@ func (l *QueueListener) Wait() {
 
 func (l *QueueListener) run(ctx context.Context) {
 	defer func() {
+		l.activityHealth.Accepting(false)
 		if err := l.pool.ReleaseTimeout(poolReleaseTimeout); err != nil {
 			l.logger.WarnContext(ctx, "failed to release dispatcher worker pool",
 				slog.String("error", err.Error()))
 		}
+		l.activityHealth.Stopped()
 	}()
 
 	for {
@@ -186,6 +196,7 @@ func (l *QueueListener) run(ctx context.Context) {
 			if !ok {
 				return
 			}
+			l.queueHealth.Dequeued(time.Now())
 
 			requestID := cmd.RequestID().String()
 			cmdCopy := cmd
@@ -196,7 +207,7 @@ func (l *QueueListener) run(ctx context.Context) {
 			cmdLogger := tclog.LoggerWithContextIdentifiers(cmdCtx, l.logger)
 
 			if err := l.pool.Submit(func() {
-				if err := l.processor.Process(cmdCtx, cmdCopy); err != nil {
+				if err := l.processObserved(cmdCtx, cmdCopy); err != nil {
 					cmdLogger.WarnContext(cmdCtx, "failed to process polled command",
 						slog.String("error", err.Error()))
 				}
@@ -205,7 +216,7 @@ func (l *QueueListener) run(ctx context.Context) {
 					slog.String("error", err.Error()))
 				// We already pulled the command off the queue, and tunnel-service will not re-deliver.
 				// Fall back to processing in-line to avoid dropping the request on the floor.
-				if err := l.processor.Process(cmdCtx, cmdCopy); err != nil {
+				if err := l.processObserved(cmdCtx, cmdCopy); err != nil {
 					cmdLogger.WarnContext(cmdCtx, "failed to process polled command (inline fallback after submit failure)",
 						slog.String("error", err.Error()))
 				}
@@ -213,4 +224,23 @@ func (l *QueueListener) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (l *QueueListener) processObserved(ctx context.Context, cmd controlplane.PolledCommand) (err error) {
+	if l.activityHealth == nil {
+		return l.processor.Process(ctx, cmd)
+	}
+	slot := l.activityHealth.begin(time.Now())
+	outcome := &workOutcome{}
+	ctx = context.WithValue(ctx, workOutcomeKey{}, outcome)
+	finished := false
+	defer func() {
+		if err != nil {
+			recordWorkFailure(ctx, err, 0)
+		}
+		l.activityHealth.finish(slot, time.Now(), !finished || outcome.failed, outcome.timedOut)
+	}()
+	err = l.processor.Process(ctx, cmd)
+	finished = true
+	return err
 }

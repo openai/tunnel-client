@@ -76,6 +76,35 @@ See [`permissions.md`](permissions.md) for role and group setup.
 
 ## Debug why `/readyz` is failing
 
+For component evidence, read the local
+[`/health?details=true` or `/health/mcp` snapshot](health.md):
+
+```sh
+curl -fsS 'http://127.0.0.1:8080/health?details=true'
+curl -fsS 'http://127.0.0.1:8080/health/mcp'
+```
+
+- **Live and ready, MCP not observed:** stdio startup skips discovery. Only
+  ordinary forwarded initialize and tools/list traffic establishes same-child
+  evidence. Repeated health reads cannot make discovery happen.
+- **Poll failures:** inspect `control-plane` for completed failures and backoff.
+  A current long poll or paused polling under queue pressure is not an outage.
+- **Results missing despite successful polling:** inspect `response-delivery`.
+  Polls and response uploads can fail independently; a benign 404 completion
+  does not mean a new upload was accepted.
+- **Backlog:** `queue` depth counts local waiting commands. A full queue means
+  backpressure and does not change readiness by itself.
+- **Empty queue but work in progress:** inspect `dispatcher` active operations
+  and oldest active age. This counts real work, not idle worker goroutines;
+  age by itself does not establish that an operation is stuck.
+- **Old or partial evidence:** check observation timestamps, child generation,
+  and `complete`/`partial`/`limited` fields. Missing names from a partial catalog
+  are not proof that the server lacks those tools.
+
+Each component endpoint returns its value at `/health/{component}`. These
+snapshots return 200 even for degraded components; use `/readyz` for an HTTP
+readiness gate. Older runtimes may return 404 for the new diagnostics.
+
 If you are debugging why `/readyz` is failing or why the client never becomes
 "healthy/ready", start here:
 

@@ -32,13 +32,16 @@ func newStdioTransportProvider(p stdioProviderParams) TransportProvider {
 type stdioCommandTransportParams struct {
 	fx.In
 
-	Lifecycle  fx.Lifecycle
-	Shutdowner fx.Shutdowner
-	Logger     *slog.Logger
+	Lifecycle   fx.Lifecycle
+	Shutdowner  fx.Shutdowner
+	Logger      *slog.Logger
+	Observation *ProtocolObservation `optional:"true"`
 }
 
 func newStdioCommandTransportFactoryProvider(p stdioCommandTransportParams) *stdioCommandTransportFactory {
-	return newStdioCommandTransportFactory(p.Logger, p.Lifecycle, p.Shutdowner)
+	factory := newStdioCommandTransportFactory(p.Logger, p.Lifecycle, p.Shutdowner)
+	factory.observation = p.Observation
+	return factory
 }
 
 func newChannelStdioRuntimeInfoProvider(factory *stdioCommandTransportFactory) ChannelStdioRuntimeInfoProvider {

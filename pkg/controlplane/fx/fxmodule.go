@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
 
 	"github.com/openai/tunnel-client/pkg/controlplane"
 	"github.com/openai/tunnel-client/pkg/controlplane/internal"
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	tclog "github.com/openai/tunnel-client/pkg/log"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
 	"github.com/openai/tunnel-client/pkg/mcpserverinfo"
@@ -26,7 +28,10 @@ import (
 // Module wires control-plane polling into the Fx graph.
 var Module = fx.Module(
 	"controlplane",
-	fx.Provide(newMetadataState, newTunnelServiceClient, newPoller),
+	fx.Provide(newMetadataState, newTunnelServiceClient, newPoller, controlplane.NewPollHealth, controlplane.NewDeliveryHealth,
+		fx.Annotate(func(s *controlplane.PollHealth) healthstate.Component { return s }, fx.ResultTags(`group:"runtime_health_components"`)),
+		fx.Annotate(func(s *controlplane.DeliveryHealth) healthstate.Component { return s }, fx.ResultTags(`group:"runtime_health_components"`)),
+	),
 	fx.Invoke(runMetadataFetch, runPoller),
 )
 
@@ -40,7 +45,9 @@ type fetcherParams struct {
 	Logging                         *runtimeconfig.LoggingConfig
 	Logger                          *slog.Logger
 	MeterProvider                   *sdkmetric.MeterProvider
-	LegacyHarpoonProtocolForTesting bool `name:"legacy_harpoon_protocol_for_testing" optional:"true"`
+	PollHealth                      *controlplane.PollHealth     `optional:"true"`
+	DeliveryHealth                  *controlplane.DeliveryHealth `optional:"true"`
+	LegacyHarpoonProtocolForTesting bool                         `name:"legacy_harpoon_protocol_for_testing" optional:"true"`
 }
 
 type clientResult struct {
@@ -79,6 +86,7 @@ func newTunnelServiceClient(p fetcherParams) (clientResult, error) {
 	if err != nil {
 		return clientResult{}, err
 	}
+	client.ObserveHealth(p.PollHealth, p.DeliveryHealth)
 	route := proxy.ResolveRoute(proxy.RouteKindControlPlane, "control-plane", p.Config.BaseURL, p.Config.HTTPProxy, p.Config.HTTPProxySource, os.LookupEnv)
 	logFields := []any{
 		slog.String("route_kind", string(route.Kind)),
@@ -212,6 +220,8 @@ type pollerParams struct {
 	Fetcher            controlplane.Fetcher
 	Logger             *slog.Logger
 	MeterProvider      *sdkmetric.MeterProvider
+	Health             *controlplane.PollHealth  `optional:"true"`
+	QueueHealth        *controlplane.QueueHealth `optional:"true"`
 }
 
 func newPoller(p pollerParams) (internal.Poller, error) {
@@ -222,10 +232,11 @@ func newPoller(p pollerParams) (internal.Poller, error) {
 	queue := &queueAdapter{
 		queue:  p.PolledCommandQueue,
 		logger: logger,
+		health: p.QueueHealth,
 	}
 	meter := p.MeterProvider.Meter("controlplane")
 	pollTimeout := p.Config.PollTimeoutOrDefault()
-	return internal.NewPoller(queue, p.Fetcher, logger, meter, pollTimeout, p.Config.PollDeadlineGuardrail, p.Config.PollBackoffMin, p.Config.PollBackoffMax)
+	return internal.NewPoller(queue, p.Fetcher, logger, meter, pollTimeout, p.Config.PollDeadlineGuardrail, p.Config.PollBackoffMin, p.Config.PollBackoffMax, p.Health)
 }
 
 type runnerParams struct {
@@ -390,6 +401,7 @@ func waitForMCPStartupBeforePolling(
 type queueAdapter struct {
 	queue  controlplane.PolledCommandQueue
 	logger *slog.Logger
+	health *controlplane.QueueHealth
 }
 
 func (q *queueAdapter) Capacity() int {
@@ -405,6 +417,9 @@ func (q *queueAdapter) Enqueue(ctx context.Context, cmd controlplane.PolledComma
 	case <-ctx.Done():
 		return false
 	case q.queue <- cmd:
+		q.health.Enqueued(time.Now())
 		return true
 	}
 }
+
+func (q *queueAdapter) Backpressure(now time.Time, active bool) { q.health.Backpressure(now, active) }

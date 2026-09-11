@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openai/tunnel-client/pkg/headerscope"
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	tclog "github.com/openai/tunnel-client/pkg/log"
 	tcmetrics "github.com/openai/tunnel-client/pkg/metrics"
 	"github.com/openai/tunnel-client/pkg/runtimeconfig"
@@ -33,6 +34,8 @@ var Module = fx.Module(
 	"mcpclient",
 	fx.Provide(
 		NewProbeState,
+		NewProtocolObservation,
+		fx.Annotate(func(observation *ProtocolObservation) healthstate.Component { return observation }, fx.ResultTags(`group:"runtime_health_components"`)),
 		newMcpClient,
 		newStdioCommandTransportFactoryProvider,
 		newChannelStdioRuntimeInfoProvider,

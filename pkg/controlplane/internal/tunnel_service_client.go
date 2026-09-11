@@ -83,6 +83,13 @@ type TunnelServiceClient struct {
 	managedCloudflareRetryAttempts int
 	newManagedCloudflareBackoff    func() *backoff.Backoff
 	retrySleep                     func(context.Context, time.Duration) bool
+	pollHealth                     *controlplane.PollHealth
+	deliveryHealth                 *controlplane.DeliveryHealth
+}
+
+// ObserveHealth attaches process-local observers before the client starts work.
+func (c *TunnelServiceClient) ObserveHealth(poll *controlplane.PollHealth, delivery *controlplane.DeliveryHealth) {
+	c.pollHealth, c.deliveryHealth = poll, delivery
 }
 
 // NewTunnelServiceClient constructs an HTTP-backed client using the provided runtimeconfig.
@@ -584,7 +591,19 @@ func buildControlPlaneHTTPTransportWithLogging(cfg *runtimeconfig.ControlPlaneCo
 }
 
 // PostResponse acknowledges the provided request with the JSON-RPC response.
-func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.RequestID, response *types.TunnelResponse) (types.TunnelServiceRequestID, error) {
+func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.RequestID, response *types.TunnelResponse) (serviceRequestID types.TunnelServiceRequestID, returnErr error) {
+	c.deliveryHealth.Begin()
+	disposition, healthStatus := "failed", 0
+	defer func() {
+		category := ""
+		if returnErr != nil {
+			category, _ = healthFailure(returnErr)
+		}
+		if errors.Is(returnErr, context.Canceled) {
+			disposition = "canceled"
+		}
+		c.deliveryHealth.Finish(c.nowTime(), disposition, category, healthStatus)
+	}()
 	if requestID == "" {
 		return "", errors.New("controlplane responder: requestID is required")
 	}
@@ -673,8 +692,12 @@ func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.
 			}))
 		}
 
+		c.deliveryHealth.Attempt(attempt > 1)
 		resp, err := c.client.Do(attemptReq)
 		if err != nil {
+			category, status := healthFailure(err)
+			healthStatus = status
+			c.deliveryHealth.AttemptFailed(c.nowTime(), category, status)
 			// A notification remains non-final after tunnel-service accepts it. Once
 			// its request was written, a transport failure has ambiguous commit state;
 			// replaying it can enqueue the same notification twice.
@@ -693,16 +716,20 @@ func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.
 			logger = tclog.LoggerWithContextIdentifiers(ctx, c.logger)
 		}
 
+		healthStatus = resp.StatusCode
 		switch resp.StatusCode {
 		case http.StatusOK:
+			disposition = "accepted"
 			_ = resp.Body.Close()
 			logger.DebugContext(ctx, "posted response to control-plane")
 			return tunnelServiceRequestID, nil
 		case http.StatusNotFound:
+			disposition = "already_fulfilled_or_unknown"
 			_ = resp.Body.Close()
 			logger.WarnContext(ctx, "response already fulfilled or unknown request")
 			return tunnelServiceRequestID, nil
 		default:
+			c.deliveryHealth.AttemptFailed(c.nowTime(), "http_error", resp.StatusCode)
 			statusErr := newAPIStatusError("controlplane responder: unexpected status", resp, c.nowTime())
 			_ = resp.Body.Close()
 			if !isRetryableResponseStatus(resp.StatusCode) || attempt == attempts ||
@@ -811,6 +838,7 @@ func (c *TunnelServiceClient) Poll(ctx context.Context, limit int) ([]controlpla
 	if !c.initialPollStarted.Swap(true) {
 		requestedPollTimeout = min(pollTimeout, c.initialPollTimeout)
 	}
+	c.pollHealth.RequestLimits(requestedPollTimeout, c.pollDeadlineFor(pollTimeout))
 	query := req.URL.Query()
 	query.Set("limit", strconv.Itoa(limit))
 	query.Set("timeout_ms", strconv.FormatInt(pollTimeoutMilliseconds(requestedPollTimeout), 10))

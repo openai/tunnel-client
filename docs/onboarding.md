@@ -255,8 +255,14 @@ In another shell:
 ```bash
 curl -fsS "http://127.0.0.1:8080/healthz"
 curl -fsS "http://127.0.0.1:8080/readyz"
+curl -fsS 'http://127.0.0.1:8080/health?details=true'
 curl -fsS "http://127.0.0.1:8080/metrics" | head
 ```
+
+For same-child stdio discovery evidence, read `/health/mcp`. A ready stdio
+runtime may still have `state: "not_observed"` until discovery is forwarded.
+See [local component health](health.md) for the default-false detail flag,
+Unix-socket examples, and the meaning of each component.
 
 ## 7) Next reads
 

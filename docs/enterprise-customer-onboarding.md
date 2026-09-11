@@ -424,6 +424,14 @@ spec:
 
 ### Health and metrics
 
+Local `GET /health?details=true` gives bounded component diagnostics;
+`GET /health/mcp` shows observed main stdio discovery. Plain `/health` is compact
+unless `--health.show-details=true` (`HEALTH_SHOW_DETAILS`, YAML
+`health.show_details`) is enabled; the default is false. These routes require
+loopback TCP or the configured Unix socket and do not start probes. Keep the
+orchestrator's `/healthz` and `/readyz` probes unchanged. See the
+[health reference](health.md) for copy/paste examples and interpretation.
+
 The tunnel client exposes:
 
 - `GET /healthz`

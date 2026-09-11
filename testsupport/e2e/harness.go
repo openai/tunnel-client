@@ -25,6 +25,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/app"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/dispatcher"
 	"github.com/openai/tunnel-client/pkg/harpoon"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
 	"github.com/openai/tunnel-client/pkg/oauth"
@@ -193,26 +194,30 @@ func WithMCPCommand(commandArgs []string) HarnessOption {
 
 // Harness wires together the mock control plane, mock MCP server, and a running tunnel-client.
 type Harness struct {
-	ControlPlane    *mocktunnelservice.MockTunnelService
-	MCP             *mockmcpserver.MockMCPServer
-	HarpoonRegistry *harpoon.Registry
-	MCPProbeState   *mcpclient.ProbeState
-	OAuthState      *oauth.DiscoveryState
-	cfg             *config.Config
-	app             *fxtest.App
-	clients         []*TunnelClient
-	waitTimeout     time.Duration
-	tunnelStarted   bool
-	mcpStarted      bool
-	inMemoryMCP     *mcp.InMemoryTransport
-	useHarpoon      bool
-	preserveURLs    bool
-	beforeStart     func(*Harness)
-	afterStart      func(*Harness)
-	beforeStop      func(*Harness)
-	commandObserver func(controlplane.PolledCommand)
-	logWriter       io.Writer
-	logBuffer       *lockedBuffer
+	ControlPlane     *mocktunnelservice.MockTunnelService
+	MCP              *mockmcpserver.MockMCPServer
+	HarpoonRegistry  *harpoon.Registry
+	MCPProbeState    *mcpclient.ProbeState
+	OAuthState       *oauth.DiscoveryState
+	PollHealth       *controlplane.PollHealth
+	DeliveryHealth   *controlplane.DeliveryHealth
+	QueueHealth      *controlplane.QueueHealth
+	DispatcherHealth *dispatcher.ActivityHealth
+	cfg              *config.Config
+	app              *fxtest.App
+	clients          []*TunnelClient
+	waitTimeout      time.Duration
+	tunnelStarted    bool
+	mcpStarted       bool
+	inMemoryMCP      *mcp.InMemoryTransport
+	useHarpoon       bool
+	preserveURLs     bool
+	beforeStart      func(*Harness)
+	afterStart       func(*Harness)
+	beforeStop       func(*Harness)
+	commandObserver  func(controlplane.PolledCommand)
+	logWriter        io.Writer
+	logBuffer        *lockedBuffer
 }
 
 type lockedBuffer struct {
@@ -624,14 +629,18 @@ func (h *Harness) startTunnelClient(t testing.TB) *TunnelClient {
 	}
 	poller := newPollerControl()
 	var (
-		harpoonRegistry *harpoon.Registry
-		mcpProbeState   *mcpclient.ProbeState
-		oauthState      *oauth.DiscoveryState
+		harpoonRegistry  *harpoon.Registry
+		mcpProbeState    *mcpclient.ProbeState
+		oauthState       *oauth.DiscoveryState
+		pollHealth       *controlplane.PollHealth
+		deliveryHealth   *controlplane.DeliveryHealth
+		queueHealth      *controlplane.QueueHealth
+		dispatcherHealth *dispatcher.ActivityHealth
 	)
 	options := []fx.Option{
 		fx.Provide(func() io.Writer { return logWriter }),
 		fx.WithLogger(func(*slog.Logger) fxevent.Logger { return fxevent.NopLogger }),
-		fx.Populate(&harpoonRegistry, &mcpProbeState, &oauthState),
+		fx.Populate(&harpoonRegistry, &mcpProbeState, &oauthState, &pollHealth, &deliveryHealth, &queueHealth, &dispatcherHealth),
 		fx.Decorate(func(fetcher controlplane.Fetcher) controlplane.Fetcher {
 			return poller.wrap(fetcher, h.commandObserver)
 		}),
@@ -660,6 +669,10 @@ func (h *Harness) startTunnelClient(t testing.TB) *TunnelClient {
 		h.HarpoonRegistry = harpoonRegistry
 		h.MCPProbeState = mcpProbeState
 		h.OAuthState = oauthState
+		h.PollHealth = pollHealth
+		h.DeliveryHealth = deliveryHealth
+		h.QueueHealth = queueHealth
+		h.DispatcherHealth = dispatcherHealth
 	}
 	return client
 }

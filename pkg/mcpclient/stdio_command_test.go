@@ -57,6 +57,8 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	lifecycle := &stubLifecycle{}
 	shutdowner := &stubShutdowner{}
 	transport := newStdioCommandTransport(slog.New(slog.NewTextHandler(io.Discard, nil)), lifecycle, shutdowner)
+	observation := NewProtocolObservation(&config.MCPConfig{TransportKind: config.MCPTransportStdio}, nil)
+	transport.observation = observation
 
 	commandArgs := helperCommandArgs()
 	cfg := &config.MCPConfig{
@@ -72,6 +74,9 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	require.NotNil(t, hook.OnStop)
 
 	require.NoError(t, hook.OnStart(context.Background()))
+	require.Equal(t, "running", observationDetails(observation).ChildState)
+	require.Len(t, observationDetails(observation).ChildGeneration, 32)
+	require.False(t, observationDetails(observation).Initialize.OK)
 
 	transport.mu.Lock()
 	started := transport.started
@@ -84,6 +89,7 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, hook.OnStop(stopCtx))
+	require.Equal(t, "closed", observationDetails(observation).ChildState)
 }
 
 func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
@@ -93,6 +99,8 @@ func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	lifecycle := &stubLifecycle{}
 	shutdowner := &stubShutdowner{ch: make(chan struct{}, 1)}
 	transport := newStdioCommandTransport(slog.New(slog.NewTextHandler(io.Discard, nil)), lifecycle, shutdowner)
+	observation := NewProtocolObservation(&config.MCPConfig{TransportKind: config.MCPTransportStdio}, nil)
+	transport.observation = observation
 
 	commandArgs := helperCommandArgs()
 	cfg := &config.MCPConfig{
@@ -118,6 +126,7 @@ func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("expected shutdown request after command exit")
 	}
+	require.Equal(t, "closed", observationDetails(observation).ChildState)
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

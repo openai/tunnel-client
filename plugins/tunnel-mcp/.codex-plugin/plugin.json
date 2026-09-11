@@ -1,6 +1,6 @@
 {
   "name": "tunnel-mcp",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Create, connect, list, and inspect secure MCP tunnels from Codex using tunnel-client.",
   "author": {
     "name": "OpenAI",

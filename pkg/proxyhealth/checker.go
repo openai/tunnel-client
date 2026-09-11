@@ -50,6 +50,9 @@ type CheckRecord struct {
 	ErrorPhase         string    `json:"error_phase,omitempty"`
 	ErrorReason        string    `json:"error_reason,omitempty"`
 	HTTPStatusCategory string    `json:"http_status_category,omitempty"`
+	// Keep the legacy phase/metric contract while the component API can
+	// distinguish a failed TLS handshake from a rejected CONNECT request.
+	tlsFailure bool
 }
 
 // RouteHealthSummary reports health and recent checks for a route.
@@ -70,18 +73,21 @@ type Snapshotter interface {
 
 // Checker runs proxy health checks.
 type Checker struct {
-	logger        *slog.Logger
-	interval      time.Duration
-	routes        []proxy.Route
-	identityMap   []proxy.IdentityRecord
-	metrics       *proxyMetrics
-	statusMu      sync.RWMutex
-	routeStatus   map[string]*routeStatus
-	started       bool
-	startStopMu   sync.Mutex
-	meterProvider *sdkmetric.MeterProvider
-	tlsBundle     *tlsconfig.Bundle
-	cancel        context.CancelFunc
+	logger                                     *slog.Logger
+	interval                                   time.Duration
+	routes                                     []proxy.Route
+	identityMap                                []proxy.IdentityRecord
+	metrics                                    *proxyMetrics
+	statusMu                                   sync.RWMutex
+	routeStatus                                map[string]*routeStatus
+	healthCountsInitialized                    bool
+	healthLastCheck                            time.Time
+	healthProxied, healthPending, healthFailed int
+	started                                    bool
+	startStopMu                                sync.Mutex
+	meterProvider                              *sdkmetric.MeterProvider
+	tlsBundle                                  *tlsconfig.Bundle
+	cancel                                     context.CancelFunc
 }
 
 type routeStatus struct {
@@ -110,8 +116,9 @@ type checkerParams struct {
 var Module = fx.Module(
 	"proxyhealth",
 	fx.Provide(newChecker),
+	fx.Provide(newComponentHealth, fx.Annotate(asComponentHealth, fx.ResultTags(`group:"runtime_health_components"`))),
 	fx.Provide(func(checker *Checker) Snapshotter { return checker }),
-	fx.Invoke(startChecker),
+	fx.Invoke(attachComponentHealth, startChecker),
 )
 
 func newChecker(p checkerParams) (*Checker, error) {
@@ -254,6 +261,8 @@ func (c *Checker) checkProxyRoute(ctx context.Context, route proxy.Route) (Check
 	record.HTTPStatusCategory = statusCategory
 	if err != nil {
 		record.ErrorPhase = "connect"
+		var tlsError *proxyTLSHandshakeError
+		record.tlsFailure = errors.As(err, &tlsError)
 		record.ErrorReason = classifyConnectError(err)
 		if statusCategory != "" {
 			record.ErrorReason = "bad_status"
@@ -280,6 +289,10 @@ func proxyTLSConfig(bundle *tlsconfig.Bundle) *tls.Config {
 	return &tls.Config{RootCAs: bundle.RootCAs}
 }
 
+type proxyTLSHandshakeError struct{ error }
+
+func (e *proxyTLSHandshakeError) Unwrap() error { return e.error }
+
 func connectThroughProxyWithTLSConfig(conn net.Conn, proxyURL *url.URL, targetHostPort string, timeout time.Duration, tlsConfig *tls.Config) (time.Duration, string, error) {
 	if conn == nil {
 		return 0, "", errors.New("missing connection")
@@ -298,7 +311,7 @@ func connectThroughProxyWithTLSConfig(conn net.Conn, proxyURL *url.URL, targetHo
 		}
 		tlsConn := tls.Client(conn, config)
 		if err := tlsConn.Handshake(); err != nil {
-			return time.Since(start), "", fmt.Errorf("tls handshake with proxy: %w", err)
+			return time.Since(start), "", &proxyTLSHandshakeError{fmt.Errorf("tls handshake with proxy: %w", err)}
 		}
 		proxyConn = tlsConn
 	}
@@ -370,6 +383,19 @@ func (c *Checker) recordResult(route proxy.Route, record CheckRecord, success bo
 	status := c.routeStatus[routeKey(route)]
 	if status == nil {
 		return
+	}
+	if c.healthCountsInitialized && status.healthState != HealthStateDirect {
+		if status.lastCheck.IsZero() {
+			c.healthPending--
+		} else if status.healthState == HealthStateUnhealthy {
+			c.healthFailed--
+		}
+		if !success {
+			c.healthFailed++
+		}
+	}
+	if record.Timestamp.After(c.healthLastCheck) {
+		c.healthLastCheck = record.Timestamp
 	}
 	status.lastCheck = record.Timestamp
 	if success {

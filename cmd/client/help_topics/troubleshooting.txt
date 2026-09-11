@@ -4,11 +4,17 @@ Start with the local operator surfaces before changing config:
   tunnel-client health --url-file /tmp/tunnel-client-health.url
   curl -fsS http://127.0.0.1:8080/healthz
   curl -fsS http://127.0.0.1:8080/readyz
+  curl -fsS 'http://127.0.0.1:8080/health?details=true'
+  curl -fsS http://127.0.0.1:8080/health/mcp
   open http://127.0.0.1:8080/ui
 
 How to read the result:
   - /healthz is liveness only. "200 live" means the process is running.
   - /readyz includes startup gates for OAuth discovery and MCP probing.
+  - /health?details=true reports MCP, polling, uploads, queues, and active work.
+  - /health/mcp reports observed main stdio discovery; health reads never probe.
+  - Stdio can be ready before discovery is observed. Check timestamps and limits.
+  - Plain /health is compact by default; --health.show-details defaults to false.
   - The admin UI shows status, OAuth discovery state, channel routing, logs, and metrics.
 
 Common startup errors:

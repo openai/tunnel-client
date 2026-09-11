@@ -1,12 +1,8 @@
 # Runtime flows
 
-Use `tunnel-client runtimes ...` for native runtime lifecycle management. The
-plugin router is only a thin wrapper over this command family.
+Use `tunnel-client runtimes ...` for native runtime lifecycle management. The plugin router is only a thin wrapper over this command family.
 
-Use `tunnel-client run ...` when you intentionally want a foreground daemon
-attached to the current terminal. For a long-lived local runtime managed by
-Codex, prefer `tunnel-client runtimes connect ...`; do not use `nohup` or
-`disown` as the tunnel-client supervision path.
+Use `tunnel-client run ...` when you intentionally want a foreground daemon attached to the current terminal. For a long-lived local runtime managed by Codex, prefer `tunnel-client runtimes connect ...`; do not use `nohup` or `disown` as the tunnel-client supervision path.
 
 Create or reuse a remote tunnel alias:
 
@@ -33,20 +29,14 @@ Inspect, list, or stop managed local runtimes:
 - `tunnel-client runtimes cleanup`
 - `tunnel-client runtimes cleanup --apply`
 
-`connect` success means the local runtime is actually launched and health is
-reachable, not merely that a launch command was issued.
+`connect` success means the local runtime is actually launched and health is reachable, not merely that a launch command was issued.
 
-After `runtimes connect`, run `tunnel-client runtimes status <alias>` before
-reporting success. Only report success when status shows the managed runtime
-running with health reported. Use `--json` when Codex needs explicit
-`process_running`, `healthy`, and `ready` fields.
+After `runtimes connect`, run `tunnel-client runtimes status <alias>` before reporting success. Only report success when status shows the managed runtime running with health reported. Use `--json` when Codex needs explicit `process_running`, `healthy`, and `ready` fields.
 
-The MCP app server exposes `list_runtime_aliases` as the first-class tool for
-`tunnel-client runtimes list`.
+The MCP app server exposes `list_runtime_aliases` as the first-class tool for `tunnel-client runtimes list`.
 
-`status` reports structured `repair_actions`, live-admin reconciliation when a
-stored health URL is stale, selected/live binary fields, launch diagnostics, and
-`control_plane_poll_health` separately from local `/healthz` and `/readyz`.
+`status` reports structured `repair_actions`, live-admin reconciliation when a stored health URL is stale, selected/live binary fields, launch diagnostics, and `control_plane_poll_health` separately from local `/healthz` and `/readyz`.
 
-`cleanup --apply` only removes aliases classified as `stale_alias`. It leaves
-`live_runtime`, `valid_profile`, and `missing_profile` entries in place.
+When a runtime confirms support, connect/status JSON also includes `health_details_url` (`/health?details=true`) and `mcp_health_url` (`/health/mcp`). Use these returned URLs, including encoded Unix socket URLs, instead of appending paths to `health_url`. Older runtimes omit these additive fields; `healthy` and `ready` retain their meanings. Detailed snapshots describe observations and never send MCP traffic. For stdio, ready can be true while MCP discovery remains `not_observed`.
+
+`cleanup --apply` only removes aliases classified as `stale_alias`. It leaves `live_runtime`, `valid_profile`, and `missing_profile` entries in place.

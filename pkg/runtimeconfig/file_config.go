@@ -61,9 +61,10 @@ type fileLogConfig struct {
 }
 
 type fileHealthConfig struct {
-	ListenAddr *string `yaml:"listen_addr"`
-	UnixSocket *string `yaml:"unix_socket"`
-	URLFile    *string `yaml:"url_file"`
+	ListenAddr  *string `yaml:"listen_addr"`
+	UnixSocket  *string `yaml:"unix_socket"`
+	URLFile     *string `yaml:"url_file"`
+	ShowDetails *bool   `yaml:"show_details"`
 }
 
 // fileAdminUICompat is parsed here so one strict YAML schema owns profile
@@ -309,6 +310,7 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 		return nil, err
 	}
 	setString(env, "HEALTH_URL_FILE", c.Health.URLFile)
+	setBool(env, "HEALTH_SHOW_DETAILS", c.Health.ShowDetails)
 	setBool(env, "ALLOW_REMOTE_UI", c.AdminUI.AllowRemote)
 	setBool(env, "OPEN_WEB_UI", c.AdminUI.OpenBrowser)
 	setInt(env, "ADMIN_UI_LOG_BUFFER_EVENTS", c.AdminUI.LogBufferEvents)

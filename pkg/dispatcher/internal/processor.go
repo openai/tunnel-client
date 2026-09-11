@@ -98,6 +98,9 @@ type responsePostResult struct {
 // even when the post fails.
 func (p *mcpProcessor) postTunnelResponse(ctx context.Context, requestID types.RequestID, response *types.TunnelResponse) responsePostResult {
 	tunnelServiceRequestID, err := p.tunnelResponder.PostResponse(ctx, requestID, response)
+	if err != nil {
+		recordWorkFailure(ctx, err, 0)
+	}
 	return responsePostResult{
 		tunnelServiceRequestID: tunnelServiceRequestID,
 		err:                    err,
@@ -329,6 +332,7 @@ func (p *mcpProcessor) Process(ctx context.Context, cmd controlplane.PolledComma
 	}
 	defer cancel()
 	if errors.Is(context.Cause(ctx), errResponseDeadlineExceeded) {
+		recordWorkFailure(ctx, context.DeadlineExceeded, 0)
 		logger.InfoContext(ctx, "dropping command whose response deadline has passed")
 		return nil
 	}
@@ -340,6 +344,7 @@ func (p *mcpProcessor) Process(ctx context.Context, cmd controlplane.PolledComma
 			return
 		}
 		logger.InfoContext(ctx, "command response deadline reached; dropping without posting a response")
+		recordWorkFailure(ctx, context.DeadlineExceeded, 0)
 		processErr = nil
 	}()
 
@@ -474,6 +479,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	// Establish MCP connection only for JSON-RPC commands.
 	conn, err := channelCfg.transport.Connect(ctx)
 	if err != nil {
+		recordWorkFailure(ctx, err, 0)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -552,6 +558,9 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		return ctx.Err()
 	}
 	statusCode := normalizeTransportStatusCode(writeResult.StatusCode, err)
+	if err != nil || statusCode >= http.StatusBadRequest {
+		recordWorkFailure(ctx, err, statusCode)
+	}
 	respHeader := writeResult.ResponseHeaders
 	if preserved := writeResult.PreservedError; preserved != nil {
 		encodedError := preserved.Payload()
@@ -663,6 +672,7 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 	latencyRecorded := &latencyFlags{}
 
 	if !channelCfg.features.supportsSessionTermination {
+		recordWorkFailure(ctx, nil, http.StatusMethodNotAllowed)
 		tunnelResponse := types.NewSessionTerminationResponse(channel, http.StatusMethodNotAllowed, http.Header{})
 		post := p.postTunnelResponse(ctx, cmd.RequestID(), tunnelResponse)
 		if post.err != nil {
@@ -687,6 +697,9 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 
 	statusCode, respHeader, err := terminator.TerminateSession(ctx, cloneHeaders(cmd.Headers()))
 	statusCode = normalizeTransportStatusCode(statusCode, err)
+	if err != nil || statusCode >= http.StatusBadRequest {
+		recordWorkFailure(ctx, err, statusCode)
+	}
 	if respHeader == nil {
 		respHeader = http.Header{}
 	}
@@ -731,6 +744,9 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to fetch OAuth discovery ProtectedResourceMetaData", slog.String("error", err.Error()))
 		return err
+	}
+	if resp.ResponseCode() >= http.StatusBadRequest {
+		recordWorkFailure(ctx, nil, resp.ResponseCode())
 	}
 
 	if p.hostBus != nil {
@@ -815,6 +831,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		if cause == nil {
 			return
 		}
+		recordWorkFailure(ttlCtx, cause, 0)
 
 		statusCode := http.StatusBadGateway
 		failure := classifyTunnelFailure(0, cause)
@@ -854,6 +871,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 	for {
 		msg, readErr := conn.Read(ttlCtx)
 		if readErr != nil {
+			recordWorkFailure(ttlCtx, readErr, 0)
 			switch {
 			case errors.Is(readErr, mcp.ErrConnectionClosed) || errors.Is(readErr, io.EOF):
 				logger.DebugContext(ctx, "MCP connection closed while reading response", tunnelFailureLogAttrs(classifyTunnelFailure(0, readErr), classifyTransportErrorKind(0, readErr))...)
@@ -884,6 +902,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			}
 			keepForwarding, err := p.forwardNotification(ttlCtx, logger, cmd, responseCode, responseHeaders, notifyMsg, channel)
 			if err != nil {
+				recordWorkFailure(ttlCtx, err, 0)
 				return
 			}
 			notificationForwardingEnabled = keepForwarding

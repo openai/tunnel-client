@@ -228,6 +228,71 @@ Choose the pattern that matches the MCP server's deployment model:
 - **Operations surface**: `pkg/health`, `pkg/metrics`, `pkg/log`, and
   `pkg/process` provide health checks, readiness, Prometheus metrics, structured
   logging, and optional PID-file lifecycle.
+- **Component observations**: `pkg/healthstate` defines shared bounded values;
+  component owners record events during ordinary work and `pkg/runtimehealth`
+  serves snapshots at `/health` and `/health/{component}`. Reading these routes
+  does not send probes. The full client and both runtime flavors share this
+  core; the full client's proxy checker remains an optional provider outside
+  the narrow runtime dependency graph. See [component health](health.md).
+
+## Extend component health
+
+Components implement the shared interface in `pkg/healthstate`:
+
+```go
+type Component interface {
+    Name() string
+    Snapshot(now time.Time) ComponentSnapshot
+}
+```
+
+`Name` is a unique fixed component name. `Snapshot` returns a copied, bounded
+view of observations collected during ordinary work. It must not perform I/O,
+wait for new evidence, or expose mutable internal state.
+
+The owning module registers its provider in the Uber Fx value group
+`runtime_health_components`. For an existing `Observer` implementing
+`healthstate.Component` and its `newObserver` constructor, registration looks
+like this:
+
+```go
+import (
+    "github.com/openai/tunnel-client/pkg/healthstate"
+    "go.uber.org/fx"
+)
+
+var Module = fx.Module(
+    "component-observations",
+    fx.Provide(newObserver),
+    fx.Provide(fx.Annotate(
+        func(observer *Observer) healthstate.Component { return observer },
+        fx.ResultTags(`group:"runtime_health_components"`),
+    )),
+)
+```
+
+At startup, `pkg/runtimehealth` receives the group's providers, validates their
+names and count, and automatically exposes each one in aggregate details and
+at `/health/{component}`. Adding a provider requires no route switch or central
+provider list. The modules included in a binary flavor determine which
+providers are available; an absent component returns 404, while an included
+provider can report `disabled` when its feature is off.
+
+Add new detail shapes in `pkg/healthstate` with explicit JSON fields and the
+package's `healthDetails` marker method. This keeps `ComponentSnapshot.Details`
+restricted to reviewed types. Bound retained strings, collections, counters,
+and encoded size, and disclose omitted evidence through `limited`. Keep field
+order stable and sort unordered collections before applying retention limits
+so identical observations serialize identically. See the
+[health contract](health.md#bounds-and-privacy) for the shared limits.
+
+Every provider inherits the existing local-access policy and detail selection:
+`--health.show-details` defaults to false in all flavors, `details=true` and
+`details=false` override the aggregate representation, and component routes
+always expose details. Registration does not change `/healthz` or `/readyz`;
+readiness remains a separate decision. Readers should check `schema_version`
+and ignore unknown fields and component names within a supported version so
+new diagnostics can be added compatibly.
 
 ## Important behaviors
 

@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/pkg/httpguard"
 	tclog "github.com/openai/tunnel-client/pkg/log"
@@ -108,15 +109,16 @@ func (s *healthService) markBound() {
 type healthParams struct {
 	fx.In
 
-	Lifecycle      fx.Lifecycle
-	MetricExporter metrics.MetricsExporter
-	HealthConfig   *runtimeconfig.HealthConfig
-	Logger         *slog.Logger
-	MeterProvider  *sdkmetric.MeterProvider
-	AdminMux       *http.ServeMux        `name:"admin_mux"`
-	OAuthState     *oauth.DiscoveryState `optional:"true"`
-	MCPProbeState  *mcpclient.ProbeState `optional:"true"`
-	ReadinessGates []ReadinessGate       `group:"runtime_readiness_gates"`
+	Lifecycle        fx.Lifecycle
+	MetricExporter   metrics.MetricsExporter
+	HealthConfig     *runtimeconfig.HealthConfig
+	Logger           *slog.Logger
+	MeterProvider    *sdkmetric.MeterProvider
+	AdminMux         *http.ServeMux          `name:"admin_mux"`
+	OAuthState       *oauth.DiscoveryState   `optional:"true"`
+	MCPProbeState    *mcpclient.ProbeState   `optional:"true"`
+	ReadinessGates   []ReadinessGate         `group:"runtime_readiness_gates"`
+	HealthComponents []healthstate.Component `group:"runtime_health_components"`
 }
 
 func newHealthService(p healthParams) (*healthService, error) {
@@ -137,6 +139,15 @@ func newHealthService(p healthParams) (*healthService, error) {
 	}
 
 	logger := p.Logger.With(tclog.FieldComponent, tclog.ComponentHealth)
+	componentHandler, err := newComponentHealth(p.HealthComponents, p.HealthConfig.ShowDetails, func() bool {
+		return isReady(p.OAuthState, p.MCPProbeState, p.ReadinessGates)
+	})
+	if err != nil {
+		return nil, err
+	}
+	localHealth := httpguard.LocalOnly(componentHandler, "health details are restricted to loopback or a Unix socket")
+	p.AdminMux.Handle("/health", localHealth)
+	p.AdminMux.Handle("/health/", localHealth)
 	p.AdminMux.HandleFunc("/healthz", okHandler("live"))
 	p.AdminMux.HandleFunc("/readyz", readinessHandler(p.OAuthState, p.MCPProbeState, p.ReadinessGates))
 	p.AdminMux.Handle("/metrics", p.MetricExporter)
@@ -210,6 +221,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 				)
 			}
 			logger.InfoContext(ctx, "health server listening", slog.String("addr", srv.Addr))
+			componentHandler.lifecycle.Store(1)
 			go func() {
 				if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					logger.ErrorContext(ctx, "health server error", slog.String("error", err.Error()))
@@ -218,6 +230,7 @@ func newHealthService(p healthParams) (*healthService, error) {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			componentHandler.lifecycle.Store(2)
 			return errors.Join(srv.Shutdown(ctx), service.removeURLFile(), service.removeSocket())
 		},
 	})

@@ -14,6 +14,7 @@ import (
 
 	"github.com/openai/tunnel-client/pkg/controlplane"
 	dispatcherinternal "github.com/openai/tunnel-client/pkg/dispatcher/internal"
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
 	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 	"github.com/openai/tunnel-client/pkg/runtimeharpoon"
@@ -38,6 +39,8 @@ type Result struct {
 	fx.Out
 
 	PolledCommandQueue controlplane.PolledCommandQueue
+	QueueHealth        *controlplane.QueueHealth
+	QueueComponent     healthstate.Component `group:"runtime_health_components"`
 }
 
 func newPolledCommandQueue(p Params) Result {
@@ -46,9 +49,9 @@ func newPolledCommandQueue(p Params) Result {
 		size = p.ControlPlane.MaxInFlightRequests
 	}
 
-	return Result{
-		PolledCommandQueue: make(controlplane.PolledCommandQueue, size),
-	}
+	queue := make(controlplane.PolledCommandQueue, size)
+	health := controlplane.NewQueueHealth(queue)
+	return Result{PolledCommandQueue: queue, QueueHealth: health, QueueComponent: health}
 }
 
 type dispatcherChannelBinding struct {
@@ -76,6 +79,8 @@ var Module = fx.Module(
 		newProcessorChannelBindings,
 		dispatcherinternal.NewProcessor,
 		dispatcherinternal.NewQueueListener,
+		dispatcherinternal.NewActivityHealth,
+		fx.Annotate(func(s *dispatcherinternal.ActivityHealth) healthstate.Component { return s }, fx.ResultTags(`group:"runtime_health_components"`)),
 	),
 	fx.Invoke(startQueueListener),
 )
@@ -159,8 +164,9 @@ func newHarpoonChannelBinding(p harpoonChannelBindingParams) dispatcherChannelBi
 type processorChannelBindingsParams struct {
 	fx.In
 
-	Bindings     []dispatcherChannelBinding `group:"dispatcher_channel_bindings"`
-	ControlPlane *runtimeconfig.ControlPlaneConfig
+	Bindings            []dispatcherChannelBinding `group:"dispatcher_channel_bindings"`
+	ControlPlane        *runtimeconfig.ControlPlaneConfig
+	ProtocolObservation *mcpclient.ProtocolObservation `optional:"true"`
 }
 
 func newProcessorChannelBindings(p processorChannelBindingsParams) (map[types.Channel]dispatcherinternal.ChannelBinding, error) {
@@ -205,6 +211,9 @@ func newProcessorChannelBindings(p processorChannelBindingsParams) (map[types.Ch
 					transport = mcpclient.NewStdioForwardingTransport(transport)
 				} else {
 					transport = mcpclient.NewStdioDeadlineRetiringForwardingTransport(transport)
+				}
+				if canonical == types.DefaultChannel {
+					transport = mcpclient.ObserveStdioForwardingTransport(transport, p.ProtocolObservation)
 				}
 			} else if canonical == types.ChannelHarpoon {
 				transport = mcpclient.NewSerializedForwardingTransport(transport)
@@ -273,14 +282,17 @@ func channelNames(channels []types.Channel) []string {
 type listenerParams struct {
 	fx.In
 
-	Lifecycle fx.Lifecycle
-	Listener  *dispatcherinternal.QueueListener
+	Lifecycle      fx.Lifecycle
+	Listener       *dispatcherinternal.QueueListener
+	QueueHealth    *controlplane.QueueHealth          `optional:"true"`
+	ActivityHealth *dispatcherinternal.ActivityHealth `optional:"true"`
 }
 
 func startQueueListener(p listenerParams) error {
 	if p.Listener == nil {
 		return fmt.Errorf("dispatcher: queue listener is nil")
 	}
+	p.Listener.ObserveHealth(p.QueueHealth, p.ActivityHealth)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -290,6 +302,7 @@ func startQueueListener(p listenerParams) error {
 			return nil
 		},
 		OnStop: func(context.Context) error {
+			p.ActivityHealth.Accepting(false)
 			cancel()
 			p.Listener.Wait()
 			return nil

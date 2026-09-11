@@ -30,6 +30,7 @@ This folder contains customer-facing operator docs and contributor docs for
 ## Operator docs
 
 - **Configuration reference**: [`configuration.md`](configuration.md)
+- **Local health and component details**: [`health.md`](health.md)
 - **Deployments**: [`deployment/overview.md`](deployment/overview.md)
 - **Troubleshooting**: [`troubleshooting.md`](troubleshooting.md)
 - **Connector behavior and pitfalls**: [`connectors.md`](connectors.md)

@@ -133,10 +133,11 @@ func (a *publicationAck) complete(err error) {
 // It is intentionally separate from readiness state: callers may wait for a
 // stricter startup milestone without changing existing health semantics.
 type StartupCatalogState struct {
-	done chan struct{}
-	once sync.Once
-	mu   sync.RWMutex
-	err  error
+	done        chan struct{}
+	once        sync.Once
+	mu          sync.RWMutex
+	err         error
+	completedAt time.Time
 }
 
 // NewStartupCatalogState constructs an unset startup catalog barrier.
@@ -152,9 +153,20 @@ func (s *StartupCatalogState) Complete(err error) {
 	s.once.Do(func() {
 		s.mu.Lock()
 		s.err = err
+		s.completedAt = time.Now().UTC()
 		s.mu.Unlock()
 		close(s.done)
 	})
+}
+
+// Snapshot reads the already settled startup result without waiting for it.
+func (s *StartupCatalogState) Snapshot() (bool, time.Time, error) {
+	if s == nil {
+		return false, time.Time{}, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.completedAt.IsZero(), s.completedAt, s.err
 }
 
 // Wait blocks until startup catalog completion or context cancellation.

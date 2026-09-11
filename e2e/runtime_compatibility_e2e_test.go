@@ -2,18 +2,131 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
 	"github.com/openai/tunnel-client/testsupport/mockproxy"
 )
+
+// TestRuntimeComponentHealthConfigurationCompatibility applies identical
+// profile bytes, environment, flags and requests to each real shipped flavor.
+// The existing scenario assertions also protect legacy probes and wire traffic.
+func TestRuntimeComponentHealthConfigurationCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		flag string
+		want bool
+	}{
+		{name: "default"},
+		{name: "yaml_true", yaml: "true", want: true},
+		{name: "env_false_over_yaml_true", yaml: "true", env: "false"},
+		{name: "env_true_over_yaml_false", yaml: "false", env: "true", want: true},
+		{name: "flag_false_over_true", yaml: "true", env: "true", flag: "false"},
+		{name: "flag_true_over_false", yaml: "false", env: "false", flag: "true", want: true},
+	} {
+		for _, unix := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/unix_%t", tc.name, unix), func(t *testing.T) {
+				t.Parallel()
+				profile, healthFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				data, err := os.ReadFile(profile)
+				require.NoError(t, err)
+				if tc.yaml != "" {
+					data = []byte(strings.Replace(string(data), "health:\n", "health:\n  show_details: "+tc.yaml+"\n", 1))
+				}
+				require.NoError(t, os.WriteFile(profile, data, 0o600))
+				scenario := runtimeScenario{
+					name: "component-health", subjects: subjects, profilePath: profile, healthURLFile: healthFile, pidFile: pidFile,
+					options: runtimeRunOptions{
+						configure: func(t *testing.T, run *runtimeSubjectRun) {
+							if tc.env != "" {
+								run.env["HEALTH_SHOW_DETAILS"] = tc.env
+							}
+							if tc.flag != "" {
+								run.args = append(run.args, "--health.show-details="+tc.flag)
+							}
+							if unix {
+								dir, err := os.MkdirTemp("", "runtime-health-")
+								require.NoError(t, err)
+								t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+								run.args = append(run.args, "--health.unix-socket", filepath.Join(dir, "health.sock"))
+							}
+						},
+						afterReady: func(t *testing.T, run *runtimeSubjectRun) {
+							data, err := os.ReadFile(run.healthURLFile)
+							require.NoError(t, err)
+							target, err := healthurl.Parse(strings.TrimSpace(string(data)))
+							require.NoError(t, err)
+							client, err := target.HTTPClient(2 * time.Second)
+							require.NoError(t, err)
+							defer client.CloseIdleConnections()
+							read := func(path string) map[string]any {
+								status, body := runtimeArtifactResponse(t, client, target.RequestURL(path))
+								require.Equal(t, http.StatusOK, status, body)
+								var payload map[string]any
+								require.NoError(t, json.Unmarshal([]byte(body), &payload))
+								require.Equal(t, float64(1), payload["schema_version"])
+								return payload
+							}
+							plain := read("/health")
+							_, hasComponents := plain["components"]
+							require.Equal(t, tc.want, hasComponents)
+							require.Equal(t, true, plain["live"])
+							require.Equal(t, true, plain["ready"])
+							detailed := read("/health?details=true")
+							components, ok := detailed["components"].(map[string]any)
+							require.True(t, ok)
+							for _, component := range []string{"mcp", "control-plane", "response-delivery", "queue", "dispatcher", "oauth", "harpoon"} {
+								require.Contains(t, components, component)
+							}
+							if run.subject.flavor == "full" {
+								require.Contains(t, components, "proxy")
+							} else {
+								require.NotContains(t, components, "proxy")
+								status, _ := runtimeArtifactResponse(t, client, target.RequestURL("/health/proxy"))
+								require.Equal(t, http.StatusNotFound, status)
+							}
+							if run.subject.flavor == "runtime" {
+								require.NotContains(t, components, "cloudflared")
+								status, _ := runtimeArtifactResponse(t, client, target.RequestURL("/health/cloudflared"))
+								require.Equal(t, http.StatusNotFound, status)
+							} else {
+								require.Contains(t, components, "cloudflared")
+								require.Equal(t, "disabled", read("/health/cloudflared")["status"])
+							}
+							require.NotContains(t, read("/health?details=false"), "components")
+							require.Equal(t, "mcp", read("/health/mcp")["component"])
+							require.Equal(t, "control-plane", read("/health/control-plane")["component"])
+							for _, path := range []string{"/health?details=1", "/health?details=true&details=false", "/health?unknown=true", "/health/mcp?details=true"} {
+								status, _ := runtimeArtifactResponse(t, client, target.RequestURL(path))
+								require.Equal(t, http.StatusBadRequest, status, path)
+							}
+						},
+					},
+				}
+				observations := runRuntimeScenario(t, scenario)
+				for _, flavor := range []string{"runtime", "runtime-cloudflared"} {
+					assertRuntimeParity(t, map[string]runtimeObservation{"full": observations["full"], flavor: observations[flavor]}, flavor)
+				}
+			})
+		}
+	}
+}
 
 // TestRuntimeCompatibilityMatchesFullClientSharedSurface launches the real
 // complete client and customer runtime through the same profile-file and

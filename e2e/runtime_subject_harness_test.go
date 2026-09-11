@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
 	"github.com/openai/tunnel-client/testsupport/mockproxy"
 	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
@@ -332,7 +333,12 @@ func observeRuntimeSubject(
 ) runtimeObservation {
 	t.Helper()
 
-	client := &http.Client{Timeout: 2 * time.Second}
+	target, err := healthurl.Parse(healthBaseURL)
+	require.NoError(t, err)
+	client, err := target.HTTPClient(2 * time.Second)
+	require.NoError(t, err)
+	defer client.CloseIdleConnections()
+	healthBaseURL = target.RequestBaseURL
 	readyStatus, readyBody := runtimeArtifactResponse(t, client, healthBaseURL+"/readyz")
 	healthStatus, healthBody := runtimeArtifactResponse(t, client, healthBaseURL+"/healthz")
 	metricsStatus, metricsBody := runtimeArtifactResponse(t, client, healthBaseURL+"/metrics")

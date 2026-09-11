@@ -18,7 +18,8 @@ import (
 var Module = fx.Module(
 	"harpoon",
 	fx.Provide(newHarpoonService, newRegistryCounter, newHarpoonGuardedMux, NewHostBusSubscriber, NewHostBus, NewStartupCatalogDigestState),
-	fx.Invoke(registerAdditionalTransport, StartHostRegistration, StartCatalogDigestLogging),
+	fx.Provide(NewHealth, fx.Annotate(HealthComponent, fx.ResultTags(`group:"runtime_health_components"`))),
+	fx.Invoke(AttachHealth, registerAdditionalTransport, StartHostRegistration, StartCatalogDigestLogging),
 )
 
 func newRegistryCounter(registry *Registry) RegistryCounter {

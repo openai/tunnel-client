@@ -37,6 +37,7 @@ const (
 var Module = fx.Module(
 	"cloudflared",
 	fx.Provide(NewState, NewSupervisor),
+	fx.Provide(fx.Annotate(componentHealth, fx.ResultTags(`group:"runtime_health_components"`))),
 	fx.Invoke(registerLifecycle),
 )
 

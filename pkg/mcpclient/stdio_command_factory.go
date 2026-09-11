@@ -15,9 +15,10 @@ type ChannelStdioRuntimeInfoProvider interface {
 }
 
 type stdioCommandTransportFactory struct {
-	logger     *slog.Logger
-	lifecycle  fx.Lifecycle
-	shutdowner fx.Shutdowner
+	logger      *slog.Logger
+	lifecycle   fx.Lifecycle
+	shutdowner  fx.Shutdowner
+	observation *ProtocolObservation
 
 	mu         sync.Mutex
 	transports map[types.Channel]*stdioCommandTransport
@@ -40,6 +41,9 @@ func (f *stdioCommandTransportFactory) transportForChannel(channel types.Channel
 		return transport
 	}
 	transport := newStdioCommandTransport(f.logger, f.lifecycle, f.shutdowner)
+	if canonical == types.DefaultChannel {
+		transport.observation = f.observation
+	}
 	f.transports[canonical] = transport
 	return transport
 }
