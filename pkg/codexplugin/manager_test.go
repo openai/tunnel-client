@@ -250,7 +250,7 @@ func TestConcurrentConnectSameAliasStartsOnlyOneProcess(t *testing.T) {
 
 	launched := 0
 	reused := 0
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case result := <-results:
 			require.NoError(t, result.err)
