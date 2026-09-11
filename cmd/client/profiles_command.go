@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/localfiles"
 )
 
 type profileListEntry struct {
@@ -102,25 +103,16 @@ func newProfilesAddCommand(lookupEnv func(string) (string, bool), profileDir *st
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return fmt.Errorf("create profile directory %s: %w", dir, err)
 			}
-			flag := os.O_WRONLY | os.O_CREATE
-			if force {
-				flag |= os.O_TRUNC
-			} else {
-				flag |= os.O_EXCL
-			}
-			file, err := os.OpenFile(path, flag, 0o600)
+			root, err := os.OpenRoot(dir)
 			if err != nil {
+				return fmt.Errorf("open profile directory %s: %w", dir, err)
+			}
+			defer func() { _ = root.Close() }()
+			if err := localfiles.WriteFile(root, name+".yaml", data, force); err != nil {
 				if os.IsExist(err) {
 					return fmt.Errorf("profile %q already exists; pass --force to replace it", name)
 				}
 				return fmt.Errorf("write profile %s: %w", path, err)
-			}
-			if _, err := file.Write(data); err != nil {
-				_ = file.Close()
-				return fmt.Errorf("write profile %s: %w", path, err)
-			}
-			if err := file.Close(); err != nil {
-				return fmt.Errorf("close profile %s: %w", path, err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Added profile %s at %s\n", name, path)
 			return err
@@ -221,8 +213,13 @@ func newProfilesEditCommand(lookupEnv func(string) (string, bool), profileDir *s
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return fmt.Errorf("create profile directory %s: %w", dir, err)
 			}
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				return fmt.Errorf("open profile directory %s: %w", dir, err)
+			}
+			defer func() { _ = root.Close() }()
 
-			contents, err := os.ReadFile(path)
+			contents, err := localfiles.ReadFile(root, name+".yaml")
 			if err != nil {
 				if !os.IsNotExist(err) {
 					return fmt.Errorf("read profile %s: %w", path, err)
@@ -230,13 +227,13 @@ func newProfilesEditCommand(lookupEnv func(string) (string, bool), profileDir *s
 				contents = sampleMCPWithDCRProfile("tunnel_00000000000000000000000000000000", "http://127.0.0.1:3001/mcp", "")
 			}
 
-			tmp, err := os.CreateTemp(dir, "."+name+".*.yaml")
+			tmp, tmpName, err := localfiles.CreateTemp(root, "."+name+".*.yaml")
 			if err != nil {
 				return fmt.Errorf("create temporary profile file in %s: %w", dir, err)
 			}
-			tmpPath := tmp.Name()
+			tmpPath := filepath.Join(dir, tmpName)
 			defer func() {
-				_ = os.Remove(tmpPath)
+				_ = root.Remove(tmpName)
 			}()
 			if _, err := tmp.Write(contents); err != nil {
 				_ = tmp.Close()
@@ -245,21 +242,17 @@ func newProfilesEditCommand(lookupEnv func(string) (string, bool), profileDir *s
 			if err := tmp.Close(); err != nil {
 				return fmt.Errorf("close temporary profile %s: %w", tmpPath, err)
 			}
-			if err := os.Chmod(tmpPath, 0o600); err != nil {
-				return fmt.Errorf("chmod temporary profile %s: %w", tmpPath, err)
-			}
-
 			if err := runProfileEditor(tmpPath, lookupEnv); err != nil {
 				return err
 			}
-			edited, err := os.ReadFile(tmpPath)
+			edited, err := localfiles.ReadFile(root, tmpName)
 			if err != nil {
 				return fmt.Errorf("read edited profile %s: %w", tmpPath, err)
 			}
 			if err := config.ValidateProfileBytes(path, edited); err != nil {
 				return fmt.Errorf("profile did not validate; not saving %s: %w", path, err)
 			}
-			if err := os.Rename(tmpPath, path); err != nil {
+			if err := localfiles.ReplaceFile(root, name+".yaml", edited); err != nil {
 				return fmt.Errorf("save profile %s: %w", path, err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Saved profile %s at %s\n", name, path)

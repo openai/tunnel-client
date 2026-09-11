@@ -47,7 +47,7 @@ func TestStartProcessReexecsCurrentExecutableWithFixedArgs(t *testing.T) {
 	osProcess, ok := process.(*osProcess)
 	require.True(t, ok)
 	require.Equal(t, executable, osProcess.cmd.Path)
-	require.Equal(t, append([]string{executable}, tunnelClientRunArgs("profile", payload)...), osProcess.cmd.Args)
+	require.Equal(t, append(append([]string{executable}, tunnelClientRunArgs("profile", payload)...), "--log.file", ""), osProcess.cmd.Args)
 	select {
 	case <-osProcess.done:
 		exitCode := osProcess.Poll()
@@ -58,7 +58,7 @@ func TestStartProcessReexecsCurrentExecutableWithFixedArgs(t *testing.T) {
 	}
 
 	require.NoFileExists(t, markerPath)
-	require.Equal(t, strings.Join(tunnelClientRunArgs("profile", payload), "\n")+"\n", readFile(t, argsPath))
+	require.Equal(t, strings.Join(append(tunnelClientRunArgs("profile", payload), "--log.file", ""), "\n")+"\n", readFile(t, argsPath))
 }
 
 func readFile(t *testing.T, path string) string {

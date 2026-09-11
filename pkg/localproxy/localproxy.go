@@ -26,6 +26,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
 	"github.com/openai/tunnel-client/pkg/health"
 	"github.com/openai/tunnel-client/pkg/mcpclient"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 	"github.com/openai/tunnel-client/pkg/types"
 )
 
@@ -1413,10 +1414,15 @@ func appendMCPResponseHeaders(headers http.Header, responseHeaders http.Header, 
 			continue
 		}
 		for _, value := range values {
+			if !runtimeconfig.ValidHTTPHeader(name, value) {
+				continue
+			}
 			if strings.EqualFold(name, "WWW-Authenticate") {
 				value = rewriteResourceMetadata(value, publicMCPURL)
 			}
-			headers.Add(name, value)
+			if runtimeconfig.ValidHTTPHeader(name, value) {
+				headers.Add(name, value)
+			}
 		}
 	}
 }
@@ -1428,7 +1434,9 @@ func renderOAuthDiscoveryResponse(w http.ResponseWriter, payload wiretypes.Tunne
 			continue
 		}
 		for _, value := range values {
-			w.Header().Add(name, value)
+			if runtimeconfig.ValidHTTPHeader(name, value) {
+				w.Header().Add(name, value)
+			}
 		}
 	}
 	statusCode := payload.ResponseCode
@@ -1602,7 +1610,7 @@ func sanitizeForwardableRequestHeaders(headers http.Header) http.Header {
 			continue
 		}
 		for _, value := range values {
-			if value != "" {
+			if value != "" && runtimeconfig.ValidHTTPHeader(name, value) {
 				out.Add(name, value)
 			}
 		}

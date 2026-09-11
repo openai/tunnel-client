@@ -12,6 +12,12 @@ import (
 // syntax without reserving a user-reachable value.
 const encodedExtraHeaderMapPrefix = "\x00tunnel-client-extra-header-map-v1:"
 
+// ValidHTTPHeader reports whether a field name and value use valid HTTP header
+// syntax. Empty values, horizontal tabs, and non-ASCII value bytes are valid.
+func ValidHTTPHeader(name, value string) bool {
+	return validHTTPHeaderFieldName(name) && validHTTPHeaderFieldValue(value)
+}
+
 // NormalizeExtraHeaders validates operator-supplied HTTP headers and returns a
 // canonical copy. HTTP field names are case-insensitive, so conflicting case
 // variants are rejected instead of depending on Go map iteration order.

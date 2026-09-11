@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
+
+	"github.com/openai/tunnel-client/pkg/localfiles"
 )
 
 type fileConfigValues struct {
@@ -152,7 +154,17 @@ func loadFileConfigValues(fs *pflag.FlagSet, lookupEnv func(string) (string, boo
 		return nil, nil
 	}
 
-	data, err := os.ReadFile(source.Path)
+	var data []byte
+	if source.ProfileName != "" && !source.ProfileFile {
+		var root *os.Root
+		root, err = os.OpenRoot(source.ProfileDir)
+		if err == nil {
+			data, err = localfiles.ReadFile(root, source.ProfileName+".yaml")
+			_ = root.Close()
+		}
+	} else {
+		data, err = os.ReadFile(source.Path)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read config file %s: %w", source.Path, err)
 	}

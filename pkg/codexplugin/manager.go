@@ -798,16 +798,12 @@ func (m *Manager) Remove(opts AliasOptions) (map[string]any, error) {
 	if process.Alias != "" && process.Mode != "" && process.Mode != "stopped" {
 		return nil, fmt.Errorf("alias %s still has a managed runtime; run `tunnel-client runtimes stop %s` first", alias, alias)
 	}
-	delete(aliases, alias)
-	if err := pluginstate.SaveAliases(root, aliases); err != nil {
-		return nil, err
-	}
-	delete(processes, alias)
-	if err := pluginstate.SaveProcesses(root, processes); err != nil {
-		return nil, err
-	}
-
 	removedPaths := []string{}
+	managedDirectories := map[string]string{
+		record.HealthURLFile:  "health",
+		process.HealthURLFile: "health",
+		process.LogPath:       "logs",
+	}
 	for _, pathValue := range uniquePaths(
 		record.ConfigPath,
 		record.ProfilePath,
@@ -820,10 +816,25 @@ func (m *Manager) Remove(opts AliasOptions) (map[string]any, error) {
 		if strings.TrimSpace(pathValue) == "" {
 			continue
 		}
-		if err := os.Remove(pathValue); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("remove local state path %s: %w", pathValue, err)
+		var removeErr error
+		if directory, managed := managedDirectories[pathValue]; managed {
+			removeErr = session.RemoveManagedFile(root, directory, pathValue)
+		} else {
+			removeErr = os.Remove(pathValue)
+		}
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return nil, fmt.Errorf("remove local state path %s: %w", pathValue, removeErr)
 		}
 		removedPaths = append(removedPaths, pathValue)
+	}
+
+	delete(aliases, alias)
+	if err := pluginstate.SaveAliases(root, aliases); err != nil {
+		return nil, err
+	}
+	delete(processes, alias)
+	if err := pluginstate.SaveProcesses(root, processes); err != nil {
+		return nil, err
 	}
 
 	tunnelID := firstNonEmpty(record.TunnelID, process.TunnelID)
@@ -1151,8 +1162,8 @@ func (m *Manager) localRuntimeDetails(root pluginstate.Root, alias string, recor
 	configPath := firstNonEmpty(process.ConfigPath, record.ConfigPath)
 	logPath := process.LogPath
 
-	health := pathDetails(healthURLFile)
-	rawHealthURL := session.ReadHealthURL(healthURLFile)
+	health := managedPathDetails(root, "health", healthURLFile)
+	rawHealthURL := session.ReadManagedHealthURL(root, healthURLFile)
 	probe := session.ProbeHealthEndpoints(rawHealthURL)
 	liveAdmin := m.findLiveAdminUI(root, firstNonEmpty(record.TunnelID, process.TunnelID), session.NormalizeHealthBaseURL(rawHealthURL))
 	effectiveProbe := probe
@@ -1202,8 +1213,8 @@ func (m *Manager) localRuntimeDetails(root pluginstate.Root, alias string, recor
 	profile["dir"] = profileDir
 	profile["config_path"] = configPath
 
-	log := pathDetails(logPath)
-	log["tail"] = readLogTail(logPath, 20)
+	log := managedPathDetails(root, "logs", logPath)
+	log["tail"] = session.ManagedLogTail(root, logPath, 20)
 
 	tmuxSession := firstNonEmpty(process.SessionName, session.TmuxSessionName(alias, root))
 	tmuxRunning := false
@@ -1602,22 +1613,12 @@ func pathDetails(pathValue string) map[string]any {
 	return map[string]any{"path": pathValue, "exists": true, "size_bytes": size}
 }
 
-func readLogTail(pathValue string, maxLines int) string {
-	if strings.TrimSpace(pathValue) == "" {
-		return ""
-	}
-	data, err := os.ReadFile(pathValue)
+func managedPathDetails(root pluginstate.Root, directory, pathValue string) map[string]any {
+	info, err := session.ManagedFileInfo(root, directory, pathValue)
 	if err != nil {
-		return ""
+		return map[string]any{"path": pathValue, "exists": false, "size_bytes": 0}
 	}
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > maxLines {
-		lines = lines[len(lines)-maxLines:]
-	}
-	return strings.Join(lines, "\n")
+	return map[string]any{"path": pathValue, "exists": true, "size_bytes": info.Size()}
 }
 
 func runtimeState(runtimeRunning bool, probe session.HealthProbe) string {
@@ -1636,16 +1637,17 @@ func runtimeState(runtimeRunning bool, probe session.HealthProbe) string {
 func (m *Manager) findLiveAdminUI(root pluginstate.Root, tunnelID string, staleBaseURL string) map[string]any {
 	result := map[string]any{"found": false}
 	healthDir := filepath.Join(root.Path, "health")
-	entries, err := os.ReadDir(healthDir)
+	names, err := session.ManagedFileNames(root, "health")
 	if err != nil {
 		return result
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".url") {
+	sort.Strings(names)
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".url") {
 			continue
 		}
-		path := filepath.Join(healthDir, entry.Name())
-		rawURL := session.ReadHealthURL(path)
+		path := filepath.Join(healthDir, name)
+		rawURL := session.ReadManagedHealthURL(root, path)
 		baseURL := session.NormalizeHealthBaseURL(rawURL)
 		if baseURL == "" || baseURL == staleBaseURL {
 			continue

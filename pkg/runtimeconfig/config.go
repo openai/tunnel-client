@@ -1587,10 +1587,10 @@ func buildLoggingConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 		getValue(fs, "log.level"),
 		envOrDefault(lookupEnv, "LOG_LEVEL", defaultLogLevel),
 	)
-	logFile := firstSet(
-		getValue(fs, "log.file"),
-		envOrDefault(lookupEnv, "LOG_FILE", ""),
-	)
+	logFile, logFileSet := changedStringFlag(fs, "log.file")
+	if !logFileSet {
+		logFile = envOrDefault(lookupEnv, "LOG_FILE", "")
+	}
 	logFormatFlag := getValue(fs, "log.format")
 	logFormatEnv, logFormatEnvSet := lookupEnv("LOG_FORMAT")
 	logFormatExplicit := logFormatFlag != "" || (logFormatEnvSet && logFormatEnv != "")

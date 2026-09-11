@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -176,6 +177,119 @@ func TestProfilesEditCreatesMissingProfileFromSkeleton(t *testing.T) {
 	contents, err := os.ReadFile(filepath.Join(profileDir, "new_profile.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(contents), "https://mcp.example/mcp")
+}
+
+func TestProfilesRejectEscapingProfileSymlinks(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	for _, operation := range []string{"add", "force", "edit"} {
+		t.Run(operation, func(t *testing.T) {
+			dir := t.TempDir()
+			profileDir := filepath.Join(dir, "profiles")
+			require.NoError(t, os.Mkdir(profileDir, 0o700))
+			outside := filepath.Join(dir, "outside.yaml")
+			require.NoError(t, os.WriteFile(outside, []byte("unchanged"), 0o600))
+			require.NoError(t, os.Symlink("../outside.yaml", filepath.Join(profileDir, "sample.yaml")))
+			args := []string{"profiles", "--profile-dir", profileDir}
+			if operation == "edit" {
+				args = append(args, "edit", "sample")
+			} else {
+				args = append(args, "add", "sample", "--sample", "sample_mcp_with_dcr",
+					"--tunnel-id", "tunnel_0123456789abcdef0123456789abcdef",
+					"--mcp-server-url", "https://mcp.example/mcp")
+				if operation == "force" {
+					args = append(args, "--force")
+				}
+			}
+			_, _, err := executeProfilesCommand(t, map[string]string{"HOME": dir}, args...)
+			require.Error(t, err)
+			contents, err := os.ReadFile(outside)
+			require.NoError(t, err)
+			require.Equal(t, "unchanged", string(contents))
+		})
+	}
+}
+
+func TestProfilesAddPreservesSelectedRootAndExternalSource(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	profileDir := filepath.Join(dir, "profile directory")
+	require.NoError(t, os.Mkdir(profileDir, 0o700))
+	selectedDir := profileDir
+	if runtime.GOOS != "windows" {
+		selectedDir = filepath.Join(dir, "selected")
+		require.NoError(t, os.Symlink(profileDir, selectedDir))
+	}
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	relativeDir, err := filepath.Rel(cwd, selectedDir)
+	require.NoError(t, err)
+	source := filepath.Join(dir, "source.yaml")
+	data := sampleMCPWithDCRProfile("tunnel_0123456789abcdef0123456789abcdef", "https://mcp.example/mcp", "")
+	require.NoError(t, os.WriteFile(source, data, 0o600))
+	_, stderr, err := executeProfilesCommand(t, map[string]string{"HOME": dir},
+		"profiles", "--profile-dir", relativeDir, "add", "sample", "--from-file", source)
+	require.NoError(t, err, stderr)
+	contents, err := os.ReadFile(filepath.Join(profileDir, "sample.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, data, contents)
+}
+
+func TestProfilesEditHandlesEditorFileReplacement(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("test editor uses sh")
+	}
+	for _, escape := range []bool{false, true} {
+		name := "regular replacement"
+		if escape {
+			name = "escaping symlink replacement"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			profileDir := filepath.Join(dir, "profile directory")
+			require.NoError(t, os.Mkdir(profileDir, 0o700))
+			profilePath := filepath.Join(profileDir, "sample.yaml")
+			original := sampleMCPWithDCRProfile("tunnel_0123456789abcdef0123456789abcdef", "https://original.example/mcp", "")
+			replacement := sampleMCPWithDCRProfile("tunnel_0123456789abcdef0123456789abcdef", "https://updated.example/mcp", "")
+			require.NoError(t, os.WriteFile(profilePath, original, 0o600))
+			source := filepath.Join(dir, "source.yaml")
+			require.NoError(t, os.WriteFile(source, replacement, 0o600))
+			script := "#!/bin/sh\ncp \"$1\" \"$2.replacement\"\nchmod 644 \"$2.replacement\"\nmv \"$2.replacement\" \"$2\"\n"
+			if escape {
+				script = "#!/bin/sh\nrm \"$2\"\nln -s \"$1\" \"$2\"\n"
+			}
+			editor := filepath.Join(dir, "editor.sh")
+			require.NoError(t, os.WriteFile(editor, []byte(script), 0o600))
+			_, stderr, err := executeProfilesCommand(t, map[string]string{
+				"HOME":   dir,
+				"EDITOR": "sh " + editor + " " + source,
+			}, "profiles", "--profile-dir", profileDir, "edit", "sample")
+			if escape {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err, stderr)
+			}
+			contents, err := os.ReadFile(profilePath)
+			require.NoError(t, err)
+			if escape {
+				require.Equal(t, original, contents)
+			} else {
+				require.Equal(t, replacement, contents)
+			}
+			info, err := os.Stat(profilePath)
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+			entries, err := os.ReadDir(profileDir)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "edited and staging files must be removed")
+			contents, err = os.ReadFile(source)
+			require.NoError(t, err)
+			require.Equal(t, replacement, contents)
+		})
+	}
 }
 
 func executeProfilesCommand(t *testing.T, env map[string]string, args ...string) (string, string, error) {

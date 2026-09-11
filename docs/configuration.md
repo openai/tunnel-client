@@ -86,6 +86,8 @@ Profile lookup uses this precedence:
 3. `$XDG_CONFIG_HOME/tunnel-client`
 4. `~/.config/tunnel-client`
 
+The selected profile directory may itself be a symlink; named profile symlinks must use relative targets within that directory, while `--profile-file` and `--from-file` accept explicit file paths.
+
 For example, with the default XDG fallback, the command above loads:
 
 ```text
