@@ -22,6 +22,8 @@ import (
 )
 
 func TestProxyE2ESucceedsThroughProxy(t *testing.T) {
+	t.Parallel()
+
 	proxy := mockproxy.New()
 	proxy.Start()
 	t.Cleanup(proxy.Close)

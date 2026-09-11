@@ -19,6 +19,8 @@ import (
 )
 
 func TestHarnessExecuteScenarioWithStdioCommand(t *testing.T) {
+	t.Parallel()
+
 	commandArgs := mockmcpserver.StdioServerCommand(t)
 	runSimpleToolScenarioWithCommand(t, commandArgs)
 }

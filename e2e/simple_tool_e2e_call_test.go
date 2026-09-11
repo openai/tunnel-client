@@ -43,6 +43,8 @@ func TestHarnessExecuteScenariousWithInitializationAndTool(t *testing.T) {
 }
 
 func TestHarnessExecuteScenarioWithInMemoryTransport(t *testing.T) {
+	t.Parallel()
+
 	runSimpleToolScenarioWithHarnessOptions(
 		t,
 		[]harnesspkg.HarnessOption{
@@ -56,6 +58,8 @@ func TestHarnessExecuteScenarioWithInMemoryTransport(t *testing.T) {
 }
 
 func TestHarnessHandlesKeepalivePingEvents(t *testing.T) {
+	t.Parallel()
+
 	runSimpleToolScenarioWithHarnessOptions(
 		t,
 		nil,
@@ -65,6 +69,8 @@ func TestHarnessHandlesKeepalivePingEvents(t *testing.T) {
 }
 
 func TestCurrentClientHandlesLegacyOrMalformedResponseTimeout(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name            string
 		responseTimeout json.RawMessage
@@ -170,6 +176,8 @@ func TestCurrentClientHandlesLegacyOrMalformedResponseTimeout(t *testing.T) {
 }
 
 func TestControlPlaneRequestsSendClientMetadata(t *testing.T) {
+	t.Parallel()
+
 	const (
 		clientInstanceHeader = "X-Tunnel-Client-Instance-Id"
 		serverInfoHeader     = "X-Tunnel-MCP-Server-Info"

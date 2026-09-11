@@ -15,6 +15,8 @@ import (
 const maxTunnelServicePollLimit = 25
 
 func TestHarnessCapsPollLimitWhenMaxInFlightExceedsTunnelServiceLimit(t *testing.T) {
+	t.Parallel()
+
 	h := runSimpleToolScenarioWithHarnessOptions(
 		t,
 		[]harnesspkg.HarnessOption{

@@ -52,6 +52,8 @@ func defaultSingleClientLoadConfig() singleClientLoadConfig {
 // TestSingleTunnelClientLoadHarnessSmoke keeps the benchmark path alive in
 // ordinary go test and CI runs without performing a real load test.
 func TestSingleTunnelClientLoadHarnessSmoke(t *testing.T) {
+	t.Parallel()
+
 	cfg := singleClientLoadConfig{
 		workers:        2,
 		maxInFlight:    4,

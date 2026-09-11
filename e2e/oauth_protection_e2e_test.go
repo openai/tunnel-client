@@ -15,6 +15,7 @@ import (
 )
 
 func TestSecureMCPServerOAuthProtection(t *testing.T) {
+	t.Parallel()
 
 	const (
 		apiKey        = "sk-1234567890abcdef"

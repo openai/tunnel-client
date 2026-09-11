@@ -13,6 +13,8 @@ import (
 )
 
 func TestSynthesizedTargetHTTPFailureAppearsOnWireAndTunnelServiceAcceptsIt(t *testing.T) {
+	t.Parallel()
+
 	const (
 		requestID       = "cmd-target-http-failure"
 		rpcID           = "rpc-target-http-failure"

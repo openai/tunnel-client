@@ -14,6 +14,8 @@ import (
 )
 
 func TestHarnessHandlesSessionTerminationCommand(t *testing.T) {
+	t.Parallel()
+
 	const (
 		requestID     = "cmd-session-termination"
 		connectorAuth = "Bearer connector-session-close"
@@ -83,6 +85,8 @@ func assertSessionTerminationForwardedConnectorHeaders(t *testing.T, mcp *mockmc
 }
 
 func TestHarnessRejectsSessionTerminationForStdioAndKeepsServing(t *testing.T) {
+	t.Parallel()
+
 	commandArgs := mockmcpserver.StdioServerCommand(t)
 
 	const (

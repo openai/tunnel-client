@@ -21,6 +21,8 @@ import (
 )
 
 func TestMCPStaticHeadersE2E(t *testing.T) {
+	t.Parallel()
+
 	t.Run("fails without configured static headers", func(t *testing.T) {
 		t.Parallel()
 

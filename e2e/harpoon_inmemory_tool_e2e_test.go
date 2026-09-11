@@ -22,6 +22,8 @@ type harpoonRequest struct {
 }
 
 func TestHarpoonInMemoryCallTargetToolCall(t *testing.T) {
+	t.Parallel()
+
 	const (
 		toolRequestID = "cmd-harpoon-call"
 		callID        = "harpoon-call-1"

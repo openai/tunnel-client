@@ -25,6 +25,7 @@ import (
 )
 
 func TestHarnessHandlesOAuthDiscoveryCommand(t *testing.T) {
+	t.Parallel()
 
 	const requestID = "cmd-oauth"
 
@@ -82,6 +83,7 @@ func TestHarnessHandlesOAuthDiscoveryCommand(t *testing.T) {
 }
 
 func TestHarnessHandlesOAuthDiscoveryCommandWithWWWAuthenticateProbe(t *testing.T) {
+	t.Parallel()
 
 	const requestID = "cmd-oauth-www-auth"
 
@@ -140,6 +142,8 @@ func TestHarnessHandlesOAuthDiscoveryCommandWithWWWAuthenticateProbe(t *testing.
 }
 
 func TestOAuthDiscoveryRegistersCustomerHostRegistrationEndpointE2E(t *testing.T) {
+	t.Parallel()
+
 	const (
 		customerHost     = "location-mcp.internal.preproduction.smp.bigco-example.com"
 		idpIssuer        = "http://idp.bigco-example.com/oauth2/aus2jrb9zi4O8hseE0h8"
@@ -1328,6 +1332,8 @@ func TestOAuthDiscoveryRejectsOffOriginPrivateMetadataEndpointsE2E(t *testing.T)
 }
 
 func TestHarpoonOnlyDisabledMainDoesNotBootstrapOAuthE2E(t *testing.T) {
+	t.Parallel()
+
 	requestSeen := make(chan struct{}, 1)
 	disabledMain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		select {

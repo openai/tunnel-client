@@ -14,6 +14,8 @@ import (
 )
 
 func TestNotificationsAreDeliveredToControlPlane(t *testing.T) {
+	t.Parallel()
+
 	const (
 		toolRequestID = "cmd-notify-tool"
 		callID        = "notify-call-1"
