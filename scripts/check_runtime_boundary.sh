@@ -117,55 +117,44 @@ readonly GO_MOD_FLAG="$(runtime_go_mod_flag_for_root "${PROJECT_ROOT}")"
 readonly MODULE_PATH="$(env GOWORK=off GOCACHE="${GO_CACHE_DIR}" GOMODCACHE="${GO_MOD_CACHE_DIR}" go list -m -f '{{.Path}}')"
 [[ -n "${MODULE_PATH}" ]] || die "could not determine the Go module path"
 
-relative_import_path() {
-  local import_path="$1"
-  if [[ "${import_path}" == "${MODULE_PATH}" ]]; then
-    printf '.\n'
-    return 0
-  fi
-  if [[ "${import_path}" == "${MODULE_PATH}/"* ]]; then
-    printf '%s\n' "${import_path#"${MODULE_PATH}/"}"
-    return 0
-  fi
-  return 1
-}
-
+# Exclusion helpers set the caller-local reason on a matching path.
 common_exclusion_reason() {
   local relative_path="$1"
+  reason=""
 
   case "${relative_path}" in
     pkg/app|pkg/app/*)
-      printf 'full application wiring'
+      reason="full application wiring"
       return 0
       ;;
     pkg/config|pkg/config/*)
-      printf 'full configuration'
+      reason="full configuration"
       return 0
       ;;
     pkg/health|pkg/health/*)
-      printf 'full health surface'
+      reason="full health surface"
       return 0
       ;;
     pkg/harpoon|pkg/harpoon/*)
-      printf 'full Harpoon adapter'
+      reason="full Harpoon adapter"
       return 0
       ;;
     pkg/proxyhealth|pkg/proxyhealth/*)
-      printf 'full proxy health surface'
+      reason="full proxy health surface"
       return 0
       ;;
     cmd/client|cmd/client/*)
-      printf 'full command tree'
+      reason="full command tree"
       return 0
       ;;
   esac
 
   if [[ "${relative_path}" =~ (^|/)(adminui|plugins|localproxy|docs|examples|e2e|tests|testdata|testsupport)(/|$) ]]; then
-    printf 'support or development surface'
+    reason="support or development surface"
     return 0
   fi
   if [[ "${relative_path}" =~ (^|/)codex[^/]*(/|$) ]]; then
-    printf 'Codex surface'
+    reason="Codex surface"
     return 0
   fi
 
@@ -175,11 +164,12 @@ common_exclusion_reason() {
 cloudflared_exclusion_reason() {
   local selected_flavor="$1"
   local relative_path="$2"
+  reason=""
 
   [[ "${relative_path}" =~ ^pkg/cloudflared(/|$) ]] || return 1
 
   if [[ "${selected_flavor}" == "runtime" ]]; then
-    printf 'companion package'
+    reason="companion package"
     return 0
   fi
 
@@ -188,7 +178,7 @@ cloudflared_exclusion_reason() {
     return 1
   fi
 
-  printf 'unapproved companion package'
+  reason="unapproved companion package"
   return 0
 }
 
@@ -227,12 +217,16 @@ check_flavor() {
 
     while IFS= read -r import_path; do
       [[ "${import_path}" == "${MODULE_PATH}" || "${import_path}" == "${MODULE_PATH}/"* ]] || continue
-      relative_path="$(relative_import_path "${import_path}")" || continue
+      if [[ "${import_path}" == "${MODULE_PATH}" ]]; then
+        relative_path="."
+      else
+        relative_path="${import_path#"${MODULE_PATH}/"}"
+      fi
 
-      if reason="$(common_exclusion_reason "${relative_path}")"; then
+      if common_exclusion_reason "${relative_path}"; then
         die "${selected_flavor} dependency boundary failed for ${platform}: ${relative_path} (${reason})"
       fi
-      if reason="$(cloudflared_exclusion_reason "${selected_flavor}" "${relative_path}")"; then
+      if cloudflared_exclusion_reason "${selected_flavor}" "${relative_path}"; then
         die "${selected_flavor} dependency boundary failed for ${platform}: ${relative_path} (${reason})"
       fi
     done <"${package_list}"
