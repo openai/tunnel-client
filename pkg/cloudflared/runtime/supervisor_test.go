@@ -63,15 +63,11 @@ func TestStateKeepsTokenOutOfReadiness(t *testing.T) {
 }
 
 func TestSupervisorLaunchesStopsAndRedactsOutput(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "ready")
-	t.Setenv("CLOUDFLARED_HELPER_ECHO_TOKEN", "1")
+	t.Parallel()
 
 	var logs lockedBuffer
-	supervisor, state := newTestSupervisor(t, &logs, "secret-cloudflared-token")
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, supervisor.Start(startCtx))
+	supervisor, state := newTestSupervisor(t, &logs, "secret-cloudflared-token", "--helper-mode", "ready", "--helper-echo-token", "1")
+	require.NoError(t, startTestSupervisor(supervisor))
 
 	ready, reason := state.Readiness()
 	require.True(t, ready, reason)
@@ -89,9 +85,7 @@ func TestSupervisorLaunchesStopsAndRedactsOutput(t *testing.T) {
 }
 
 func TestSupervisorFetchesManagedRuntimeTokenAndRedactsOutput(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "ready")
-	t.Setenv("CLOUDFLARED_HELPER_ECHO_TOKEN", "1")
+	t.Parallel()
 
 	const runtimeToken = "managed-runtime-secret-token"
 	fetcher := &managedRuntimeFetcherStub{
@@ -115,11 +109,9 @@ func TestSupervisorFetchesManagedRuntimeTokenAndRedactsOutput(t *testing.T) {
 		writer: &logs,
 		marker: "[REDACTED]",
 		seen:   redactedOutput,
-	}, cfg, fetcher)
+	}, cfg, fetcher, "--helper-mode", "ready", "--helper-echo-token", "1")
 
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, supervisor.Start(startCtx))
+	require.NoError(t, startTestSupervisor(supervisor))
 	require.Equal(t, 1, fetcher.calls)
 	require.Empty(t, cfg.Token, "fetched runtime token must not be persisted in config")
 
@@ -139,8 +131,7 @@ func TestSupervisorFetchesManagedRuntimeTokenAndRedactsOutput(t *testing.T) {
 }
 
 func TestSupervisorPrefersConfiguredTokenOverManagedFetch(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "ready")
+	t.Parallel()
 
 	fetcher := &managedRuntimeFetcherStub{
 		err: errors.New("managed fetch must not run"),
@@ -151,11 +142,9 @@ func TestSupervisorPrefersConfiguredTokenOverManagedFetch(t *testing.T) {
 		Path:         os.Args[0],
 		ReadyTimeout: 3 * time.Second,
 	}
-	supervisor, _ := newTestSupervisorWithConfig(t, io.Discard, cfg, fetcher)
+	supervisor, _ := newTestSupervisorWithConfig(t, io.Discard, cfg, fetcher, "--helper-mode", "ready")
 
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, supervisor.Start(startCtx))
+	require.NoError(t, startTestSupervisor(supervisor))
 	require.Zero(t, fetcher.calls)
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -187,13 +176,10 @@ func TestSupervisorManagedFetchFailureIsTokenSafe(t *testing.T) {
 }
 
 func TestSupervisorReturnsStartupFailureWhenChildExits(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "exit-before-ready")
+	t.Parallel()
 
-	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token")
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err := supervisor.Start(startCtx)
+	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token", "--helper-mode", "exit-before-ready")
+	err := startTestSupervisor(supervisor)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "process exited before readiness")
 	require.NotContains(t, err.Error(), "secret-cloudflared-token")
@@ -203,15 +189,12 @@ func TestSupervisorReturnsStartupFailureWhenChildExits(t *testing.T) {
 }
 
 func TestSupervisorSurfacesUnexpectedExitAfterReady(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "exit-file")
-	exitFile := filepath.Join(t.TempDir(), "exit")
-	t.Setenv("CLOUDFLARED_HELPER_EXIT_FILE", exitFile)
+	t.Parallel()
 
-	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token")
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, supervisor.Start(startCtx))
+	exitFile := filepath.Join(t.TempDir(), "exit")
+
+	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token", "--helper-mode", "exit-file", "--helper-exit-file", exitFile)
+	require.NoError(t, startTestSupervisor(supervisor))
 	require.NoError(t, os.WriteFile(exitFile, []byte("exit"), 0o600))
 
 	select {
@@ -236,11 +219,13 @@ func TestSupervisorMonitorKeepsExitFailureAfterInFlightReadyProbe(t *testing.T) 
 	probeStarted := make(chan struct{})
 	releaseProbe := make(chan struct{})
 	var signalProbe sync.Once
+	supervisorStartMu.Lock()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		signalProbe.Do(func() { close(probeStarted) })
 		<-releaseProbe
 		w.WriteHeader(http.StatusOK)
 	}))
+	supervisorStartMu.Unlock()
 	t.Cleanup(server.Close)
 
 	var releaseOnce sync.Once
@@ -293,17 +278,12 @@ func TestSupervisorMonitorKeepsExitFailureAfterInFlightReadyProbe(t *testing.T) 
 }
 
 func TestSupervisorForcesManagementDiagnosticsOffInChild(t *testing.T) {
-	t.Setenv("GO_WANT_CLOUDFLARED_HELPER", "1")
-	t.Setenv("CLOUDFLARED_HELPER_MODE", "ready")
-	t.Setenv("CLOUDFLARED_HELPER_REQUIRE_MANAGEMENT_DIAGNOSTICS_DISABLED", "1")
 	t.Setenv("TUNNEL_MANAGEMENT_DIAGNOSTICS", "true")
 	t.Setenv("tunnel_management_diagnostics", "1")
 	t.Setenv("Tunnel_Management_Diagnostics", "false")
 
-	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token")
-	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, supervisor.Start(startCtx))
+	supervisor, state := newTestSupervisor(t, io.Discard, "secret-cloudflared-token", "--helper-mode", "ready", "--helper-require-management-diagnostics-disabled", "1")
+	require.NoError(t, startTestSupervisor(supervisor))
 
 	ready, reason := state.Readiness()
 	require.True(t, ready, reason)
@@ -348,17 +328,28 @@ func TestCloudflaredEnvironmentDisablesManagementDiagnostics(t *testing.T) {
 	require.Equal(t, []string{"TUNNEL_MANAGEMENT_DIAGNOSTICS=false"}, diagnostics)
 }
 
-func newTestSupervisor(t *testing.T, output io.Writer, token string) (*Supervisor, *State) {
+// Serialize port reservation through readiness; test bodies and shutdown may overlap.
+var supervisorStartMu sync.Mutex
+
+func startTestSupervisor(supervisor *Supervisor) error {
+	supervisorStartMu.Lock()
+	defer supervisorStartMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return supervisor.Start(ctx)
+}
+
+func newTestSupervisor(t *testing.T, output io.Writer, token string, helperArgs ...string) (*Supervisor, *State) {
 	t.Helper()
 	cfg := &runtimeconfig.CloudflaredSettings{
 		Token:        token,
 		Path:         os.Args[0],
 		ReadyTimeout: 3 * time.Second,
 	}
-	return newTestSupervisorWithConfig(t, output, cfg, nil)
+	return newTestSupervisorWithConfig(t, output, cfg, nil, helperArgs...)
 }
 
-func newTestSupervisorWithConfig(t *testing.T, output io.Writer, cfg *runtimeconfig.CloudflaredSettings, fetcher controlplane.ManagedCloudflareTunnelFetcher) (*Supervisor, *State) {
+func newTestSupervisorWithConfig(t *testing.T, output io.Writer, cfg *runtimeconfig.CloudflaredSettings, fetcher controlplane.ManagedCloudflareTunnelFetcher, helperArgs ...string) (*Supervisor, *State) {
 	t.Helper()
 	state := NewState(cfg)
 	logger := slog.New(slog.NewTextHandler(output, nil))
@@ -370,9 +361,17 @@ func newTestSupervisorWithConfig(t *testing.T, output io.Writer, cfg *runtimecon
 	})
 	require.NoError(t, err)
 	supervisor.newCommand = func(_ string, args ...string) *exec.Cmd {
-		helperArgs := append([]string{"-test.run=TestCloudflaredHelperProcess", "--"}, args...)
-		return exec.Command(os.Args[0], helperArgs...)
+		commandArgs := append([]string{"-test.run=TestCloudflaredHelperProcess", "--", "--helper-process", "1"}, helperArgs...)
+		commandArgs = append(commandArgs, args...)
+		return exec.Command(os.Args[0], commandArgs...)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := supervisor.Stop(ctx); err != nil {
+			t.Errorf("stop test supervisor during cleanup: %v", err)
+		}
+	})
 	return supervisor, state
 }
 
@@ -425,7 +424,7 @@ func (f *managedRuntimeFetcherStub) FetchManagedCloudflareTunnel(context.Context
 }
 
 func TestCloudflaredHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_CLOUDFLARED_HELPER") != "1" {
+	if helperArgValue(os.Args, "--helper-process") != "1" {
 		return
 	}
 
@@ -434,7 +433,7 @@ func TestCloudflaredHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stderr, "missing --metrics")
 		os.Exit(2)
 	}
-	if os.Getenv("CLOUDFLARED_HELPER_REQUIRE_MANAGEMENT_DIAGNOSTICS_DISABLED") == "1" {
+	if helperArgValue(os.Args, "--helper-require-management-diagnostics-disabled") == "1" {
 		var diagnostics []string
 		for _, entry := range os.Environ() {
 			key, _, ok := strings.Cut(entry, "=")
@@ -447,7 +446,7 @@ func TestCloudflaredHelperProcess(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	mode := os.Getenv("CLOUDFLARED_HELPER_MODE")
+	mode := helperArgValue(os.Args, "--helper-mode")
 	if mode == "exit-before-ready" {
 		os.Exit(23)
 	}
@@ -465,11 +464,11 @@ func TestCloudflaredHelperProcess(t *testing.T) {
 	server := &http.Server{Handler: mux}
 	go func() { _ = server.Serve(listener) }()
 
-	if os.Getenv("CLOUDFLARED_HELPER_ECHO_TOKEN") == "1" {
+	if helperArgValue(os.Args, "--helper-echo-token") == "1" {
 		_, _ = fmt.Fprintln(os.Stdout, os.Getenv("TUNNEL_TOKEN"))
 	}
 	if mode == "exit-file" {
-		exitFile := os.Getenv("CLOUDFLARED_HELPER_EXIT_FILE")
+		exitFile := helperArgValue(os.Args, "--helper-exit-file")
 		for {
 			if _, err := os.Stat(exitFile); err == nil {
 				_ = server.Close()
