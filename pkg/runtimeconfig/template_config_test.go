@@ -2,6 +2,7 @@ package runtimeconfig
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -194,9 +195,7 @@ func TestTemplateConfigSecretReferencesAndErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			contents := strings.Replace(templateConfigFixture, "env:TEST_TEMPLATE_AUTH", tc.reference, 1)
 			env := map[string]string{"TEST_API_KEY": testAPIKey}
-			for key, value := range tc.env {
-				env[key] = value
-			}
+			maps.Copy(env, tc.env)
 			_, err := Load([]string{"--config", writeRuntimeConfig(t, contents)}, FlavorRuntime, lookupEnvMap(env))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want error containing %q", err, tc.want)
@@ -297,9 +296,7 @@ func TestTemplateConfigHigherPrecedenceReplacesEntireList(t *testing.T) {
 			contents := strings.Replace(templateConfigFixture, "  poll_channels: [harpoon]", "  poll_channels: [main]\nmcp:\n  server_urls:\n    - url: https://mcp.example.invalid", 1)
 			args := append([]string{"--config", writeRuntimeConfig(t, contents)}, tc.flags...)
 			env := map[string]string{"TEST_API_KEY": testAPIKey}
-			for key, value := range tc.env {
-				env[key] = value
-			}
+			maps.Copy(env, tc.env)
 			// No template secret is supplied: overridden values must not be resolved.
 			cfg, err := Load(args, FlavorRuntime, lookupEnvMap(env))
 			if err != nil {

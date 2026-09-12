@@ -267,9 +267,7 @@ func (s *Server) callTargetTemplate(ctx context.Context, params callTargetTempla
 	if err != nil {
 		return nil, newToolError(label, err.Error())
 	}
-	for key, values := range target.template.FixedHeaders() {
-		headers[key] = values
-	}
+	maps.Copy(headers, target.template.FixedHeaders())
 	headers.Set("User-Agent", version.UserAgent)
 	timeout, err := normalizeTimeout(params.TimeoutMS)
 	if err != nil {

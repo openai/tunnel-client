@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -526,9 +527,7 @@ func (t *TargetTemplate) ValidateCallerHeaders(headers map[string]string) (http.
 		out.Set(canonical, value)
 	}
 	combined := t.FixedHeaders()
-	for key, values := range out {
-		combined[key] = values
-	}
+	maps.Copy(combined, out)
 	if err := validateTemplateHeaderSize(combined); err != nil {
 		return nil, err
 	}

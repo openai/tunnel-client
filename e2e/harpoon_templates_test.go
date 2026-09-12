@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -392,10 +393,7 @@ func runHarpoonTemplatesRuntime(t *testing.T, subject runtimeSubject) {
 		{"region_id", "private-region?extra=1"},
 	} {
 		for _, failure := range []string{"missing", "invalid"} {
-			values := make(map[string]string, len(multipleParameters))
-			for name, value := range multipleParameters {
-				values[name] = value
-			}
+			values := maps.Clone(multipleParameters)
 			if failure == "missing" {
 				delete(values, parameter.name)
 			} else {
