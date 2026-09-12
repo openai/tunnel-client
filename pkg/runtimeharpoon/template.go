@@ -28,6 +28,8 @@ const (
 	maxTemplatePattern     = 512
 	maxTemplateHeaders     = 32
 	maxTemplateHeaderBytes = 8192
+	maxTemplateDescription = 1024
+	maxTemplateExamples    = 8
 )
 
 var templateNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
@@ -258,6 +260,12 @@ func compileTemplateParameter(schema runtimeconfig.HarpoonTemplateParameter) (co
 	if schema.Type != "string" || !schema.Required {
 		return compiledTemplateParameter{}, errors.New("only required string parameters are supported")
 	}
+	if len(schema.Description) > maxTemplateDescription || !utf8.ValidString(schema.Description) {
+		return compiledTemplateParameter{}, errors.New("parameter description must be valid UTF-8 within 1024 bytes")
+	}
+	if len(schema.Examples) > maxTemplateExamples {
+		return compiledTemplateParameter{}, errors.New("parameter examples exceed size limit")
+	}
 	if schema.MinLength == 0 {
 		schema.MinLength = 1
 	}
@@ -283,6 +291,7 @@ func compileTemplateParameter(schema runtimeconfig.HarpoonTemplateParameter) (co
 	}
 	p.schema.Enum = append([]string(nil), schema.Enum...)
 	p.schema.ReservedValues = append([]string(nil), schema.ReservedValues...)
+	p.schema.Examples = append([]string(nil), schema.Examples...)
 	seen := make(map[string]struct{}, len(schema.ReservedValues))
 	for _, value := range schema.ReservedValues {
 		if len(value) > maxTemplateValueBytes || !validTemplateIdentifier(value) {
@@ -301,6 +310,16 @@ func compileTemplateParameter(schema runtimeconfig.HarpoonTemplateParameter) (co
 		}
 		if _, exists := seen[value]; exists {
 			return compiledTemplateParameter{}, errors.New("duplicate enum identifier")
+		}
+		seen[value] = struct{}{}
+	}
+	seen = make(map[string]struct{}, len(schema.Examples))
+	for _, value := range schema.Examples {
+		if err := p.validate(value); err != nil {
+			return compiledTemplateParameter{}, errors.New("example value violates parameter constraints")
+		}
+		if _, exists := seen[value]; exists {
+			return compiledTemplateParameter{}, errors.New("duplicate example identifier")
 		}
 		seen[value] = struct{}{}
 	}
@@ -471,6 +490,7 @@ func (t *TargetTemplate) PublicParameters() map[string]runtimeconfig.HarpoonTemp
 		schema := parameter.schema
 		schema.Enum = append([]string(nil), schema.Enum...)
 		schema.ReservedValues = append([]string(nil), schema.ReservedValues...)
+		schema.Examples = append([]string(nil), schema.Examples...)
 		out[name] = schema
 	}
 	return out

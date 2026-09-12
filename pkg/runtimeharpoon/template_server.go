@@ -33,6 +33,15 @@ type callTargetTemplateRequest struct {
 	MaxResponseBytes *int              `json:"max_response_bytes,omitempty"`
 }
 
+// targetInvocation contains only public calling information. The input schema
+// binds the label and parameter constraints to this target without revealing
+// how the client maps them onto a private destination.
+type targetInvocation struct {
+	ToolName    string           `json:"tool_name" jsonschema:"description=MCP tool to call with arguments matching input_schema."`
+	InputSchema map[string]any   `json:"input_schema" jsonschema:"description=Complete argument schema for this target, including optional call controls."`
+	Examples    []map[string]any `json:"examples,omitempty" jsonschema:"description=Complete validated example argument objects; omit optional call controls to use their defaults."`
+}
+
 func (callTargetTemplateRequest) JSONSchemaExtend(schema *jsonschema.Schema) {
 	(callTargetRequest{}).JSONSchemaExtend(schema)
 	schema.Title = "Call Harpoon target template"
@@ -44,17 +53,74 @@ func (s *Server) addTemplateTool(server *mcp.Server) {
 		if target.template == nil {
 			continue
 		}
-		reflector := &jsonschema.Reflector{DoNotReference: true}
-		schema := reflector.Reflect(callTargetTemplateRequest{})
-		applyCallTargetSchemaBounds(schema, s.cfg)
+		schema := s.templateCallInputSchema()
 		server.AddTool(&mcp.Tool{
 			Name: callTargetTemplateTool, Title: "Call Harpoon target template",
-			Description: "Call a version-1 GET target template using only its declared string parameters and permitted headers. Discover parameters_schema with list_targets. The target fixes the destination and disables redirects.",
+			Description: "Call a version-1 GET target template using only its declared string parameters and permitted headers. Discover the tool name, complete input schema, and available examples in each list_targets entry's invocation. The target fixes the destination and disables redirects.",
 			InputSchema: schema, OutputSchema: buildCallTargetOutputSchema(s.cfg),
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		}, s.callTemplateHandler)
 		return
 	}
+}
+
+func (s *Server) templateCallInputSchema() *jsonschema.Schema {
+	reflector := &jsonschema.Reflector{DoNotReference: true}
+	schema := reflector.Reflect(callTargetTemplateRequest{})
+	applyCallTargetSchemaBounds(schema, s.cfg)
+	return schema
+}
+
+func (s *Server) templateInvocation(target Target) *targetInvocation {
+	base := s.templateCallInputSchema()
+	properties := make(map[string]any, base.Properties.Len())
+	for pair := base.Properties.Oldest(); pair != nil; pair = pair.Next() {
+		properties[pair.Key] = pair.Value
+	}
+	label, _ := base.Properties.Get("label")
+	label.Const = target.Label
+	properties["parameters"] = templateParametersSchema(target.template)
+	// Advertise the canonical spellings. Runtime header matching remains
+	// case-insensitive; pinned header names and values stay private.
+	headers := make(map[string]any, len(target.template.allowedHeaders))
+	for name := range target.template.allowedHeaders {
+		headers[name] = map[string]any{
+			"type": "string", "maxLength": maxTemplateHeaderBytes,
+			"not": map[string]any{"pattern": "[\x00-\x1f\x7f]"},
+		}
+	}
+	properties["headers"] = map[string]any{
+		"type": "object", "properties": headers, "additionalProperties": false,
+		"maxProperties": maxTemplateHeaders, "default": map[string]string{},
+		"description": "Optional caller headers using the advertised spelling. Values must be valid UTF-8 without control characters. The client also enforces an 8192-byte total header budget including managed headers.",
+	}
+	invocation := &targetInvocation{
+		ToolName: callTargetTemplateTool,
+		InputSchema: map[string]any{
+			"$schema": base.Version, "type": "object", "properties": properties,
+			"required": base.Required, "additionalProperties": false,
+			"description": "Arguments for this fixed-origin HTTPS GET operation. Redirects and request bodies are disabled. Supply raw parameter values without URL encoding; the client renders them. Optional call controls use the advertised defaults.",
+		},
+	}
+	values := make(map[string]any, len(target.template.parameters))
+	for name, parameter := range target.template.PublicParameters() {
+		switch {
+		case len(parameter.Examples) > 0:
+			values[name] = parameter.Examples[0]
+		case len(parameter.Enum) > 0:
+			// Enum order is not part of the policy digest. Keep the derived
+			// example stable across equivalent configurations as well.
+			sort.Strings(parameter.Enum)
+			values[name] = parameter.Enum[0]
+		default:
+			return invocation
+		}
+	}
+	// Revalidate the complete public example with the same renderer as calls.
+	if _, err := target.template.Render(values); err == nil {
+		invocation.Examples = []map[string]any{{"label": target.Label, "parameters": values}}
+	}
+	return invocation
 }
 
 func (s *Server) callTemplateHandler(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -266,6 +332,12 @@ func templateParametersSchema(policy *TargetTemplate) map[string]any {
 	for name, parameter := range parameters {
 		property := map[string]any{"type": "string", "minLength": parameter.MinLength, "maxLength": parameter.MaxLength,
 			"allOf": []any{map[string]any{"not": map[string]any{"pattern": "[^A-Za-z0-9_.~-]"}}, map[string]any{"not": map[string]any{"enum": []string{".", ".."}}}},
+		}
+		if parameter.Description != "" {
+			property["description"] = parameter.Description
+		}
+		if len(parameter.Examples) > 0 {
+			property["examples"] = parameter.Examples
 		}
 		if parameter.Pattern != "" {
 			property["pattern"] = "^(?:" + parameter.Pattern + ")$"

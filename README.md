@@ -629,7 +629,10 @@ query names, and authentication headers, validates each identifier, and never
 follows redirects. Existing exact-URL targets continue to work.
 
 Templates use YAML `config_version: 2` and `template.version: 1`, and execute
-through the separate `call_target_template` MCP tool. See the
+through the separate `call_target_template` MCP tool. `list_targets` publishes
+each template's complete invocation schema, public parameter descriptions, and
+validated examples when available. Upgrade the client before adding parameter
+metadata to configuration. See the
 [target template guide](docs/harpoon-target-templates.md) for complete
 configuration, discovery and invocation examples, authorization requirements,
 limits, and upgrade behavior.

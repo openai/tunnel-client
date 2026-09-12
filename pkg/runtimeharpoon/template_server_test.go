@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	validateschema "github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
@@ -108,11 +109,161 @@ func TestTemplateMCPInstructionsAndDiscovery(t *testing.T) {
 				require.Equal(t, legacySchemaJSON, outputJSON, "exact-target schema bytes must remain unchanged")
 			}
 			targetProperties := output["properties"].(map[string]any)["targets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
-			for _, field := range []string{"template_version", "parameters_schema"} {
+			for _, field := range []string{"template_version", "parameters_schema", "invocation"} {
 				_, present := targetProperties[field]
 				require.Equal(t, tc.template, present, field)
 			}
 		})
+	}
+}
+
+func TestTemplateDiscoveryInvocationSchema(t *testing.T) {
+	t.Parallel()
+	cfg := templateTestConfig()
+	cfg.Parameters["resourceId"] = runtimeconfig.HarpoonTemplateParameter{
+		Type: "string", Required: true, Pattern: `[A-Za-z0-9_-]+`, MinLength: 3, MaxLength: 12,
+		ReservedValues: []string{"admin"}, Description: "Resource identifier from the inventory result.", Examples: []string{"item-123", "item-456"},
+	}
+	cfg.Query = map[string]string{"format": "{format}", "private-field": "private-query-value"}
+	cfg.Parameters["format"] = runtimeconfig.HarpoonTemplateParameter{
+		Type: "string", Required: true, Enum: []string{"summary", "detail"}, MaxLength: 7,
+	}
+	cfg.Headers = map[string]string{"Authorization": "Bearer private-fixed-secret"}
+	cfg.AllowedHeaders = []string{"accept", "x-request-id"}
+	logger := runtimeRegistryTestLogger()
+	registry, err := NewRegistry(logger, false, []Target{
+		{Label: "resource", Template: cfg},
+		{Label: "legacy", BaseURL: runtimeRegistryTestURL(t, "https://legacy.example/target")},
+	})
+	require.NoError(t, err)
+	server, err := NewServer(&runtimeconfig.HarpoonConfig{MaxResponseBytes: 2048}, registry, logger)
+	require.NoError(t, err)
+	discovery := server.listTargets(listTargetsRequest{})
+	var template targetInfo
+	for _, target := range discovery.Targets {
+		if target.Label == "resource" {
+			template = target
+		} else {
+			require.Nil(t, target.Invocation, "legacy discovery remains unchanged")
+		}
+	}
+	require.NotNil(t, template.Invocation)
+	require.Equal(t, callTargetTemplateTool, template.Invocation.ToolName)
+	require.Len(t, template.Invocation.Examples, 1)
+	encoded, err := json.Marshal(discovery)
+	require.NoError(t, err)
+	for _, private := range []string{"inventory.example", "/resource/", "private-field", "private-query-value", "Authorization", "private-fixed-secret", `"origin"`, `"path_template"`} {
+		require.NotContains(t, string(encoded), private)
+	}
+	var schema validateschema.Schema
+	encoded, err = json.Marshal(template.Invocation.InputSchema)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(encoded, &schema))
+	resolved, err := schema.Resolve(nil)
+	require.NoError(t, err)
+	params := schema.Properties["parameters"]
+	require.Equal(t, "Resource identifier from the inventory result.", params.Properties["resourceId"].Description)
+	require.Equal(t, []any{"item-123", "item-456"}, params.Properties["resourceId"].Examples)
+	require.ElementsMatch(t, []string{"resourceId", "format"}, params.Required)
+	_, present := schema.Properties["headers"].Properties["Accept"]
+	require.True(t, present)
+	require.Equal(t, float64(2048), *schema.Properties["max_response_bytes"].Maximum)
+	require.Equal(t, float64(minTimeout.Milliseconds()), *schema.Properties["timeout_ms"].Minimum)
+	require.Equal(t, float64(maxTimeout.Milliseconds()), *schema.Properties["timeout_ms"].Maximum)
+	exampleJSON, err := json.Marshal(template.Invocation.Examples[0])
+	require.NoError(t, err)
+	newExample := func() map[string]any {
+		var example map[string]any
+		require.NoError(t, json.Unmarshal(exampleJSON, &example))
+		return example
+	}
+	require.Equal(t, map[string]any{"label": "resource", "parameters": map[string]any{"resourceId": "item-123", "format": "detail"}}, newExample())
+	require.NoError(t, resolved.Validate(newExample()))
+	withControls := newExample()
+	withControls["headers"] = map[string]any{"Accept": "application/json", "X-Request-Id": "req-123"}
+	withControls["timeout_ms"] = float64(minTimeout.Milliseconds())
+	withControls["max_response_bytes"] = float64(2048)
+	require.NoError(t, resolved.Validate(withControls))
+	for name, mutate := range map[string]func(map[string]any){
+		"wrong label":          func(v map[string]any) { v["label"] = "legacy" },
+		"missing label":        func(v map[string]any) { delete(v, "label") },
+		"missing parameters":   func(v map[string]any) { delete(v, "parameters") },
+		"null parameters":      func(v map[string]any) { v["parameters"] = nil },
+		"missing identifier":   func(v map[string]any) { delete(v["parameters"].(map[string]any), "resourceId") },
+		"extra identifier":     func(v map[string]any) { v["parameters"].(map[string]any)["extra"] = "extra" },
+		"numeric identifier":   func(v map[string]any) { v["parameters"].(map[string]any)["resourceId"] = float64(123) },
+		"reserved identifier":  func(v map[string]any) { v["parameters"].(map[string]any)["resourceId"] = "ADMIN" },
+		"path injection":       func(v map[string]any) { v["parameters"].(map[string]any)["resourceId"] = "a/b" },
+		"short identifier":     func(v map[string]any) { v["parameters"].(map[string]any)["resourceId"] = "ab" },
+		"long identifier":      func(v map[string]any) { v["parameters"].(map[string]any)["resourceId"] = strings.Repeat("x", 13) },
+		"invalid enum":         func(v map[string]any) { v["parameters"].(map[string]any)["format"] = "other" },
+		"pinned header":        func(v map[string]any) { v["headers"] = map[string]any{"Authorization": "override"} },
+		"header injection":     func(v map[string]any) { v["headers"] = map[string]any{"Accept": "a\r\nb"} },
+		"null headers":         func(v map[string]any) { v["headers"] = nil },
+		"short timeout":        func(v map[string]any) { v["timeout_ms"] = float64(minTimeout.Milliseconds() - 1) },
+		"long timeout":         func(v map[string]any) { v["timeout_ms"] = float64(maxTimeout.Milliseconds() + 1) },
+		"null timeout":         func(v map[string]any) { v["timeout_ms"] = nil },
+		"large response limit": func(v map[string]any) { v["max_response_bytes"] = float64(2049) },
+		"zero response limit":  func(v map[string]any) { v["max_response_bytes"] = float64(0) },
+		"body":                 func(v map[string]any) { v["body"] = "payload" },
+		"redirects":            func(v map[string]any) { v["follow_redirects"] = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := newExample()
+			mutate(value)
+			require.Error(t, resolved.Validate(value))
+		})
+	}
+	// A consumer may modify the returned maps. Later discovery must retain the
+	// compiled constraints and examples, without affecting another target.
+	template.Invocation.Examples[0]["parameters"].(map[string]any)["resourceId"] = "modified"
+	template.ParametersSchema["properties"].(map[string]any)["resourceId"].(map[string]any)["examples"].([]string)[0] = "modified"
+	fresh, err := json.Marshal(server.listTargets(listTargetsRequest{}))
+	require.NoError(t, err)
+	require.NotContains(t, string(fresh), "modified")
+}
+
+func TestTemplateDiscoveryWithoutExamples(t *testing.T) {
+	t.Parallel()
+	logger := runtimeRegistryTestLogger()
+	registry, err := NewRegistry(logger, false, []Target{{Label: "resource", Template: templateTestConfig()}})
+	require.NoError(t, err)
+	server, err := NewServer(&runtimeconfig.HarpoonConfig{}, registry, logger)
+	require.NoError(t, err)
+	info := server.listTargets(listTargetsRequest{}).Targets[0]
+	require.NotNil(t, info.Invocation)
+	require.Empty(t, info.Invocation.Examples, "never invent an identifier from a pattern")
+	payload, err := json.Marshal(info)
+	require.NoError(t, err)
+	require.NotContains(t, string(payload), "examples")
+	headers := info.Invocation.InputSchema["properties"].(map[string]any)["headers"].(map[string]any)
+	require.Empty(t, headers["properties"])
+	require.Equal(t, false, headers["additionalProperties"])
+}
+
+func TestTemplateDiscoveryEnumExampleIgnoresEnumOrder(t *testing.T) {
+	t.Parallel()
+	var previous *targetInvocation
+	var digest string
+	for _, values := range [][]string{{"zebra", "alpha"}, {"alpha", "zebra"}} {
+		cfg := templateTestConfig()
+		parameter := cfg.Parameters["resourceId"]
+		parameter.Enum = values
+		cfg.Parameters["resourceId"] = parameter
+		logger := runtimeRegistryTestLogger()
+		registry, err := NewRegistry(logger, false, []Target{{Label: "resource", Template: cfg}})
+		require.NoError(t, err)
+		server, err := NewServer(&runtimeconfig.HarpoonConfig{}, registry, logger)
+		require.NoError(t, err)
+		invocation := server.listTargets(listTargetsRequest{}).Targets[0].Invocation
+		target, ok := registry.Lookup("resource")
+		require.True(t, ok)
+		if previous != nil {
+			require.Equal(t, previous.Examples, invocation.Examples)
+			require.Equal(t, digest, target.template.PolicyDigest())
+		}
+		require.Equal(t, "alpha", invocation.Examples[0]["parameters"].(map[string]any)["resourceId"])
+		previous, digest = invocation, target.template.PolicyDigest()
 	}
 }
 

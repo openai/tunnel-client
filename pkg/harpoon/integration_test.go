@@ -2,6 +2,7 @@ package harpoon
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -661,7 +662,10 @@ func TestHarpoonTemplateInstructionsAndDiscovery(t *testing.T) {
 				targets = append(targets, Target{Label: "template", Template: &runtimeconfig.HarpoonTargetTemplate{
 					Version: 1, Origin: "https://template.example", Method: http.MethodGet, PathTemplate: "/resources/{resourceId}",
 					Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
-						"resourceId": {Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64},
+						"resourceId": {
+							Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64,
+							Description: "Public resource identifier", Examples: []string{"resource-123"},
+						},
 					},
 				}})
 			}
@@ -712,7 +716,7 @@ func TestHarpoonTemplateInstructionsAndDiscovery(t *testing.T) {
 				require.Equal(t, "Allowlisted targets available to call_target.", output["description"])
 			}
 			targetProperties := output["properties"].(map[string]any)["targets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
-			for _, field := range []string{"template_version", "parameters_schema"} {
+			for _, field := range []string{"template_version", "parameters_schema", "invocation"} {
 				_, present := targetProperties[field]
 				require.Equal(t, tc.template, present, field)
 			}
@@ -729,14 +733,126 @@ func TestHarpoonTemplateInstructionsAndDiscovery(t *testing.T) {
 					require.Equal(t, float64(1), target["template_version"])
 					parameters := target["parameters_schema"].(map[string]any)
 					require.Equal(t, []any{"resourceId"}, parameters["required"])
-					require.Contains(t, parameters["properties"], "resourceId")
+					resource := parameters["properties"].(map[string]any)["resourceId"].(map[string]any)
+					require.Equal(t, "Public resource identifier", resource["description"])
+					require.Equal(t, []any{"resource-123"}, resource["examples"])
+					invocation := target["invocation"].(map[string]any)
+					require.Equal(t, "call_target_template", invocation["tool_name"])
+					require.Equal(t, []any{map[string]any{"label": "template", "parameters": map[string]any{"resourceId": "resource-123"}}}, invocation["examples"])
 				} else {
 					require.NotContains(t, target, "template_version")
 					require.NotContains(t, target, "parameters_schema")
+					require.NotContains(t, target, "invocation")
 				}
 			}
 		})
 	}
+}
+
+func TestHarpoonInvokesTemplateFromTargetDiscovery(t *testing.T) {
+	const credential = "Bearer private-fixed-credential"
+	const responseBody = "opaque upstream response"
+	type observedRequest struct{ path, query, authorization, tag string }
+	requests := make(chan observedRequest, 2)
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- observedRequest{r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization"), r.Header.Get("X-Request-Tag")}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, responseBody)
+	}))
+	t.Cleanup(upstream.Close)
+	policy := &runtimeconfig.HarpoonTargetTemplate{
+		Version: 1, Origin: upstream.URL, Method: http.MethodGet, PathTemplate: "/private/resources/{resourceId}",
+		Query: map[string]string{"view": "{view}", "private_flag": "private-query-value"},
+		Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
+			"resourceId": {
+				Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64,
+				Description: "Public resource identifier", Examples: []string{"resource-123", "resource-456"},
+			},
+			"view": {Type: "string", Required: true, Enum: []string{"summary", "details"}, MaxLength: 7, Description: "Approved representation"},
+		},
+		Headers: map[string]string{"Authorization": credential}, AllowedHeaders: []string{"X-Request-Tag"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry, err := NewRegistry(logger, false, []Target{
+		{Label: "exact", BaseURL: mustParseURL(t, upstream.URL+"/exact")},
+		{Label: "resource", Description: "Read one resource", Template: policy},
+		{Label: "needs_values", Template: &runtimeconfig.HarpoonTargetTemplate{
+			Version: 1, Origin: upstream.URL, Method: http.MethodGet, PathTemplate: "/other/{id}",
+			Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
+				"id": {Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	server, err := NewServer(&config.HarpoonConfig{MaxResponseBytes: 1024}, registry, nil, logger, WithHTTPTransport(upstream.Client().Transport))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.MCPServer().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, serverSession.Close()) })
+	client := mcp.NewClient(&mcp.Implementation{Name: "target-discovery-test", Version: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
+
+	// Discover and invoke without requesting tools/list or reading local policy.
+	discovered, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_targets", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, discovered.IsError)
+	var catalog struct {
+		Targets []map[string]any `json:"targets"`
+	}
+	payload := extractResultPayload(t, discovered)
+	require.NoError(t, json.Unmarshal(payload, &catalog))
+	require.Len(t, catalog.Targets, 3)
+	byLabel := make(map[string]map[string]any, len(catalog.Targets))
+	for _, target := range catalog.Targets {
+		byLabel[target["label"].(string)] = target
+	}
+	require.Equal(t, map[string]any{"label": "exact", "allowed_methods": []any{"GET", "POST", "PUT"}}, byLabel["exact"])
+	for _, private := range []string{upstream.URL, "/private/resources", "private_flag", "private-query-value", credential} {
+		require.NotContains(t, string(payload), private)
+	}
+	require.Empty(t, requests, "discovery must not contact the upstream")
+
+	invocation := byLabel["resource"]["invocation"].(map[string]any)
+	inputSchema := invocation["input_schema"].(map[string]any)
+	properties := inputSchema["properties"].(map[string]any)
+	require.Equal(t, "object", inputSchema["type"])
+	require.Equal(t, false, inputSchema["additionalProperties"])
+	require.ElementsMatch(t, []any{"label", "parameters"}, inputSchema["required"])
+	require.Equal(t, "resource", properties["label"].(map[string]any)["const"])
+	require.Equal(t, byLabel["resource"]["parameters_schema"], properties["parameters"])
+	for _, field := range []string{"headers", "timeout_ms", "max_response_bytes"} {
+		require.Contains(t, properties, field)
+	}
+	parameters := properties["parameters"].(map[string]any)["properties"].(map[string]any)
+	require.Equal(t, "Public resource identifier", parameters["resourceId"].(map[string]any)["description"])
+	require.Equal(t, []any{"resource-123", "resource-456"}, parameters["resourceId"].(map[string]any)["examples"])
+	require.NotContains(t, byLabel["needs_values"]["invocation"], "examples")
+	examples := invocation["examples"].([]any)
+	require.Len(t, examples, 1)
+	arguments := examples[0].(map[string]any)
+	require.Equal(t, map[string]any{"label": "resource", "parameters": map[string]any{"resourceId": "resource-123", "view": "details"}}, arguments)
+	arguments["headers"] = map[string]any{"X-Request-Tag": "discovered-call"}
+	called, err := session.CallTool(ctx, &mcp.CallToolParams{Name: invocation["tool_name"].(string), Arguments: arguments})
+	require.NoError(t, err)
+	require.False(t, called.IsError, "an upstream HTTP error retains the normal response payload")
+	resultJSON, err := json.Marshal(map[string]any{
+		"status_code": http.StatusNotFound, "body_base64": base64.StdEncoding.EncodeToString([]byte(responseBody)), "body_size_bytes": len(responseBody),
+	})
+	require.NoError(t, err)
+	requireJSONSubset(t, resultJSON, extractResultPayload(t, called))
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(extractResultPayload(t, called), &result))
+	require.Len(t, result, 4, "the response retains only status, headers, body bytes, and body size")
+	require.Contains(t, result, "headers")
+	require.Len(t, requests, 1)
+	require.Equal(t, observedRequest{"/private/resources/resource-123", "private_flag=private-query-value&view=details", credential, "discovered-call"}, <-requests)
+	require.Empty(t, requests)
 }
 
 func setupHarpoon(t *testing.T, cfg config.HarpoonConfig) (*Server, *mcp.InMemoryTransport) {

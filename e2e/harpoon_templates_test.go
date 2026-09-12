@@ -1,6 +1,8 @@
 package e2e_test
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 
 	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
@@ -28,6 +31,257 @@ func TestHarpoonTemplatesRuntimeE2E(t *testing.T) {
 			runHarpoonTemplatesRuntime(t, subject)
 		})
 	}
+}
+
+func TestHarpoonRichTargetDiscoveryRuntimeE2E(t *testing.T) {
+	for _, subject := range runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject()) {
+		t.Run(subject.name, func(t *testing.T) {
+			runHarpoonRichTargetDiscoveryRuntime(t, subject)
+		})
+	}
+}
+
+func runHarpoonRichTargetDiscoveryRuntime(t *testing.T, subject runtimeSubject) {
+	t.Helper()
+	const auth = "Bearer rich-discovery-private-credential"
+	recorder := &templateRuntimeRecorder{}
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder.record(r)
+		if r.Header.Get("Authorization") != auth {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte("rich-target-ok"))
+	}))
+	t.Cleanup(upstream.Close)
+	caPath := filepath.Join(t.TempDir(), "upstream-ca.pem")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: upstream.Certificate().Raw})
+	require.NoError(t, os.WriteFile(caPath, certPEM, 0o600))
+
+	ready, invocationReady := make(chan struct{}), make(chan struct{})
+	var discoveredCommand json.RawMessage
+	invoke := templateRuntimeCommand(t, "rich-invoke", "tools/call", nil, invocationReady)
+	invoke.CommandMutator = func(_ json.RawMessage, _ mocktunnelservice.SharedStorage) json.RawMessage {
+		// Closing invocationReady publishes the command assembled from discovery.
+		return discoveredCommand
+	}
+	controlPlane := mocktunnelservice.NewMockTunnelService(
+		mocktunnelservice.WithAPIKey(runtimeArtifactAPIKey),
+		mocktunnelservice.WithTunnelID(runtimeArtifactTunnelID),
+		mocktunnelservice.WithCommandResponses(
+			templateRuntimeCommand(t, "rich-list-targets", "tools/call", json.RawMessage(`{"name":"list_targets","arguments":{}}`), ready),
+			invoke,
+		),
+	)
+	controlPlane.Start(t)
+	healthURLFile := filepath.Join(t.TempDir(), "health.url")
+	profilePath := filepath.Join(t.TempDir(), "rich-discovery.yaml")
+	profile := fmt.Sprintf(`config_version: 2
+ca_bundle: %s
+control_plane:
+  base_url: %s
+  tunnel_id: %s
+  api_key: env:CONTROL_PLANE_API_KEY
+  poll_channels: [harpoon]
+harpoon:
+  targets:
+    - label: incomplete_example
+      template:
+        version: 1
+        origin: %s
+        method: GET
+        path_template: /private-incomplete/{id}
+        parameters:
+          id:
+            type: string
+            required: true
+            description: An identifier without a supplied example
+            pattern: '^[A-Za-z0-9_-]+$'
+            max_length: 64
+        follow_redirects: false
+    - label: complete_example
+      description: Retrieve a case for an organization and query selection
+      template:
+        version: 1
+        origin: %s
+        method: GET
+        path_template: /private-organizations/{organization}/private-cases/{case_id}
+        query:
+          privateQueryKey: '{query_id}'
+          privateRegionKey: '{region}'
+          privateFixedName: private-fixed-value
+        parameters:
+          organization:
+            type: string
+            required: true
+            description: Organization identifier
+            examples: [sample-org, another-org]
+            pattern: '^[A-Za-z0-9_-]+$'
+            max_length: 64
+          case_id:
+            type: string
+            required: true
+            description: Case identifier
+            examples: [CASE-123, CASE-456]
+            pattern: '^[A-Za-z0-9_-]+$'
+            max_length: 64
+          query_id:
+            type: string
+            required: true
+            description: Query selection identifier
+            examples: [sample-query]
+            pattern: '^[A-Za-z0-9_-]+$'
+            max_length: 64
+          region:
+            type: string
+            required: true
+            description: Region selection
+            enum: [west, east]
+            max_length: 16
+        headers:
+          Authorization: env:HP_RICH_AUTH
+        allowed_headers: [X-Request-Tag]
+        follow_redirects: false
+health:
+  listen_addr: 127.0.0.1:0
+  url_file: %s
+admin_ui:
+  open_browser: false
+log:
+  level: info
+  format: struct-text
+`, runtimeArtifactYAMLScalar(caPath), runtimeArtifactYAMLScalar(controlPlane.BaseURL().String()),
+		runtimeArtifactTunnelID, runtimeArtifactYAMLScalar(upstream.URL), runtimeArtifactYAMLScalar(upstream.URL),
+		runtimeArtifactYAMLScalar(healthURLFile))
+	require.NoError(t, os.WriteFile(profilePath, []byte(profile), 0o600))
+	proc := startRuntimeArtifactWithEnv(t, subject.binary, map[string]string{"HP_RICH_AUTH": auth}, "run", "--config", profilePath)
+	_ = waitForRuntimeArtifactHealthURL(t, proc, healthURLFile)
+	close(ready)
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeArtifactSignalTimeout)
+	t.Cleanup(cancel)
+	require.NoError(t, controlPlane.WaitForResponses(ctx, 1), "list_targets did not complete: %s", proc.output.String())
+	discoveryResponses := controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched)
+	require.Len(t, discoveryResponses, 1)
+	discovery := templateRuntimeResult(t, discoveryResponses[0])
+	arguments := templateRuntimeInvocationFromDiscovery(t, discovery)
+	discoveredCommand = templateRuntimeCommand(t, "rich-invoke", "tools/call", arguments, nil).Command
+	close(invocationReady)
+	waitForRuntimeArtifactIdle(t, proc, controlPlane)
+	require.NoError(t, proc.stop())
+
+	structured, ok := discovery["structuredContent"].(map[string]any)
+	require.True(t, ok)
+	targets, ok := structured["targets"].([]any)
+	require.True(t, ok)
+	targetByLabel := make(map[string]map[string]any)
+	for _, raw := range targets {
+		target, ok := raw.(map[string]any)
+		require.True(t, ok)
+		label, ok := target["label"].(string)
+		require.True(t, ok)
+		targetByLabel[label] = target
+	}
+	complete := targetByLabel["complete_example"]
+	require.Equal(t, "Retrieve a case for an organization and query selection", complete["description"])
+	require.Equal(t, float64(1), complete["template_version"])
+	parameterSchema, ok := complete["parameters_schema"].(map[string]any)
+	require.True(t, ok)
+	properties, ok := parameterSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	for _, parameter := range []struct {
+		name, description string
+		examples          []any
+	}{
+		{"organization", "Organization identifier", []any{"sample-org", "another-org"}},
+		{"case_id", "Case identifier", []any{"CASE-123", "CASE-456"}},
+		{"query_id", "Query selection identifier", []any{"sample-query"}},
+		{"region", "Region selection", nil},
+	} {
+		property, ok := properties[parameter.name].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, parameter.description, property["description"])
+		if parameter.examples != nil {
+			require.Equal(t, parameter.examples, property["examples"])
+		}
+	}
+	invocation, ok := complete["invocation"].(map[string]any)
+	require.True(t, ok)
+	inputSchema, ok := invocation["input_schema"].(map[string]any)
+	require.True(t, ok)
+	inputProperties, ok := inputSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, parameterSchema, inputProperties["parameters"])
+	labelSchema, ok := inputProperties["label"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, complete["label"], labelSchema["const"])
+	for _, field := range []string{"headers", "timeout_ms", "max_response_bytes"} {
+		require.Contains(t, inputProperties, field)
+	}
+	incompleteInvocation, ok := targetByLabel["incomplete_example"]["invocation"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, incompleteInvocation, "examples", "partial examples must not become runnable invocations")
+
+	encodedDiscovery, err := json.Marshal(discovery)
+	require.NoError(t, err)
+	for _, sensitive := range []string{upstream.URL, "/private-organizations/", "/private-cases/", "/private-incomplete/", "privateQueryKey", "privateRegionKey", "privateFixedName", "private-fixed-value", auth, "HP_RICH_AUTH", "Authorization"} {
+		require.NotContains(t, string(encodedDiscovery), sensitive)
+	}
+	responses := controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched)
+	require.Len(t, responses, 2)
+	require.Empty(t, controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchUnexpected))
+	result := templateRuntimeResult(t, responses[1])
+	response, ok := result["structuredContent"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(http.StatusOK), response["status_code"])
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("rich-target-ok")), response["body_base64"])
+	requests := recorder.snapshot()
+	require.Len(t, requests, 1)
+	require.Equal(t, http.MethodGet, requests[0].method)
+	require.Equal(t, "/private-organizations/sample-org/private-cases/CASE-123", requests[0].escapedPath)
+	require.Equal(t, "privateFixedName=private-fixed-value&privateQueryKey=sample-query&privateRegionKey=east", requests[0].rawQuery)
+	require.Empty(t, requests[0].body)
+	require.Equal(t, auth, requests[0].headers.Get("Authorization"))
+	for _, sensitive := range []string{auth, "/private-organizations/sample-org/private-cases/CASE-123", "private-fixed-value"} {
+		require.NotContains(t, proc.output.String(), sensitive)
+	}
+	t.Log("list_targets alone supplied a schema-valid invocation; two control-plane commands produced exactly one HTTPS request")
+}
+
+// This caller knows only the discovery contract. It does not know a target label,
+// tool name, parameter name, or parameter value until list_targets provides it.
+func templateRuntimeInvocationFromDiscovery(t *testing.T, discovery map[string]any) json.RawMessage {
+	t.Helper()
+	structured, ok := discovery["structuredContent"].(map[string]any)
+	require.True(t, ok)
+	targets, ok := structured["targets"].([]any)
+	require.True(t, ok)
+	for _, raw := range targets {
+		target, ok := raw.(map[string]any)
+		require.True(t, ok)
+		invocation, ok := target["invocation"].(map[string]any)
+		if !ok {
+			continue
+		}
+		examples, ok := invocation["examples"].([]any)
+		if !ok || len(examples) == 0 {
+			continue
+		}
+		tool, ok := invocation["tool_name"].(string)
+		require.True(t, ok)
+		require.NotEmpty(t, tool)
+		schemaJSON, err := json.Marshal(invocation["input_schema"])
+		require.NoError(t, err)
+		var schema jsonschema.Schema
+		require.NoError(t, json.Unmarshal(schemaJSON, &schema))
+		resolved, err := schema.Resolve(nil)
+		require.NoError(t, err)
+		require.NoError(t, resolved.Validate(examples[0]), "discovered example must satisfy the complete invocation schema")
+		arguments, err := json.Marshal(map[string]any{"name": tool, "arguments": examples[0]})
+		require.NoError(t, err)
+		return arguments
+	}
+	t.Fatal("list_targets did not expose a complete runnable example")
+	return nil
 }
 
 type templateRuntimeRequest struct {

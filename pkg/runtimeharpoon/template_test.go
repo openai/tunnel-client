@@ -351,6 +351,8 @@ func TestTemplatePolicyHasNoMutableAliases(t *testing.T) {
 	cfg.Query = map[string]string{"version": "1"}
 	p := cfg.Parameters["resourceId"]
 	p.Enum = []string{"one", "two"}
+	p.Description = "Resource identifier from the inventory response"
+	p.Examples = []string{"one", "two"}
 	cfg.Parameters["resourceId"] = p
 	template, err := CompileTargetTemplate(cfg)
 	require.NoError(t, err)
@@ -360,10 +362,12 @@ func TestTemplatePolicyHasNoMutableAliases(t *testing.T) {
 	cfg.Headers["Authorization"] = "Bearer changed-secret"
 	cfg.AllowedHeaders[0] = "X-Other"
 	p.Enum[0], p.ReservedValues[0] = "three", "one"
+	p.Examples[0] = "three"
 	delete(cfg.Parameters, "resourceId")
 	public := template.PublicParameters()
 	public["resourceId"].Enum[0] = "four"
 	public["resourceId"].ReservedValues[0] = "one"
+	public["resourceId"].Examples[0] = "four"
 	delete(public, "resourceId")
 	headers := template.FixedHeaders()
 	headers.Set("Authorization", "Bearer changed-again")
@@ -376,7 +380,135 @@ func TestTemplatePolicyHasNoMutableAliases(t *testing.T) {
 	_, err = template.ValidateCallerHeaders(map[string]string{"X-Other": "value"})
 	require.Error(t, err)
 	require.Equal(t, []string{"one", "two"}, template.PublicParameters()["resourceId"].Enum)
+	require.Equal(t, []string{"one", "two"}, template.PublicParameters()["resourceId"].Examples)
+	require.Equal(t, "Resource identifier from the inventory response", template.PublicParameters()["resourceId"].Description)
 	require.Equal(t, digest, template.PolicyDigest())
+}
+
+func TestTemplateParameterMetadataValidation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		mutate   func(*runtimeconfig.HarpoonTemplateParameter)
+		want     string
+		redacted string
+	}{
+		{name: "absent metadata"},
+		{name: "Unicode description at byte limit", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Description = strings.Repeat("é", 512) }},
+		{name: "multiline description", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Description = "Resource identifier.\nObtain it from inventory."
+		}},
+		{name: "too many description bytes", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Description = strings.Repeat("é", 513) }, want: "description", redacted: "ééé"},
+		{name: "invalid UTF-8 description", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Description = "private-description\xff" }, want: "description", redacted: "private-description"},
+		{name: "eight unique examples", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Examples = []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
+		}},
+		{name: "case-distinct examples", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{"one", "ONE"} }},
+		{name: "too many examples", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Examples = []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
+		}, want: "examples exceed size limit"},
+		{name: "duplicate examples", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Examples = []string{"private-example", "private-example"}
+		}, want: "duplicate example", redacted: "private-example"},
+		{name: "valid enum example", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Enum, p.Examples = []string{"one", "two"}, []string{"two"}
+		}},
+		{name: "outside enum", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Enum, p.Examples = []string{"one", "two"}, []string{"private-example"}
+		}, want: "example value violates parameter constraints", redacted: "private-example"},
+		{name: "reserved case variant", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{"ADMIN"} }, want: "example value violates parameter constraints", redacted: "ADMIN"},
+		{name: "pattern mismatch", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.Pattern, p.Examples = "[0-9]+", []string{"private-example"}
+		}, want: "example value violates parameter constraints", redacted: "private-example"},
+		{name: "empty example", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{""} }, want: "example value violates parameter constraints"},
+		{name: "below minimum length", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) {
+			p.MinLength, p.Examples = 16, []string{"private-example"}
+		}, want: "example value violates parameter constraints", redacted: "private-example"},
+		{name: "above maximum length", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{strings.Repeat("a", 65)} }, want: "example value violates parameter constraints", redacted: strings.Repeat("a", 65)},
+		{name: "dot segment", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{".."} }, want: "example value violates parameter constraints"},
+		{name: "path separator", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{"private/example"} }, want: "example value violates parameter constraints", redacted: "private/example"},
+		{name: "encoded separator", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{"private%2fexample"} }, want: "example value violates parameter constraints", redacted: "private%2fexample"},
+		{name: "Unicode example", mutate: func(p *runtimeconfig.HarpoonTemplateParameter) { p.Examples = []string{"privaté"} }, want: "example value violates parameter constraints", redacted: "privaté"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := templateTestConfig()
+			parameter := cfg.Parameters["resourceId"]
+			if test.mutate != nil {
+				test.mutate(&parameter)
+			}
+			cfg.Parameters["resourceId"] = parameter
+			compiled, err := CompileTargetTemplate(cfg)
+			if test.want != "" {
+				require.ErrorContains(t, err, test.want)
+				require.Nil(t, compiled)
+				if test.redacted != "" {
+					require.NotContains(t, err.Error(), test.redacted)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, parameter.Description, compiled.PublicParameters()["resourceId"].Description)
+			require.Equal(t, parameter.Examples, compiled.PublicParameters()["resourceId"].Examples)
+			for _, example := range parameter.Examples {
+				_, err := compiled.Render(map[string]any{"resourceId": example})
+				require.NoError(t, err, "published examples must be accepted by the runtime")
+			}
+		})
+	}
+}
+
+func TestTemplateParameterMetadataPreservesLegacyPolicyDigest(t *testing.T) {
+	t.Parallel()
+	legacy, err := CompileTargetTemplate(templateTestConfig())
+	require.NoError(t, err)
+	// Recorded before optional parameter metadata was added.
+	require.Equal(t, "1cf390268c5427c534402d7c4be8af5dbaf2e71ed93c82219b4aaed23d4f4b23", legacy.PolicyDigest())
+	cfg := templateTestConfig()
+	parameter := cfg.Parameters["resourceId"]
+	parameter.Examples = []string{}
+	cfg.Parameters["resourceId"] = parameter
+	empty, err := CompileTargetTemplate(cfg)
+	require.NoError(t, err)
+	require.Equal(t, legacy.PolicyDigest(), empty.PolicyDigest())
+}
+
+func TestTemplateParameterMetadataChangesPolicyAndCatalogDigests(t *testing.T) {
+	t.Parallel()
+	digests := func(t *testing.T, cfg *runtimeconfig.HarpoonTargetTemplate) (string, string) {
+		t.Helper()
+		compiled, err := CompileTargetTemplate(cfg)
+		require.NoError(t, err)
+		registry, err := NewRegistry(runtimeRegistryTestLogger(), false, []Target{{Label: "resource", Template: cfg}})
+		require.NoError(t, err)
+		return compiled.PolicyDigest(), mustStartupCatalogDigest(t, registry, "runtime-key", "tunnel-id").Value
+	}
+	basePolicy, baseCatalog := digests(t, templateTestConfig())
+	for _, test := range []struct {
+		name        string
+		description string
+		examples    []string
+	}{
+		{name: "description", description: "Inventory resource identifier"},
+		{name: "examples", examples: []string{"one", "two"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := templateTestConfig()
+			parameter := cfg.Parameters["resourceId"]
+			parameter.Description, parameter.Examples = test.description, test.examples
+			cfg.Parameters["resourceId"] = parameter
+			policy, catalog := digests(t, cfg)
+			require.NotEqual(t, basePolicy, policy)
+			require.NotEqual(t, baseCatalog, catalog)
+			if len(parameter.Examples) > 1 {
+				parameter.Examples = []string{"two", "one"}
+				cfg.Parameters["resourceId"] = parameter
+				reorderedPolicy, reorderedCatalog := digests(t, cfg)
+				require.NotEqual(t, policy, reorderedPolicy, "example order is public metadata")
+				require.NotEqual(t, catalog, reorderedCatalog)
+			}
+		})
+	}
 }
 
 func TestTemplatePolicyDigestCoversPrivatePolicy(t *testing.T) {

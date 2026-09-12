@@ -1,6 +1,7 @@
 package runtimeconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -83,6 +84,40 @@ func TestLoadTemplateConfigPreservesStructuredPolicyAcrossFlavors(t *testing.T) 
 	}
 }
 
+func TestLoadTemplateParameterMetadataAcrossFlavors(t *testing.T) {
+	t.Parallel()
+	contents := strings.Replace(templateConfigFixture, "            required: true\n", "            required: true\n            description: Case identifier from the profile response\n            examples: [CASE-123, CASE-456]\n", 1)
+	for _, flavor := range []Flavor{FlavorRuntime, FlavorRuntimeCloudflared, FlavorFull} {
+		t.Run(string(flavor), func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Load([]string{"--config", writeRuntimeConfig(t, contents)}, flavor, lookupEnvMap(map[string]string{
+				"TEST_API_KEY": testAPIKey, "TEST_TEMPLATE_AUTH": "Bearer secret",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			parameter := cfg.Harpoon.Targets[0].Template.Parameters["case_id"]
+			if parameter.Description != "Case identifier from the profile response" || !reflect.DeepEqual(parameter.Examples, []string{"CASE-123", "CASE-456"}) {
+				t.Fatal("parameter metadata was not preserved by the config loader")
+			}
+			encoded, err := json.Marshal(parameter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded HarpoonTemplateParameter
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(parameter, decoded) {
+				t.Fatal("parameter metadata did not survive JSON serialization")
+			}
+			if !strings.Contains(string(encoded), `"description":`) || !strings.Contains(string(encoded), `"examples":`) {
+				t.Fatal("parameter metadata did not use the public JSON field names")
+			}
+		})
+	}
+}
+
 func TestTemplateConfigStrictSchemaAndVersion(t *testing.T) {
 	cases := []struct{ name, from, to, want string }{
 		{"missing config version", "config_version: 2\n", "", "requires config_version: 2"},
@@ -95,6 +130,10 @@ func TestTemplateConfigStrictSchemaAndVersion(t *testing.T) {
 		{"socket and template", "      template:", "      unix_socket: /tmp/upstream.sock\n      template:", "cannot be combined"},
 		{"unknown template field", "        method: GET", "        methods: GET", "field methods not found"},
 		{"unknown parameter field", "            max_length: 64", "            maxLength: 64", "field maxLength not found"},
+		{"unknown metadata field", "            max_length: 64", "            max_length: 64\n            example: CASE-123", "field example not found"},
+		{"duplicate description", "            max_length: 64", "            max_length: 64\n            description: first\n            description: second", "already defined"},
+		{"duplicate examples field", "            max_length: 64", "            max_length: 64\n            examples: [CASE-123]\n            examples: [CASE-456]", "already defined"},
+		{"object example", "            max_length: 64", "            max_length: 64\n            examples: [{id: CASE-123}]", "cannot unmarshal"},
 		{"duplicate template key", "        method: GET", "        method: GET\n        method: POST", "already defined"},
 		{"duplicate query key", "          view: detailed", "          view: detailed\n          view: summary", "already defined"},
 		{"duplicate header key", "          Authorization: env:TEST_TEMPLATE_AUTH", "          Authorization: env:A\n          Authorization: env:B", "already defined"},

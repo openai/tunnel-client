@@ -423,6 +423,8 @@ type HarpoonTargetTemplate struct {
 type HarpoonTemplateParameter struct {
 	Type           string   `yaml:"type" json:"type"`
 	Required       bool     `yaml:"required" json:"required"`
+	Description    string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Examples       []string `yaml:"examples,omitempty" json:"examples,omitempty"`
 	Pattern        string   `yaml:"pattern" json:"pattern,omitempty"`
 	Enum           []string `yaml:"enum" json:"enum,omitempty"`
 	MinLength      int      `yaml:"min_length" json:"min_length,omitempty"`

@@ -44,6 +44,8 @@ harpoon:
           session_id:
             type: string
             required: true
+            description: Session identifier returned by the case application
+            examples: [session-123]
             pattern: '^[A-Za-z0-9_-]+$'
             min_length: 1
             max_length: 64
@@ -65,6 +67,8 @@ harpoon:
           case_id:
             type: string
             required: true
+            description: Case identifier from the case application
+            examples: [CASE-123]
             pattern: '^[A-Za-z0-9_-]+$'
             max_length: 64
         headers:
@@ -85,6 +89,8 @@ harpoon:
           case_id:
             type: string
             required: true
+            description: Case identifier whose status should be returned
+            examples: [CASE-123]
             pattern: '^[A-Za-z0-9_-]+$'
             max_length: 64
             reserved_values: [all, search, admin]
@@ -119,14 +125,39 @@ the referenced credential; templates do not reload automatically.
 
 ## Call and discover targets
 
-Use MCP `tools/list` to check that `call_target_template` is available. Use
-`list_targets` to discover template labels, descriptions, and their public
-parameter constraints. A template entry includes `template_version: 1`,
-`allowed_methods: ["GET"]`, and a JSON Schema object in `parameters_schema`.
-Template discovery excludes private origins, path and
-query templates, fixed query values, and authentication headers. Descriptions,
-parameter names, enum values, and reserved identifiers are public metadata;
-choose their contents accordingly.
+Call `list_targets` to discover operations. A template entry contains enough
+information to construct its tool arguments without reading the configuration
+or calling MCP `tools/list`:
+
+| Field | Meaning |
+| --- | --- |
+| `label`, `description` | The operation's public name and purpose. |
+| `template_version` | `1` for the template contract described here. |
+| `allowed_methods` | `["GET"]` for templates. |
+| `parameters_schema` | Required parameter names, string constraints, and any configured descriptions and examples. |
+| `invocation.tool_name` | `call_target_template`. |
+| `invocation.input_schema` | The complete JSON Schema for this target's tool arguments: its fixed `label`, required `parameters`, permitted optional caller headers, and bounded optional `timeout_ms` and `max_response_bytes`. |
+| `invocation.examples` | A list containing one complete arguments object, when safe example values are available for every parameter; otherwise this field is absent. |
+
+To call an operation using only this discovery result:
+
+1. Select the target entry and read its `invocation.input_schema`.
+2. Construct the required arguments. An entry in `invocation.examples` can be a
+   starting point, but replace sample identifiers with the intended identifiers.
+3. Send MCP `tools/call` with `name` set to `invocation.tool_name` and
+   `arguments` set to that object.
+
+The per-target schema fixes `label` to that entry's label and rejects unknown
+arguments and extra parameters. It describes only permitted caller header names;
+it never publishes fixed authentication headers. Exact-URL entries retain their
+existing discovery shape and use `call_target`. Use the caller header spelling
+advertised by the per-target schema.
+
+Template discovery excludes private origins, path and query templates, fixed
+query values, and fixed header names and values. Descriptions, parameter names,
+examples, enum values, reserved identifiers, and allowed caller header names are
+public metadata available to tool callers. Operators must keep credentials,
+private URLs, personal data, and other confidential values out of that metadata.
 
 Send the following MCP tool call on the Harpoon channel:
 
@@ -174,14 +205,54 @@ Timeout defaults to 30 seconds and an explicit value must be from 100 through
 120,000 milliseconds. The response limit defaults to the configured Harpoon
 limit, which cannot exceed 102,400 bytes; an explicit per-call value must be
 positive and cannot exceed that configured limit. Omit these fields to use
-defaults. Results contain the upstream `status_code`, `headers`, `body_base64`,
-and `body_size_bytes`, using the same response structure as exact-target calls.
+defaults; discovery reports the bounds for the running client.
 
 Caller input cannot override the method, origin, URL, path, query, template,
 fixed headers, or redirect policy. GET bodies, duplicate JSON keys, unknown
 fields, missing or additional parameters, and non-string identifiers are
 rejected. The legacy `call_target` tool cannot execute a template target, and
 `call_target_template` cannot execute an exact-URL target.
+
+### Response contract
+
+Template calls retain the exact-target response structure: the upstream
+`status_code`, `headers` when present, `body_base64` when nonempty, and
+`body_size_bytes`. For example, an upstream body of `{"ok":true}` produces this
+result payload:
+
+```json
+{
+  "status_code": 200,
+  "headers": {"Content-Type": ["application/json"]},
+  "body_base64": "eyJvayI6dHJ1ZX0=",
+  "body_size_bytes": 11
+}
+```
+
+Decode `body_base64` to obtain the upstream bytes; they are not necessarily JSON.
+HTTP error statuses such as 403 or 404 are returned as upstream responses.
+Redirect responses are also returned without following them. Invalid arguments,
+transport failures, and responses that exceed the size limit are tool errors;
+an oversized response is not returned as a successful partial body. Harpoon does
+not accept a configured response schema or validate the upstream body's
+application-specific structure. Parameter descriptions and examples describe
+request arguments only.
+
+### Parameter descriptions and examples
+
+Parameter `description` and `examples` are optional. A description must be valid
+UTF-8 and at most 1,024 bytes. Each parameter can have up to eight unique example
+strings. Every example must pass the same type, identifier, length, pattern,
+enum, and reserved-value rules as a real call.
+
+Discovery builds one complete example by choosing the first explicit example
+for each parameter, or its lexicographically first enum value (sorted as strings)
+when no explicit example exists. Reordering an enum does not change this choice;
+explicit example order is preserved.
+`invocation.examples` is omitted if any parameter lacks both.
+Examples are suggestions, not defaults: callers must still provide every
+required parameter. Validation does not confirm that an example identifies a
+real upstream resource or grants access to it.
 
 ## Multiple parameters and enumerations
 
@@ -271,6 +342,8 @@ combined size; a profile can be saved before its credentials are available.
 | Identifier length | `max_length` is required, from 1 through 256 bytes. `min_length` defaults to 1 and cannot exceed the maximum. |
 | `pattern` and `enum` | At least one is required. Patterns match the entire identifier, contain at most 512 ASCII bytes, and use the portable regular-expression subset described below. An enum contains at most 64 unique values. When both are present, every value must satisfy both. |
 | `reserved_values` | At most 64 identifiers rejected case-insensitively, including enum values. Duplicate reserved values are rejected case-insensitively. |
+| Parameter `description` | Optional public text, valid UTF-8 and at most 1,024 bytes. |
+| Parameter `examples` | Optional list of at most eight unique strings, each valid under the parameter's complete policy. |
 | URL length | At most 4,096 bytes after encoding. Policies whose longest permitted identifiers could exceed that limit are rejected at startup. |
 | `headers` and `allowed_headers` | At most 32 configured names in total. Names are at most 128 bytes and case-insensitive. Caller names cannot overlap fixed names. Total outbound header names and values, including the managed `User-Agent`, cannot exceed 8,192 bytes. Values must be valid UTF-8 without control characters. |
 | `follow_redirects` | Omit or set to `false`. A redirect response is returned without following it, even for the same origin or an independently configured target. |
@@ -338,6 +411,15 @@ name.
 - Template configuration is an explicit opt-in. Older clients reject version 2
   or the unknown template fields; they cannot silently reinterpret the template
   as an exact URL.
+- Rich discovery retains `config_version: 2` and `template.version: 1`. Clients
+  that support templates but predate parameter `description` and `examples`
+  reject those unknown YAML keys. Upgrade every eligible client before adding
+  metadata to its configuration. Remove these keys before rolling back to such
+  a client.
+- Rich discovery adds metadata to template entries only; exact-only discovery
+  and its output schema remain unchanged. This client enhancement requires no
+  tunnel-service change and keeps the existing tunnel and MCP request/response
+  envelopes.
 - `call_target_template` is a separate tool. Older clients do not implement it,
   so callers must check discovery and require template support. Do not retry a
   template operation through `call_target` or by passing a rendered URL.

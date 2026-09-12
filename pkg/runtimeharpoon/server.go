@@ -133,14 +133,15 @@ type listTargetsRequest struct {
 }
 
 type targetInfo struct {
-	TemplateVersion  int            `json:"template_version,omitempty" jsonschema:"description=Template contract version; absent for exact targets."`
-	ParametersSchema map[string]any `json:"parameters_schema,omitempty" jsonschema:"description=Required string parameter schema for call_target_template."`
-	Label            string         `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
-	Description      string         `json:"description,omitempty" jsonschema:"description=Target description."`
-	Category         string         `json:"category,omitempty" jsonschema:"description=Target category."`
-	Source           string         `json:"source,omitempty" jsonschema:"description=Target source."`
-	Tags             []string       `json:"tags,omitempty" jsonschema:"description=Target tags."`
-	AllowedMethods   []string       `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
+	TemplateVersion  int               `json:"template_version,omitempty" jsonschema:"description=Template contract version; absent for exact targets."`
+	ParametersSchema map[string]any    `json:"parameters_schema,omitempty" jsonschema:"description=Required string parameter schema for call_target_template."`
+	Invocation       *targetInvocation `json:"invocation,omitempty" jsonschema:"description=Self-contained template tool invocation contract; absent for exact targets."`
+	Label            string            `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
+	Description      string            `json:"description,omitempty" jsonschema:"description=Target description."`
+	Category         string            `json:"category,omitempty" jsonschema:"description=Target category."`
+	Source           string            `json:"source,omitempty" jsonschema:"description=Target source."`
+	Tags             []string          `json:"tags,omitempty" jsonschema:"description=Target tags."`
+	AllowedMethods   []string          `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
 }
 
 // Exported aliases keep the shared core reusable by thin adapters while the
@@ -397,6 +398,7 @@ func (s *Server) listTargets(params listTargetsRequest) listTargetsResponse {
 			info.AllowedMethods = []string{http.MethodGet}
 			info.TemplateVersion = 1
 			info.ParametersSchema = templateParametersSchema(target.template)
+			info.Invocation = s.templateInvocation(target)
 		}
 		out = append(out, info)
 	}
@@ -963,6 +965,7 @@ func buildListTargetsOutputSchema() *jsonschema.Schema {
 	if targets, ok := schema.Properties.Get("targets"); ok && targets.Items != nil {
 		targets.Items.Properties.Delete("template_version")
 		targets.Items.Properties.Delete("parameters_schema")
+		targets.Items.Properties.Delete("invocation")
 	}
 	return schema
 }
