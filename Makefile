@@ -21,6 +21,7 @@ PNPM_PACKAGE_MANAGER ?= $(shell sed -n 's/^[[:space:]]*"packageManager"[[:space:
 ADMIN_UI_PNPM_FLAGS := --config.shared-workspace-lockfile=false --config.confirmModulesPurge=false
 ADMIN_UI_PNPM_STORE_DIR ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/tunnel-client-adminui-pnpm-store
 MAKE_ALL_JOBS ?= 3
+GO_TEST_PACKAGE_JOBS ?=
 GOPROXY ?= https://proxy.golang.org
 ifeq ($(OS),windows)
   BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET).exe
@@ -127,6 +128,7 @@ help:
 	@echo "  GIT_SHA      - Git SHA/tag for version info and Docker tagging"
 	@echo "  GOPROXY      - Proxy-only Go module source for bundled cloudflared builds"
 	@echo "  MAKE_ALL_JOBS - Maximum concurrent test/build jobs used by make all (default: $(MAKE_ALL_JOBS))"
+	@echo "  GO_TEST_PACKAGE_JOBS - Optional Go package build/test concurrency for test-go-race (default: Go's setting)"
 	@echo "  VERSION      - Version for make release-tag (required)"
 	@echo ""
 	@echo "Artifacts:"
@@ -138,7 +140,7 @@ test: admin-ui-test
 	$(MAKE) test-go-race
 
 test-go-race:
-	go test -race -trimpath ./...
+	go test -race -trimpath $(if $(GO_TEST_PACKAGE_JOBS),-p="$(GO_TEST_PACKAGE_JOBS)") ./...
 
 test-runtime: runtime runtime-cloudflared test-runtime-release-archive
 	go test ./cmd/client-runtime ./cmd/client-runtime-cloudflared ./pkg/runtimeapp/... ./pkg/runtimeconfig ./pkg/runtimehealth ./pkg/runtimeharpoon/...

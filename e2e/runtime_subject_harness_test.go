@@ -215,6 +215,11 @@ func runRuntimeSubject(t *testing.T, subject runtimeSubject, scenario runtimeSce
 	fixture := fixtureFactory(t)
 
 	env := copyRuntimeEnvironment(scenario.options.env)
+	// Keep enough headroom for all three scripted commands so each poll requests
+	// the 25-command batch cap regardless of when the dispatcher drains the queue.
+	if _, configured := env["CONTROL_PLANE_MAX_INFLIGHT_REQUESTS"]; !configured {
+		env["CONTROL_PLANE_MAX_INFLIGHT_REQUESTS"] = "30"
+	}
 	if scenario.profilePath != "" {
 		env["TUNNEL_CLIENT_PROFILE_FILE"] = scenario.profilePath
 	}
