@@ -327,7 +327,8 @@ func healthDiscoveryCommand(method, params string) mocktunnelservice.CommandResp
 
 func healthSocketPath(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "health-e2e-")
+	// Keep Unix socket paths short even when macOS supplies a long TMPDIR.
+	dir, err := os.MkdirTemp("/tmp", "health-e2e-")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
 	return filepath.Join(dir, "health.sock")

@@ -718,7 +718,7 @@ func runtimeArtifactBazelBinary(t *testing.T, packagePath string) string {
 	}
 
 	targetName := map[string]string{
-		"./cmd/client":                     "client",
+		"./cmd/client":                     "client_public",
 		"./cmd/client-runtime":             "client_runtime",
 		"./cmd/client-runtime-cloudflared": "client_runtime_cloudflared",
 	}[packagePath]

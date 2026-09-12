@@ -61,7 +61,8 @@ func TestRuntimeComponentHealthConfigurationCompatibility(t *testing.T) {
 								run.args = append(run.args, "--health.show-details="+tc.flag)
 							}
 							if unix {
-								dir, err := os.MkdirTemp("", "runtime-health-")
+								// Unix sockets must fit the macOS path limit regardless of TMPDIR.
+								dir, err := os.MkdirTemp("/tmp", "runtime-health-")
 								require.NoError(t, err)
 								t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
 								run.args = append(run.args, "--health.unix-socket", filepath.Join(dir, "health.sock"))
