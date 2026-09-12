@@ -399,6 +399,35 @@ type HarpoonTarget struct {
 	Description    string
 	BaseURL        *url.URL
 	UnixSocketPath string
+	Template       *HarpoonTargetTemplate
+}
+
+// HarpoonTargetTemplate defines an opt-in operation with an operator-fixed
+// destination and bounded caller-supplied identifiers. Version 1 permits GET
+// over HTTPS and never follows redirects.
+type HarpoonTargetTemplate struct {
+	Version         int                                 `yaml:"version" json:"version"`
+	Origin          string                              `yaml:"origin" json:"origin"`
+	Method          string                              `yaml:"method" json:"method"`
+	PathTemplate    string                              `yaml:"path_template" json:"path_template"`
+	Query           map[string]string                   `yaml:"query" json:"query,omitempty"`
+	Parameters      map[string]HarpoonTemplateParameter `yaml:"parameters" json:"parameters"`
+	Headers         map[string]string                   `yaml:"headers" json:"headers,omitempty"`
+	AllowedHeaders  []string                            `yaml:"allowed_headers" json:"allowed_headers,omitempty"`
+	FollowRedirects bool                                `yaml:"follow_redirects" json:"follow_redirects"`
+}
+
+// HarpoonTemplateParameter describes one bounded identifier. The runtime
+// compiler validates its pattern, enumeration, and length constraints before
+// the client starts accepting calls.
+type HarpoonTemplateParameter struct {
+	Type           string   `yaml:"type" json:"type"`
+	Required       bool     `yaml:"required" json:"required"`
+	Pattern        string   `yaml:"pattern" json:"pattern,omitempty"`
+	Enum           []string `yaml:"enum" json:"enum,omitempty"`
+	MinLength      int      `yaml:"min_length" json:"min_length,omitempty"`
+	MaxLength      int      `yaml:"max_length" json:"max_length"`
+	ReservedValues []string `yaml:"reserved_values" json:"reserved_values,omitempty"`
 }
 
 // AdditionalTransportEnabled reports whether a transport is enabled.
@@ -625,6 +654,12 @@ func loadRuntimeFromFlagSet(fs *pflag.FlagSet, lookupEnv func(string) (string, b
 	harpoon, err := buildHarpoonConfig(fs, lookupEnv, globalProxy, globalProxySource)
 	if err != nil {
 		return nil, nil, lookupEnv, err
+	}
+	if fileValues != nil && fileValues.HarpoonTargets != nil {
+		harpoon.Targets, err = resolveFileHarpoonTargets(fileValues.HarpoonTargets, lookupEnv, harpoon.AllowPlaintextHTTP)
+		if err != nil {
+			return nil, nil, lookupEnv, fmt.Errorf("parse config file %s: %w", fileValues.Path, err)
+		}
 	}
 	if err := validateConfiguredPollChannels(controlPlane, mcp, harpoon); err != nil {
 		return nil, nil, lookupEnv, err

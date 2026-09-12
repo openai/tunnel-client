@@ -128,10 +128,14 @@ func newChecker(p checkerParams) (*Checker, error) {
 	}
 	logger = logger.With(log.FieldComponent, "proxyhealth")
 	interval := defaultProxyCheckInterval(p.Config)
+	routes, err := buildRoutes(p.ControlPlane, p.MCPConfig, p.HarpoonConfig, p.HarpoonReg, logger, os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
 	checker := &Checker{
 		logger:        logger,
 		interval:      interval,
-		routes:        buildRoutes(p.ControlPlane, p.MCPConfig, p.HarpoonConfig, p.HarpoonReg, os.LookupEnv),
+		routes:        routes,
 		meterProvider: p.MeterProvider,
 		tlsBundle:     p.TLSBundle,
 	}
@@ -471,7 +475,7 @@ func (c *Checker) logIdentityMap() {
 	c.logger.Info("proxy identity map", slog.Any("records", c.identityMap))
 }
 
-func buildRoutes(controlPlane *config.ControlPlaneConfig, mcp *config.MCPConfig, harpoonCfg *config.HarpoonConfig, harpoonReg *harpoon.Registry, lookupEnv func(string) (string, bool)) []proxy.Route {
+func buildRoutes(controlPlane *config.ControlPlaneConfig, mcp *config.MCPConfig, harpoonCfg *config.HarpoonConfig, harpoonReg *harpoon.Registry, logger *slog.Logger, lookupEnv func(string) (string, bool)) ([]proxy.Route, error) {
 	routes := make([]proxy.Route, 0)
 	if controlPlane != nil {
 		name := "control-plane"
@@ -488,8 +492,14 @@ func buildRoutes(controlPlane *config.ControlPlaneConfig, mcp *config.MCPConfig,
 		}
 	}
 	if harpoonCfg != nil {
-		targets := collectHarpoonTargets(harpoonCfg, harpoonReg)
+		targets, err := collectHarpoonTargets(harpoonCfg, harpoonReg, logger)
+		if err != nil {
+			return nil, err
+		}
 		for _, target := range targets {
+			// A compiled template's BaseURL contains only its fixed HTTPS
+			// origin. Proxy checks send CONNECT to its host:port; they never
+			// render a template or issue an HTTP operation through the tunnel.
 			name := target.Label
 			if name == "" && target.BaseURL != nil {
 				name = target.BaseURL.Hostname()
@@ -497,17 +507,24 @@ func buildRoutes(controlPlane *config.ControlPlaneConfig, mcp *config.MCPConfig,
 			routes = append(routes, proxy.ResolveRoute(proxy.RouteKindHarpoon, name, target.BaseURL, harpoonCfg.HTTPProxy, harpoonCfg.HTTPProxySource, lookupEnv))
 		}
 	}
-	return routes
+	return routes, nil
 }
 
-func collectHarpoonTargets(cfg *config.HarpoonConfig, reg *harpoon.Registry) []harpoon.Target {
+func collectHarpoonTargets(cfg *config.HarpoonConfig, reg *harpoon.Registry, logger *slog.Logger) ([]harpoon.Target, error) {
 	if reg != nil {
-		return reg.Targets()
+		return reg.Targets(), nil
 	}
 	if cfg == nil {
-		return nil
+		return nil, nil
 	}
-	return convertConfigTargets(cfg.Targets)
+	// Isolated graphs may omit the shared registry. Apply the same compiler
+	// here so the fallback also uses a validated origin, never raw template
+	// text or credentials, when constructing CONNECT destinations.
+	reg, err := harpoon.NewRegistry(logger, cfg.AllowPlaintextHTTP, convertConfigTargets(cfg.Targets))
+	if err != nil {
+		return nil, err
+	}
+	return reg.Targets(), nil
 }
 
 func routeKey(route proxy.Route) string {
@@ -529,6 +546,7 @@ func convertConfigTargets(targets []config.HarpoonTarget) []harpoon.Target {
 			Description: target.Description,
 			Source:      "config",
 			BaseURL:     target.BaseURL,
+			Template:    target.Template,
 		})
 	}
 	return out

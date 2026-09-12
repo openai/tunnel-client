@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,8 +52,7 @@ func TestStdioCommandTransportRequiresCommand(t *testing.T) {
 }
 
 func TestStdioCommandTransportStartStop(t *testing.T) {
-	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
-	t.Setenv("TEST_HELPER_MODE", "wait")
+	t.Parallel()
 
 	lifecycle := &stubLifecycle{}
 	shutdowner := &stubShutdowner{}
@@ -60,7 +60,7 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	observation := NewProtocolObservation(&config.MCPConfig{TransportKind: config.MCPTransportStdio}, nil)
 	transport.observation = observation
 
-	commandArgs := helperCommandArgs()
+	commandArgs := helperCommandArgs("wait")
 	cfg := &config.MCPConfig{
 		Command:     strings.Join(commandArgs, " "),
 		CommandArgs: commandArgs,
@@ -73,7 +73,7 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 	require.NotNil(t, hook.OnStart)
 	require.NotNil(t, hook.OnStop)
 
-	require.NoError(t, hook.OnStart(context.Background()))
+	stop := startStdioCommand(t, hook)
 	require.Equal(t, "running", observationDetails(observation).ChildState)
 	require.Len(t, observationDetails(observation).ChildGeneration, 32)
 	require.False(t, observationDetails(observation).Initialize.OK)
@@ -86,15 +86,12 @@ func TestStdioCommandTransportStartStop(t *testing.T) {
 		t.Fatal("expected stdio command process to be started")
 	}
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	require.NoError(t, hook.OnStop(stopCtx))
+	require.NoError(t, stop())
 	require.Equal(t, "closed", observationDetails(observation).ChildState)
 }
 
 func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
-	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
-	t.Setenv("TEST_HELPER_MODE", "exit")
+	t.Parallel()
 
 	lifecycle := &stubLifecycle{}
 	shutdowner := &stubShutdowner{ch: make(chan struct{}, 1)}
@@ -102,7 +99,7 @@ func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	observation := NewProtocolObservation(&config.MCPConfig{TransportKind: config.MCPTransportStdio}, nil)
 	transport.observation = observation
 
-	commandArgs := helperCommandArgs()
+	commandArgs := helperCommandArgs("exit")
 	cfg := &config.MCPConfig{
 		Command:     strings.Join(commandArgs, " "),
 		CommandArgs: commandArgs,
@@ -112,7 +109,7 @@ func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	require.Len(t, lifecycle.hooks, 1)
 
 	hook := lifecycle.hooks[0]
-	require.NoError(t, hook.OnStart(context.Background()))
+	stop := startStdioCommand(t, hook)
 
 	require.Eventually(t, func() bool {
 		transport.mu.Lock()
@@ -128,9 +125,7 @@ func TestStdioCommandTransportRequestsShutdownAfterExit(t *testing.T) {
 	}
 	require.Equal(t, "closed", observationDetails(observation).ChildState)
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	require.NoError(t, hook.OnStop(stopCtx))
+	require.NoError(t, stop())
 }
 
 func TestStdioEOFReaderCallsOnEOF(t *testing.T) {
@@ -169,14 +164,13 @@ func TestStdioErrWriterCallsOnWriteError(t *testing.T) {
 }
 
 func TestStdioCommandTransportRuntimeInfo(t *testing.T) {
-	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
-	t.Setenv("TEST_HELPER_MODE", "wait")
+	t.Parallel()
 
 	lifecycle := &stubLifecycle{}
 	shutdowner := &stubShutdowner{}
 	transport := newStdioCommandTransport(slog.New(slog.NewTextHandler(io.Discard, nil)), lifecycle, shutdowner)
 
-	commandArgs := helperCommandArgs()
+	commandArgs := helperCommandArgs("wait")
 	cfg := &config.MCPConfig{
 		Command:     strings.Join(commandArgs, " "),
 		CommandArgs: commandArgs,
@@ -186,26 +180,38 @@ func TestStdioCommandTransportRuntimeInfo(t *testing.T) {
 	require.Len(t, lifecycle.hooks, 1)
 
 	hook := lifecycle.hooks[0]
-	require.NoError(t, hook.OnStart(context.Background()))
+	stop := startStdioCommand(t, hook)
 
 	info := transport.StdioRuntimeInfo()
 	require.Equal(t, cfg.Command, info.Command)
 	require.Greater(t, info.PID, 0)
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	require.NoError(t, hook.OnStop(stopCtx))
+	require.NoError(t, stop())
 }
 
-func helperCommandArgs() []string {
-	return []string{os.Args[0], "-test.run=TestHelperProcess"}
+func startStdioCommand(t *testing.T, hook fx.Hook) func() error {
+	t.Helper()
+	require.NoError(t, hook.OnStart(context.Background()))
+	stop := sync.OnceValue(func() error {
+		// Windows helpers exit through stdin EOF; race-instrumented children
+		// also need time for the race detector's exit delay.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return hook.OnStop(ctx)
+	})
+	t.Cleanup(func() { require.NoError(t, stop()) })
+	return stop
+}
+
+func helperCommandArgs(mode string) []string {
+	return []string{os.Args[0], "-test.run=^TestHelperProcess$", "--", mode}
 }
 
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+	if len(os.Args) != 4 || os.Args[2] != "--" {
 		return
 	}
-	switch os.Getenv("TEST_HELPER_MODE") {
+	switch os.Args[3] {
 	case "exit":
 		os.Exit(0)
 	default:

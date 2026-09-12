@@ -1081,6 +1081,34 @@ cloudflared:
 	}
 }
 
+func TestFullProfileValidationRequiresTemplatePolicyValidator(t *testing.T) {
+	profile := `config_version: 2
+harpoon:
+  targets:
+    - label: case
+      template:
+        version: 1
+        origin: https://private.example.invalid
+        method: GET
+        path_template: /cases/{case_id}
+        parameters:
+          case_id:
+            type: string
+            required: true
+            pattern: '[A-Za-z0-9_-]+'
+            max_length: 64
+`
+	path := writeAdapterConfig(t, profile)
+	for name, err := range map[string]error{
+		"bytes": ValidateProfileBytes(path, []byte(profile)),
+		"file":  ValidateProfileFile(path),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "template policy validator is required") {
+			t.Fatalf("%s validation accepted a template without its policy validator: %v", name, err)
+		}
+	}
+}
+
 func adapterRuntimeFlavors() []runtimeconfig.Flavor {
 	return []runtimeconfig.Flavor{runtimeconfig.FlavorRuntime, runtimeconfig.FlavorRuntimeCloudflared}
 }

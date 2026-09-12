@@ -2,19 +2,183 @@ package proxyhealth
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/harpoon"
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	"github.com/openai/tunnel-client/pkg/proxy"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 	"github.com/openai/tunnel-client/pkg/tlsconfig"
 )
+
+func TestTemplateOnlyProxyHealthChecksOriginWithConnect(t *testing.T) {
+	for _, useRegistry := range []bool{true, false} {
+		t.Run(fmt.Sprintf("shared_registry_%t", useRegistry), func(t *testing.T) {
+			const (
+				targetCredential = "Bearer private-target-credential"
+				privateRoute     = "/private-resources/{privateID}"
+			)
+			var targetRequests atomic.Int32
+			targetServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				targetRequests.Add(1)
+			}))
+			t.Cleanup(targetServer.Close)
+			type proxyRequest struct {
+				method, target, host string
+				headers              http.Header
+				trailing             []byte
+				err                  error
+			}
+			requests := make(chan proxyRequest, 2)
+			var responseStatus atomic.Int32
+			responseStatus.Store(http.StatusOK)
+			proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				observed := proxyRequest{method: r.Method, target: r.RequestURI, host: r.Host, headers: r.Header.Clone()}
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					observed.err = err
+					requests <- observed
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				status := int(responseStatus.Load())
+				_, observed.err = fmt.Fprintf(conn, "HTTP/1.1 %d %s\r\n\r\n", status, http.StatusText(status))
+				if observed.err == nil {
+					// The checker closes immediately after CONNECT. Receiving no
+					// additional bytes proves it sent neither TLS nor a GET call.
+					observed.trailing, observed.err = io.ReadAll(conn)
+				}
+				requests <- observed
+			}))
+			t.Cleanup(proxyServer.Close)
+			template := &runtimeconfig.HarpoonTargetTemplate{
+				Version: 1, Origin: targetServer.URL, Method: http.MethodGet,
+				PathTemplate: privateRoute,
+				Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
+					"privateID": {Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64},
+				},
+				Headers: map[string]string{"Authorization": targetCredential},
+			}
+			cfg := &config.HarpoonConfig{
+				HTTPProxy: mustParseURL(t, proxyServer.URL), HTTPProxySource: config.ProxySource("flag"),
+				Targets: []config.HarpoonTarget{{Label: "private-resource", Template: template}},
+			}
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			var registry *harpoon.Registry
+			if useRegistry {
+				var err error
+				registry, err = harpoon.NewRegistry(logger, false, convertConfigTargets(cfg.Targets))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			routes, err := buildRoutes(nil, nil, cfg, registry, logger, lookupEnvMap(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(routes) != 1 {
+				t.Fatalf("template-only proxy routes = %d, want 1", len(routes))
+			}
+			route := routes[0]
+			if route.RouteMode != proxy.RouteModeProxy || route.TargetHostPort != targetServer.Listener.Addr().String() {
+				t.Fatalf("template route did not preserve proxied fixed origin: %#v", route)
+			}
+			if route.TargetURL == nil || route.TargetURL.Path != "" || route.TargetURL.RawQuery != "" || route.TargetURL.User != nil {
+				t.Fatalf("proxy health route must contain only the compiled origin: %#v", route.TargetURL)
+			}
+			checker := &Checker{
+				logger: logger, routes: routes,
+				routeStatus: map[string]*routeStatus{routeKey(route): {route: route, healthState: initialHealthState(route)}},
+			}
+			checker.identityMap = proxy.BuildIdentityMap(routes)
+			checker.logIdentityMap()
+			health := newComponentHealth()
+			attachComponentHealth(health, checker)
+			if snapshot := health.Snapshot(time.Now()); snapshot.State != "pending" {
+				t.Fatalf("template-only proxy health = %q, want pending", snapshot.State)
+			}
+			for _, status := range []int{http.StatusOK, http.StatusForbidden} {
+				responseStatus.Store(int32(status))
+				checker.runOnce(t.Context())
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				var request proxyRequest
+				select {
+				case request = <-requests:
+				case <-ctx.Done():
+					cancel()
+					t.Fatal("proxy did not finish recording CONNECT")
+				}
+				cancel()
+				if request.err != nil {
+					t.Fatal(request.err)
+				}
+				if request.method != http.MethodConnect || request.target != route.TargetHostPort || request.host != route.TargetHostPort {
+					t.Fatalf("unexpected proxy request: %#v", request)
+				}
+				if len(request.trailing) != 0 || request.headers.Get("Authorization") != "" {
+					t.Fatalf("CONNECT included a template request or credential: %#v", request)
+				}
+				snapshot := health.Snapshot(time.Now())
+				wantStatus := healthstate.StatusOK
+				if status != http.StatusOK {
+					wantStatus = healthstate.StatusDegraded
+				}
+				if snapshot.Status != wantStatus {
+					t.Fatalf("proxy returned %d: component status = %s, want %s", status, snapshot.Status, wantStatus)
+				}
+				encoded, err := json.Marshal(snapshot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, private := range []string{targetCredential, privateRoute, "privateID", "private-resource", route.TargetHostPort} {
+					if strings.Contains(string(encoded), private) || strings.Contains(logs.String(), private) {
+						t.Fatalf("proxy component snapshot or logs exposed %q", private)
+					}
+				}
+			}
+			if got := targetRequests.Load(); got != 0 {
+				t.Fatalf("proxy health invoked template operation %d times", got)
+			}
+		})
+	}
+}
+
+func TestTemplateProxyHealthRejectsInvalidFallbackPolicy(t *testing.T) {
+	cfg := &config.HarpoonConfig{Targets: []config.HarpoonTarget{{
+		Label: "resource",
+		Template: &runtimeconfig.HarpoonTargetTemplate{
+			Version: 1, Origin: "https://user:private-credential@example.com", Method: http.MethodGet,
+			PathTemplate: "/resource/{id}",
+			Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
+				"id": {Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64},
+			},
+		},
+	}}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	routes, err := buildRoutes(nil, nil, cfg, nil, logger, lookupEnvMap(nil))
+	if err == nil || len(routes) != 0 {
+		t.Fatalf("invalid template policy produced proxy routes: %v, %v", routes, err)
+	}
+	if strings.Contains(err.Error(), "private-credential") {
+		t.Fatal("invalid template policy exposed its credential")
+	}
+}
 
 func TestRecordResultHistoryRetention(t *testing.T) {
 	checker, route := newTestChecker(t)

@@ -110,6 +110,7 @@ type startupCatalogDigestPayload struct {
 }
 
 type startupCatalogDigestTarget struct {
+	TemplatePolicy   string   `json:"template_policy,omitempty"`
 	Label            string   `json:"label"`
 	BaseURL          string   `json:"base_url"`
 	OAuthAudienceURL string   `json:"oauth_audience_url"`
@@ -269,7 +270,12 @@ func canonicalStartupCatalog(targets []Target) ([]byte, error) {
 		}
 		tags := append([]string(nil), target.Tags...)
 		sort.Strings(tags)
+		policyDigest := ""
+		if target.template != nil {
+			policyDigest = target.template.PolicyDigest()
+		}
 		canonical = append(canonical, startupCatalogDigestTarget{
+			TemplatePolicy:   policyDigest,
 			Label:            target.Label,
 			BaseURL:          target.BaseURL.String(),
 			OAuthAudienceURL: startupCatalogOAuthAudienceURL(target),

@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openai/tunnel-client/pkg/config"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
+	"github.com/openai/tunnel-client/pkg/runtimeharpoon"
 	"github.com/openai/tunnel-client/pkg/version"
 )
 
@@ -629,6 +631,112 @@ func TestHarpoonToolSchemas(t *testing.T) {
 		}
 	}`)
 	requireToolSchemaSubset(t, oauthAudience.OutputSchema, expectedOAuthAudienceOutput)
+}
+
+func TestHarpoonTemplateInstructionsAndDiscovery(t *testing.T) {
+	const legacyInstructions = "Harpoon provides a constrained outbound HTTP client. Use list_targets to see allowlisted targets and call_target to make GET/POST/PUT requests with strict size, timeout, and redirect limits. get_oauth_target_audience is a narrow opt-in lookup for OAuth token-endpoint private_key_jwt audiences. Harpoon cannot reach arbitrary hosts or paths outside the configured allowlist."
+	const templateRoute = "For entries with template_version and parameters_schema, use call_target_template with the label and all parameters declared by parameters_schema; each value must satisfy that schema."
+	for _, tc := range []struct {
+		name     string
+		exact    bool
+		template bool
+		opts     []ServerOption
+	}{
+		{name: "exact only", exact: true},
+		{name: "template only", template: true},
+		{name: "mixed", exact: true, template: true},
+		// The full adapter owns its instructions and has always applied them
+		// after caller options. Keep that precedence, including empty options.
+		{name: "exact adapter precedence", exact: true, opts: []ServerOption{runtimeharpoon.WithInstructions("Caller instructions")}},
+		{name: "template adapter precedence", template: true, opts: []ServerOption{runtimeharpoon.WithInstructions("Caller instructions")}},
+		{name: "mixed empty instructions", exact: true, template: true, opts: []ServerOption{runtimeharpoon.WithInstructions("")}},
+		{name: "exact after templates", exact: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var targets []Target
+			if tc.exact {
+				targets = append(targets, Target{Label: "exact", BaseURL: mustParseURL(t, "https://exact.example/resource")})
+			}
+			if tc.template {
+				targets = append(targets, Target{Label: "template", Template: &runtimeconfig.HarpoonTargetTemplate{
+					Version: 1, Origin: "https://template.example", Method: http.MethodGet, PathTemplate: "/resources/{resourceId}",
+					Parameters: map[string]runtimeconfig.HarpoonTemplateParameter{
+						"resourceId": {Type: "string", Required: true, Pattern: "[A-Za-z0-9_-]+", MaxLength: 64},
+					},
+				}})
+			}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			registry, err := NewRegistry(logger, false, targets)
+			require.NoError(t, err)
+			server, err := NewServer(&config.HarpoonConfig{MaxResponseBytes: 1024}, registry, nil, logger, tc.opts...)
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			t.Cleanup(cancel)
+			serverTransport, clientTransport := mcp.NewInMemoryTransports()
+			serverSession, err := server.MCPServer().Connect(ctx, serverTransport, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, serverSession.Close()) })
+			client := mcp.NewClient(&mcp.Implementation{Name: "full-template-guidance-test", Version: "test"}, nil)
+			session, err := client.Connect(ctx, clientTransport, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, session.Close()) })
+			initialized := session.InitializeResult()
+			require.NotNil(t, initialized)
+			if tc.template {
+				require.Contains(t, initialized.Instructions, "For exact targets, use call_target")
+				require.Contains(t, initialized.Instructions, templateRoute)
+				require.Contains(t, initialized.Instructions, "get_oauth_target_audience is a narrow opt-in lookup")
+			} else {
+				require.Equal(t, legacyInstructions, initialized.Instructions)
+			}
+			require.NotContains(t, initialized.Instructions, "Caller instructions")
+			result, err := session.ListTools(ctx, nil)
+			require.NoError(t, err)
+			tools := make(map[string]*mcp.Tool, len(result.Tools))
+			for _, tool := range result.Tools {
+				tools[tool.Name] = tool
+			}
+			for _, name := range []string{"list_targets", "call_target", "get_oauth_target_audience"} {
+				require.Contains(t, tools, name)
+			}
+			_, templateToolPresent := tools["call_target_template"]
+			require.Equal(t, tc.template, templateToolPresent)
+			outputJSON, err := json.Marshal(tools["list_targets"].OutputSchema)
+			require.NoError(t, err)
+			var output map[string]any
+			require.NoError(t, json.Unmarshal(outputJSON, &output))
+			if tc.template {
+				require.Contains(t, output["description"], "use call_target for exact targets")
+				require.Contains(t, output["description"], templateRoute)
+			} else {
+				require.Equal(t, "Allowlisted targets available to call_target.", output["description"])
+			}
+			targetProperties := output["properties"].(map[string]any)["targets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+			for _, field := range []string{"template_version", "parameters_schema"} {
+				_, present := targetProperties[field]
+				require.Equal(t, tc.template, present, field)
+			}
+			catalogResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_targets", Arguments: map[string]any{}})
+			require.NoError(t, err)
+			require.False(t, catalogResult.IsError)
+			var catalog struct {
+				Targets []map[string]any `json:"targets"`
+			}
+			require.NoError(t, json.Unmarshal(extractResultPayload(t, catalogResult), &catalog))
+			require.Len(t, catalog.Targets, len(targets))
+			for _, target := range catalog.Targets {
+				if target["label"] == "template" {
+					require.Equal(t, float64(1), target["template_version"])
+					parameters := target["parameters_schema"].(map[string]any)
+					require.Equal(t, []any{"resourceId"}, parameters["required"])
+					require.Contains(t, parameters["properties"], "resourceId")
+				} else {
+					require.NotContains(t, target, "template_version")
+					require.NotContains(t, target, "parameters_schema")
+				}
+			}
+		})
+	}
 }
 
 func setupHarpoon(t *testing.T, cfg config.HarpoonConfig) (*Server, *mcp.InMemoryTransport) {

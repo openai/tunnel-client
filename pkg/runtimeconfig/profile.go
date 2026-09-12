@@ -177,15 +177,22 @@ func ValidateProfileFile(path string) error {
 }
 
 // ValidateProfileBytes parses profile contents without resolving referenced secrets.
+// Template profiles require ValidateProfileBytesWithTemplateValidator so their
+// complete policy cannot be accepted without the runtime's semantic validator.
 func ValidateProfileBytes(path string, data []byte) error {
-	cfg, err := parseFileConfig(path, data, false, false)
-	if err != nil {
-		return err
-	}
-	if err := validateFileConfigSyntax(cfg); err != nil {
-		return fmt.Errorf("parse config file %s: %w", path, err)
-	}
-	return nil
+	return ValidateProfileBytesWithTemplateValidator(path, data, nil)
+}
+
+// TemplatePolicyValidator checks a template's complete policy. Profile validation
+// supplies a copy whose env/file header references have harmless placeholder
+// values; referenced credentials are resolved and validated only during startup.
+type TemplatePolicyValidator func(*HarpoonTargetTemplate) error
+
+// ValidateProfileBytesWithTemplateValidator validates runtime profile syntax and
+// each template policy without resolving referenced secrets. A nil validator
+// rejects profiles containing templates.
+func ValidateProfileBytesWithTemplateValidator(path string, data []byte, validateTemplate TemplatePolicyValidator) error {
+	return validateProfileBytes(path, data, false, validateTemplate)
 }
 
 // ValidateFullProfileFile parses a full-client profile through the same
@@ -200,14 +207,50 @@ func ValidateFullProfileFile(path string) error {
 
 // ValidateFullProfileBytes validates full-client profile contents without
 // resolving referenced secrets. Shared field syntax remains owned here; only
-// the approved full-only extension keys are additionally allowed.
+// the approved full-only extension keys are additionally allowed. Templates
+// require ValidateFullProfileBytesWithTemplateValidator.
 func ValidateFullProfileBytes(path string, data []byte) error {
-	cfg, err := parseFileConfig(path, data, true, true)
+	return ValidateFullProfileBytesWithTemplateValidator(path, data, nil)
+}
+
+// ValidateFullProfileBytesWithTemplateValidator validates full-client profile
+// syntax and each template policy without resolving referenced secrets. A nil
+// validator rejects profiles containing templates.
+func ValidateFullProfileBytesWithTemplateValidator(path string, data []byte, validateTemplate TemplatePolicyValidator) error {
+	return validateProfileBytes(path, data, true, validateTemplate)
+}
+
+func validateProfileBytes(path string, data []byte, full bool, validateTemplate TemplatePolicyValidator) error {
+	cfg, err := parseFileConfig(path, data, full, full)
 	if err != nil {
 		return err
 	}
 	if err := validateFileConfigSyntax(cfg); err != nil {
 		return fmt.Errorf("parse config file %s: %w", path, err)
+	}
+	for _, target := range cfg.Harpoon.Targets {
+		if target.Template == nil {
+			continue
+		}
+		if validateTemplate == nil {
+			return fmt.Errorf("parse config file %s: template policy validator is required", path)
+		}
+		policy := *target.Template
+		policy.Headers, err = NormalizeExtraHeaders("harpoon.targets.template.headers", target.Template.Headers)
+		if err != nil {
+			return fmt.Errorf("parse config file %s: %w", path, err)
+		}
+		for key, value := range policy.Headers {
+			value = strings.TrimSpace(value)
+			lower := strings.ToLower(value)
+			if strings.HasPrefix(lower, "env:") || strings.HasPrefix(lower, "file:") {
+				value = "x"
+			}
+			policy.Headers[key] = value
+		}
+		if err := validateTemplate(&policy); err != nil {
+			return fmt.Errorf("parse config file %s: harpoon target %q template: %w", path, target.Label, err)
+		}
 	}
 	return nil
 }
@@ -358,7 +401,13 @@ func validateFileConfigSyntax(c fileConfig) error {
 		return err
 	}
 	for _, target := range c.Harpoon.Targets {
-		if err := validateConfigValueReferenceSyntax("harpoon.targets.url", stringPtr(target.URL)); err != nil {
+		if target.Template != nil {
+			if err := validateHeaderReferenceSyntax("harpoon.targets.template.headers", target.Template.Headers); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := validateConfigValueReferenceSyntax("harpoon.targets.url", target.URL); err != nil {
 			return err
 		}
 		if err := validateConfigValueReferenceSyntax("harpoon.targets.unix_socket", target.UnixSocket); err != nil {

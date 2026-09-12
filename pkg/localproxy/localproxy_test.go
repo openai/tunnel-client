@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
@@ -152,11 +154,16 @@ func TestStartRejectsOccupiedUnixIngressPath(t *testing.T) {
 }
 
 func TestStartFrontsStdioMCPServer(t *testing.T) {
-	invocationLog := t.TempDir() + "/stdio-invocations.log"
-	t.Setenv("MOCK_MCP_INVOCATION_LOG", invocationLog)
+	invocationLog := filepath.Join(t.TempDir(), "stdio invocation's.log")
+	commandArgs := []string{os.Args[0], "-test.run=^TestLocalProxyStdioHelper$", "--", invocationLog}
+	for i, arg := range commandArgs {
+		// The command parser uses shell quoting on every platform. Single quotes
+		// preserve Windows backslashes as well as spaces in executable paths.
+		commandArgs[i] = "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+	}
 
 	proxy, err := Start(context.Background(), Options{
-		MCPCommands: []string{strings.Join(mockmcpserver.StdioServerCommand(t), " ")},
+		MCPCommands: []string{strings.Join(commandArgs, " ")},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -170,7 +177,29 @@ func TestStartFrontsStdioMCPServer(t *testing.T) {
 
 	data, err := os.ReadFile(invocationLog)
 	require.NoError(t, err)
-	require.NotEmpty(t, data)
+	require.Equal(t, "Ada", string(data))
+}
+
+func TestLocalProxyStdioHelper(t *testing.T) {
+	if len(os.Args) != 4 || os.Args[2] != "--" {
+		return
+	}
+	invocationLog := os.Args[3]
+	server := mcp.NewServer(&mcp.Implementation{Name: "local-proxy-test", Version: "1.0.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct {
+		Name string `json:"name"`
+	}) (*mcp.CallToolResult, map[string]any, error) {
+		if err := os.WriteFile(invocationLog, []byte(args.Name), 0o600); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"message": "hello " + args.Name}, nil
+	})
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	// Keep the test harness's PASS line out of the MCP protocol stream.
+	os.Exit(0)
 }
 
 func TestStartSupportsChannelRouteAndHeaderFiltering(t *testing.T) {

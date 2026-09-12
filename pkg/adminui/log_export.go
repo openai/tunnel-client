@@ -456,6 +456,13 @@ func sensitiveRuntimeEnvReferencesFromConfig(cfg *config.Config) map[string]stru
 			ExtraHeaders          map[string]string `yaml:"extra_headers"`
 			DiscoveryExtraHeaders map[string]string `yaml:"discovery_extra_headers"`
 		} `yaml:"mcp"`
+		Harpoon struct {
+			Targets []struct {
+				Template *struct {
+					Headers map[string]string `yaml:"headers"`
+				} `yaml:"template"`
+			} `yaml:"targets"`
+		} `yaml:"harpoon"`
 	}
 	if err := yaml.Unmarshal(cfg.Runtime.ConfigFileContents, &file); err != nil {
 		return out
@@ -469,6 +476,16 @@ func sensitiveRuntimeEnvReferencesFromConfig(cfg *config.Config) map[string]stru
 		file.MCP.DiscoveryExtraHeaders,
 	} {
 		for _, value := range headers {
+			addSensitiveRuntimeEnvReferences(out, value)
+		}
+	}
+	for _, target := range file.Harpoon.Targets {
+		if target.Template == nil {
+			continue
+		}
+		for _, value := range target.Template.Headers {
+			// Any operator-fixed header may contain a credential, including
+			// names that do not resemble an authentication header.
 			addSensitiveRuntimeEnvReferences(out, value)
 		}
 	}
@@ -865,7 +882,9 @@ func isSafeReferenceValue(value string) bool {
 
 func isHeaderListKey(key string) bool {
 	normalized := normalizeRuntimeKey(key)
-	return strings.HasSuffix(normalized, "extra_headers") || strings.HasSuffix(normalized, "extra_header")
+	// Template fixed headers can carry credentials under arbitrary names.
+	// Redact the whole map instead of inferring sensitivity from each name.
+	return normalized == "headers" || strings.HasSuffix(normalized, "extra_headers") || strings.HasSuffix(normalized, "extra_header")
 }
 
 func normalizeRuntimeKey(key string) string {

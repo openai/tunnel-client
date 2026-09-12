@@ -147,6 +147,9 @@ func NewSharedService(p SharedServiceParams) (SharedServiceOutputs, error) {
 			}
 			p.Logger.Info("harpoon enabled", logFields...)
 			for _, target := range targets {
+				if target.IsTemplate() {
+					continue
+				}
 				route := proxy.ResolveRoute(proxy.RouteKindHarpoon, target.Label, target.BaseURL, p.Config.HTTPProxy, p.Config.HTTPProxySource, os.LookupEnv)
 				if target.UnixSocketPath != "" {
 					route = proxy.ResolveRoute(proxy.RouteKindHarpoon, target.Label, target.BaseURL, nil, runtimeconfig.ProxySourceIgnored, func(string) (string, bool) {
@@ -337,6 +340,7 @@ func ConvertTargets(targets []runtimeconfig.HarpoonTarget) []Target {
 			Tags:           nil,
 			BaseURL:        target.BaseURL,
 			UnixSocketPath: target.UnixSocketPath,
+			Template:       target.Template,
 		})
 	}
 	return out

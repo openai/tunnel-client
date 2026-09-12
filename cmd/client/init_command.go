@@ -61,7 +61,7 @@ func newInitCommand(lookupEnv func(string) (string, bool), stdout io.Writer, std
 			if err != nil {
 				return err
 			}
-			if err := config.ValidateProfileBytes(path, data); err != nil {
+			if err := validateProfileConfig(path, data); err != nil {
 				return err
 			}
 			if strings.TrimSpace(mcpCommand) != "" {

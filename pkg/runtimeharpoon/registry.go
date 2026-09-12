@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	tclog "github.com/openai/tunnel-client/pkg/log"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 )
 
 var labelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -31,11 +32,17 @@ type Target struct {
 	InclusionReason string
 	BaseURL         *url.URL
 	UnixSocketPath  string
+	// Template is accepted only on registration and compiled into private policy.
+	Template *runtimeconfig.HarpoonTargetTemplate
+	template *TargetTemplate
 
 	// originalURL preserves discovery spelling for package-owned adapters;
 	// BaseURL remains normalized for routing and allowlist checks.
 	originalURL *url.URL
 }
+
+// IsTemplate identifies operations that require parameters before dispatch.
+func (t Target) IsTemplate() bool { return t.template != nil || t.Template != nil }
 
 // Registry stores allowed targets keyed by label.
 type Registry struct {
@@ -141,6 +148,20 @@ func (r *Registry) RegisterTarget(target Target) error {
 	if !labelPattern.MatchString(label) {
 		return fmt.Errorf("harpoon: invalid target label %q", label)
 	}
+	template := target.template
+	if target.Template != nil {
+		if target.BaseURL != nil || target.UnixSocketPath != "" {
+			return fmt.Errorf("harpoon: target %q cannot combine a template with an exact URL or socket", label)
+		}
+		var err error
+		template, err = CompileTargetTemplate(target.Template)
+		if err != nil {
+			return fmt.Errorf("harpoon: target %q: %w", label, err)
+		}
+		// Origin is metadata only; template targets never enter exact routing.
+		origin := template.origin
+		target.BaseURL = &origin
+	}
 	if target.BaseURL == nil {
 		return fmt.Errorf("harpoon: target %q base URL is required", label)
 	}
@@ -175,6 +196,7 @@ func (r *Registry) RegisterTarget(target Target) error {
 		BaseURL:         normalized,
 		UnixSocketPath:  strings.TrimSpace(target.UnixSocketPath),
 		originalURL:     &original,
+		template:        template,
 	}
 
 	r.mu.Lock()
@@ -182,7 +204,7 @@ func (r *Registry) RegisterTarget(target Target) error {
 	if _, exists := r.targets[label]; exists {
 		return fmt.Errorf("harpoon: duplicate target label %q", label)
 	}
-	if _, exists := r.targetURLKeys[normalized.String()]; exists && r.hasDifferentTransportForURLLocked(normalized, cleanTarget.UnixSocketPath) {
+	if _, exists := r.targetURLKeys[normalized.String()]; template == nil && exists && r.hasDifferentTransportForURLLocked(normalized, cleanTarget.UnixSocketPath) {
 		return fmt.Errorf("harpoon: duplicate target url %q uses a different transport", tclog.RedactURL(normalized))
 	}
 	if len(r.targets) >= r.limit {
@@ -190,7 +212,9 @@ func (r *Registry) RegisterTarget(target Target) error {
 	}
 	r.targets[label] = cleanTarget
 	r.ordered = append(r.ordered, cleanTarget)
-	r.targetURLKeys[normalized.String()] = struct{}{}
+	if template == nil {
+		r.targetURLKeys[normalized.String()] = struct{}{}
+	}
 	r.clearExplainCacheLocked()
 	r.signalStateChangeLocked()
 	return nil
@@ -205,7 +229,7 @@ func (r *Registry) hasDifferentTransportForURLLocked(candidate *url.URL, unixSoc
 		return false
 	}
 	for _, target := range r.targets {
-		if target.BaseURL == nil {
+		if target.BaseURL == nil || target.template != nil {
 			continue
 		}
 		targetKey, keyErr := normalizedURLKey(target.BaseURL)
@@ -258,7 +282,7 @@ func (r *Registry) Lookup(label string) (Target, bool) {
 // URL spelling rather than the normalized routing form.
 func (r *Registry) ExactURL(label string) (*url.URL, bool) {
 	target, ok := r.Lookup(label)
-	if !ok {
+	if !ok || target.template != nil {
 		return nil, false
 	}
 	if target.originalURL != nil {
@@ -308,6 +332,9 @@ func (r *Registry) Resolve(label string) (*url.URL, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown target label %q", label)
 	}
+	if target.template != nil {
+		return nil, errors.New("template target requires call_target_template")
+	}
 	if target.BaseURL == nil {
 		return nil, fmt.Errorf("target %q has empty url", label)
 	}
@@ -347,7 +374,7 @@ func (r *Registry) AllowsURL(candidate *url.URL) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, target := range r.targets {
-		if target.BaseURL == nil {
+		if target.BaseURL == nil || target.template != nil {
 			continue
 		}
 		targetKey, keyErr := normalizedURLKey(target.BaseURL)
@@ -383,7 +410,7 @@ func (r *Registry) TargetForURL(candidate *url.URL) (Target, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, target := range r.targets {
-		if target.BaseURL == nil {
+		if target.BaseURL == nil || target.template != nil {
 			continue
 		}
 		targetKey, keyErr := normalizedURLKey(target.BaseURL)
@@ -434,7 +461,7 @@ func (r *Registry) ExplainBlockedRedirect(candidate *url.URL) *redirectMismatchD
 	var result *redirectMismatchDetails
 
 	for _, target := range r.ordered {
-		if target.BaseURL == nil {
+		if target.BaseURL == nil || target.template != nil {
 			continue
 		}
 		targetMatch := analyzeRedirectURL(target.BaseURL)
@@ -660,7 +687,7 @@ func (r *Registry) SummarizeTargets() []map[string]string {
 	out := make([]map[string]string, 0, len(targets))
 	for _, t := range targets {
 		base := ""
-		if t.BaseURL != nil {
+		if t.BaseURL != nil && !t.IsTemplate() {
 			base = tclog.RedactURL(t.BaseURL)
 		}
 		out = append(out, map[string]string{

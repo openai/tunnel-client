@@ -203,10 +203,11 @@ func TestAppBindsHealthBeforeCloudflaredReadiness(t *testing.T) {
 	healthURLPath := filepath.Join(tempDir, "health_url")
 	readyGatePath := filepath.Join(tempDir, "cloudflared-ready")
 	cloudflaredPath := filepath.Join(tempDir, "cloudflared")
-	wrapper := "#!/bin/sh\nexec " + shellSingleQuote(os.Args[0]) + " -test.run=TestDelayedCloudflaredHelper -- \"$@\"\n"
+	wrapper := "#!/bin/sh\n" +
+		"export GO_WANT_DELAYED_CLOUDFLARED_HELPER='1'\n" +
+		"export DELAYED_CLOUDFLARED_READY_GATE=" + shellSingleQuote(readyGatePath) + "\n" +
+		"exec " + shellSingleQuote(os.Args[0]) + " -test.run=TestDelayedCloudflaredHelper -- \"$@\"\n"
 	require.NoError(t, os.WriteFile(cloudflaredPath, []byte(wrapper), 0o700))
-	t.Setenv("GO_WANT_DELAYED_CLOUDFLARED_HELPER", "1")
-	t.Setenv("DELAYED_CLOUDFLARED_READY_GATE", readyGatePath)
 
 	tunnelID := types.TunnelID("tunnel_0123456789abcdef0123456789abcdef")
 	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -343,13 +344,14 @@ func TestAppManagedCloudflaredFetchesRuntimeAndBecomesReady(t *testing.T) {
 	healthURLPath := filepath.Join(tempDir, "health_url")
 	readyGatePath := filepath.Join(tempDir, "cloudflared-ready")
 	cloudflaredPath := filepath.Join(tempDir, "cloudflared")
-	wrapper := "#!/bin/sh\nexec " + shellSingleQuote(os.Args[0]) + " -test.run=TestDelayedCloudflaredHelper -- \"$@\"\n"
-	require.NoError(t, os.WriteFile(cloudflaredPath, []byte(wrapper), 0o700))
-	t.Setenv("GO_WANT_DELAYED_CLOUDFLARED_HELPER", "1")
-	t.Setenv("DELAYED_CLOUDFLARED_READY_GATE", readyGatePath)
 	const runtimeToken = "managed-runtime-secret-token"
 	runtimeTokenDigest := sha256.Sum256([]byte(runtimeToken))
-	t.Setenv("DELAYED_CLOUDFLARED_EXPECT_TOKEN_SHA256", fmt.Sprintf("%x", runtimeTokenDigest))
+	wrapper := "#!/bin/sh\n" +
+		"export GO_WANT_DELAYED_CLOUDFLARED_HELPER='1'\n" +
+		"export DELAYED_CLOUDFLARED_READY_GATE=" + shellSingleQuote(readyGatePath) + "\n" +
+		"export DELAYED_CLOUDFLARED_EXPECT_TOKEN_SHA256=" + shellSingleQuote(fmt.Sprintf("%x", runtimeTokenDigest)) + "\n" +
+		"exec " + shellSingleQuote(os.Args[0]) + " -test.run=TestDelayedCloudflaredHelper -- \"$@\"\n"
+	require.NoError(t, os.WriteFile(cloudflaredPath, []byte(wrapper), 0o700))
 
 	tunnelID := types.TunnelID("tunnel_0123456789abcdef0123456789abcdef")
 	runtimeRequest := make(chan struct{}, 1)

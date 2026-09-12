@@ -14,11 +14,22 @@ import (
 
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/localfiles"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
+	"github.com/openai/tunnel-client/pkg/runtimeharpoon"
 )
 
 type profileListEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+// Keep policy compilation in the CLI composition layer: shared configuration
+// packages are dependencies of the Harpoon runtime and must not import it.
+func validateProfileConfig(path string, data []byte) error {
+	return runtimeconfig.ValidateFullProfileBytesWithTemplateValidator(path, data, func(policy *runtimeconfig.HarpoonTargetTemplate) error {
+		_, err := runtimeharpoon.CompileTargetTemplate(policy)
+		return err
+	})
 }
 
 func newProfilesCommand(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer) *cobra.Command {
@@ -97,7 +108,7 @@ func newProfilesAddCommand(lookupEnv func(string) (string, bool), profileDir *st
 			if err != nil {
 				return err
 			}
-			if err := config.ValidateProfileBytes(path, data); err != nil {
+			if err := validateProfileConfig(path, data); err != nil {
 				return err
 			}
 			if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -249,7 +260,7 @@ func newProfilesEditCommand(lookupEnv func(string) (string, bool), profileDir *s
 			if err != nil {
 				return fmt.Errorf("read edited profile %s: %w", tmpPath, err)
 			}
-			if err := config.ValidateProfileBytes(path, edited); err != nil {
+			if err := validateProfileConfig(path, edited); err != nil {
 				return fmt.Errorf("profile did not validate; not saving %s: %w", path, err)
 			}
 			if err := localfiles.ReplaceFile(root, name+".yaml", edited); err != nil {

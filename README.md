@@ -620,6 +620,20 @@ Starter prompts for Codex:
 - It embeds the **Harpoon MCP server** to provide a labeled, allowlisted
   outbound HTTP client for internal tooling.
 
+### Harpoon target templates
+
+Opt-in Harpoon templates let callers provide bounded identifiers for an
+operator-configured HTTPS GET operation, such as `/cases/{case_id}` or
+`/profiles?session-id={session_id}`. The client fixes the destination, method,
+query names, and authentication headers, validates each identifier, and never
+follows redirects. Existing exact-URL targets continue to work.
+
+Templates use YAML `config_version: 2` and `template.version: 1`, and execute
+through the separate `call_target_template` MCP tool. See the
+[target template guide](docs/harpoon-target-templates.md) for complete
+configuration, discovery and invocation examples, authorization requirements,
+limits, and upgrade behavior.
+
 ## Admin UI build notes
 
 The admin UI assets under `pkg/adminui/assets` are generated from the TypeScript/Svelte

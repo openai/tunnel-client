@@ -32,7 +32,7 @@ func newURLRewriter(targets []Target) *urlRewriter {
 	}
 	targetsByURL := make(map[string][]Target, len(targets))
 	for _, target := range targets {
-		if target.BaseURL == nil {
+		if target.BaseURL == nil || target.template != nil {
 			continue
 		}
 		scheme := strings.ToLower(target.BaseURL.Scheme)

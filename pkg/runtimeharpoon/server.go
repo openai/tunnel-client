@@ -28,13 +28,15 @@ import (
 )
 
 const (
-	defaultTimeout         = 30 * time.Second
-	minTimeout             = 100 * time.Millisecond
-	maxTimeout             = 120 * time.Second
-	maxBodyLogFieldName    = "response_bytes"
-	maxContentTypeLogBytes = 256
-	headerNamePattern      = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-	defaultInstructions    = "Harpoon provides a constrained outbound HTTP client. Use list_targets to see allowlisted targets and call_target to make GET/POST/PUT requests with strict size, timeout, and redirect limits. Harpoon cannot reach arbitrary hosts or paths outside the configured allowlist."
+	defaultTimeout          = 30 * time.Second
+	minTimeout              = 100 * time.Millisecond
+	maxTimeout              = 120 * time.Second
+	maxBodyLogFieldName     = "response_bytes"
+	maxContentTypeLogBytes  = 256
+	headerNamePattern       = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+	defaultInstructions     = "Harpoon provides a constrained outbound HTTP client. Use list_targets to see allowlisted targets and call_target to make GET/POST/PUT requests with strict size, timeout, and redirect limits. Harpoon cannot reach arbitrary hosts or paths outside the configured allowlist."
+	templateInstructions    = "Harpoon provides a constrained outbound HTTP client. Use list_targets to see allowlisted targets. For exact targets, use call_target to make GET/POST/PUT requests with strict size, timeout, and redirect limits. For entries with template_version and parameters_schema, use call_target_template with the label and all parameters declared by parameters_schema; each value must satisfy that schema. Templates make GET requests to a fixed destination and do not follow redirects. Harpoon cannot reach arbitrary hosts or paths outside the configured allowlist."
+	templateListDescription = "Allowlisted targets: use call_target for exact targets. For entries with template_version and parameters_schema, use call_target_template with the label and all parameters declared by parameters_schema; each value must satisfy that schema."
 )
 
 var (
@@ -131,12 +133,14 @@ type listTargetsRequest struct {
 }
 
 type targetInfo struct {
-	Label          string   `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
-	Description    string   `json:"description,omitempty" jsonschema:"description=Target description."`
-	Category       string   `json:"category,omitempty" jsonschema:"description=Target category."`
-	Source         string   `json:"source,omitempty" jsonschema:"description=Target source."`
-	Tags           []string `json:"tags,omitempty" jsonschema:"description=Target tags."`
-	AllowedMethods []string `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
+	TemplateVersion  int            `json:"template_version,omitempty" jsonschema:"description=Template contract version; absent for exact targets."`
+	ParametersSchema map[string]any `json:"parameters_schema,omitempty" jsonschema:"description=Required string parameter schema for call_target_template."`
+	Label            string         `json:"label" jsonschema:"minLength=1,maxLength=64,pattern=^[a-z0-9][a-z0-9_-]{0\\,63}$,description=Target label."`
+	Description      string         `json:"description,omitempty" jsonschema:"description=Target description."`
+	Category         string         `json:"category,omitempty" jsonschema:"description=Target category."`
+	Source           string         `json:"source,omitempty" jsonschema:"description=Target source."`
+	Tags             []string       `json:"tags,omitempty" jsonschema:"description=Target tags."`
+	AllowedMethods   []string       `json:"allowed_methods" jsonschema:"description=HTTP methods permitted for this target,enum=GET,enum=POST,enum=PUT"`
 }
 
 // Exported aliases keep the shared core reusable by thin adapters while the
@@ -246,9 +250,22 @@ func NewServer(cfg *runtimeconfig.HarpoonConfig, registry *Registry, logger *slo
 
 // MCPServer builds an MCP server with harpoon tools registered.
 func (s *Server) MCPServer() *mcp.Server {
+	outputSchema := listTargetsOutputSchema
+	hasTemplates := false
+	for _, target := range s.registry.Targets() {
+		if target.template != nil {
+			hasTemplates = true
+			outputSchema = buildTemplateListTargetsOutputSchema()
+			outputSchema.Description = templateListDescription
+			break
+		}
+	}
 	instructions := s.instructions
 	if instructions == "" {
 		instructions = defaultInstructions
+		if hasTemplates {
+			instructions = templateInstructions
+		}
 	}
 	serverOptions := &mcp.ServerOptions{
 		Instructions: instructions,
@@ -273,7 +290,7 @@ func (s *Server) MCPServer() *mcp.Server {
 			OpenWorldHint:  &openWorldFalse,
 		},
 		InputSchema:  listTargetsSchema,
-		OutputSchema: listTargetsOutputSchema,
+		OutputSchema: outputSchema,
 	}, s.listTargetsHandler())
 	for _, registrar := range s.registrars {
 		if registrar != nil {
@@ -290,6 +307,7 @@ func (s *Server) MCPServer() *mcp.Server {
 		InputSchema:  buildCallTargetSchema(s.cfg),
 		OutputSchema: buildCallTargetOutputSchema(s.cfg),
 	}, s.callTargetHandler())
+	s.addTemplateTool(server)
 	return server
 }
 
@@ -367,14 +385,20 @@ func (s *Server) listTargets(params listTargetsRequest) listTargetsResponse {
 		if !filters.matches(target) {
 			continue
 		}
-		out = append(out, targetInfo{
+		info := targetInfo{
 			Label:          target.Label,
 			Description:    target.Description,
 			Category:       target.Category,
 			Source:         target.Source,
 			Tags:           target.Tags,
 			AllowedMethods: allowed,
-		})
+		}
+		if target.template != nil {
+			info.AllowedMethods = []string{http.MethodGet}
+			info.TemplateVersion = 1
+			info.ParametersSchema = templateParametersSchema(target.template)
+		}
+		out = append(out, info)
 	}
 	return listTargetsResponse{Targets: out}
 }
@@ -393,9 +417,14 @@ func (s *Server) callTarget(ctx context.Context, params callTargetRequest) (*cal
 		return nil, newToolError(label, "label is required")
 	}
 
-	if _, ok := s.registry.Lookup(label); !ok {
+	target, ok := s.registry.Lookup(label)
+	if !ok {
 		recordMetrics(0, metricOutcomeInvalidInput, 0)
 		return nil, newToolError(label, "unknown target")
+	}
+	if target.template != nil {
+		recordMetrics(0, metricOutcomeInvalidInput, 0)
+		return nil, newToolError(label, "template target requires call_target_template")
 	}
 	metricsLabel = label
 
@@ -929,6 +958,16 @@ func buildCallTargetOutputSchema(cfg *runtimeconfig.HarpoonConfig) *jsonschema.S
 }
 
 func buildListTargetsOutputSchema() *jsonschema.Schema {
+	schema := buildTemplateListTargetsOutputSchema()
+	// Keep the discovery contract byte-for-byte compatible for exact catalogs.
+	if targets, ok := schema.Properties.Get("targets"); ok && targets.Items != nil {
+		targets.Items.Properties.Delete("template_version")
+		targets.Items.Properties.Delete("parameters_schema")
+	}
+	return schema
+}
+
+func buildTemplateListTargetsOutputSchema() *jsonschema.Schema {
 	reflector := &jsonschema.Reflector{DoNotReference: true}
 	schema := reflector.Reflect(listTargetsResponse{})
 	if schema.Type == "" {
