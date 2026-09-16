@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -173,6 +174,7 @@ func runStaticHeadersTransportCase(t *testing.T, useUnixMCP bool) {
 	harnessOptions := []harnesspkg.HarnessOption{
 		harnesspkg.WithClientConfig(func(cfg *config.Config) {
 			cfg.Logging.Level = slog.LevelDebug
+			cfg.MCP.OAuthTrustedOrigins = []*url.URL{mustParseURL(t, authServerURL)}
 			cfg.MCP.ExtraHeaders = map[string]string{
 				"Authorization":   "Bearer static-service-token",
 				"X-MCP-Static":    "mcp-static",

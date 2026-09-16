@@ -22,12 +22,15 @@ import (
 // FetchOAuthMetadata attempts to retrieve OAuth ProtectedResourceMetaData
 // from the provided candidates. It returns the first successful response
 // with a non-empty body, falling back on 5xx/404 responses and network errors
-// until all options are exhausted.
+// until all options are exhausted. Candidates built by
+// BuildOAuthDiscoveryCandidates retain their configured trust boundary; callers
+// constructing candidates directly must supply their operator-trusted origins.
 func FetchOAuthMetadata(
 	ctx context.Context,
 	client *http.Client,
 	candidates []DiscoveryCandidate,
 	logger *slog.Logger,
+	trustedOrigins ...*url.URL,
 ) (*types.TunnelResponse, *url.URL, []DiscoveryAttempt, error) {
 	if client == nil {
 		return nil, nil, nil, fmt.Errorf("oauth discovery: http client is nil")
@@ -42,6 +45,7 @@ func FetchOAuthMetadata(
 		if urlStr == "" {
 			continue
 		}
+		candidate.trustedOrigins = append(append([]*url.URL(nil), candidate.trustedOrigins...), trustedOrigins...)
 		filtered = append(filtered, candidate)
 		attempts = append(attempts, DiscoveryAttempt{
 			URL:    urlStr,
@@ -119,7 +123,7 @@ func runOAuthMetadataDiscoveryPass(
 		req.Header.Set("User-Agent", version.UserAgent)
 
 		var resp *http.Response
-		discoveryClient := withSameOriginRedirects(client, candidate.URL)
+		discoveryClient := withSameOriginRedirects(withTrustedDiscoveryOrigins(client, candidate.trustedOrigins), candidate.URL)
 		if retryMode == discoveryRetryModeTimeoutBackoff {
 			resp, err = doWithRetryForTimeout(ctx, discoveryClient, req, logger)
 		} else {
@@ -221,8 +225,8 @@ func runOAuthMetadataDiscoveryPass(
 // withSameOriginRedirects returns a shallow client copy that preserves the
 // caller's transport, cookies, timeout, and existing redirect policy while
 // preventing OAuth discovery from following a redirect to another authority.
-// Discovery candidates are either configured-server well-known URLs or
-// same-origin header-derived URLs; redirects must not widen either boundary.
+// Redirects must not widen the selected metadata origin, even when other
+// discovery origins have been explicitly trusted by the operator.
 func withSameOriginRedirects(client *http.Client, origin *url.URL) *http.Client {
 	if client == nil {
 		return nil

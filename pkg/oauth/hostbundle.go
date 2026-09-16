@@ -23,9 +23,10 @@ import (
 // URLBundleOptions carries optional transport hints and trust context for
 // discovered URLs.
 type URLBundleOptions struct {
-	UnixSocketPath string
-	UnixSocketURL  *url.URL
-	TrustedMCPURL  *url.URL
+	UnixSocketPath      string
+	UnixSocketURL       *url.URL
+	TrustedMCPURL       *url.URL
+	TrustedOAuthOrigins []*url.URL
 }
 
 func (o URLBundleOptions) apply(record hostbus.URLRecord) hostbus.URLRecord {
@@ -59,6 +60,9 @@ func sameURLOrigin(left *url.URL, right *url.URL) bool {
 	if left == nil || right == nil {
 		return false
 	}
+	if left.Scheme == "" || right.Scheme == "" || left.Hostname() == "" || right.Hostname() == "" {
+		return false
+	}
 	return strings.EqualFold(left.Scheme, right.Scheme) &&
 		normalizedURLHostname(left) == normalizedURLHostname(right) &&
 		effectiveURLPort(left) == effectiveURLPort(right)
@@ -68,11 +72,12 @@ func normalizedURLHostname(raw *url.URL) string {
 	if raw == nil {
 		return ""
 	}
-	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw.Hostname())), ".")
+	// A DNS trailing dot or an IPv6 zone's spelling can change the destination.
+	host := strings.TrimSpace(raw.Hostname())
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return addr.String()
 	}
-	return host
+	return strings.ToLower(host)
 }
 
 func effectiveURLPort(raw *url.URL) string {
@@ -307,7 +312,8 @@ func buildAuthServerMetadataURLRecords(
 		return nil, &AuthServerMetadataFetchResult{IssuerURL: issuerURL.String()}
 	}
 
-	meta, fetchResult, err := FetchAuthServerMetadataWithResult(ctx, client, issuerURL.String())
+	origins := append([]*url.URL{options.TrustedMCPURL}, options.TrustedOAuthOrigins...)
+	meta, fetchResult, err := FetchAuthServerMetadataWithResult(ctx, client, issuerURL.String(), origins...)
 	if fetchResult == nil {
 		fetchResult = &AuthServerMetadataFetchResult{IssuerURL: issuerURL.String()}
 	}

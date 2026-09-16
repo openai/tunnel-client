@@ -222,6 +222,9 @@ mcp:
     X-Internal-Auth: env:MCP_RUNTIME_HEADER_VALUE
   discovery_extra_headers:
     X-Discovery-Auth: file:/run/secrets/mcp-discovery-header
+  # Optional. Explicitly trust separate OAuth metadata/authorization origins.
+  oauth_trusted_origins:
+    - https://auth.example.com
   # Optional. Wait for a sidecar/local HTTP listener before the first poll.
   startup_wait_timeout: 60s
   connection_max_ttl: 10m
@@ -283,7 +286,9 @@ secrets are redacted before export.
 - `profiles add <name>`: create a profile from `--from-file` or a built-in
   sample such as `--sample sample_mcp_with_dcr`.
 - `profiles edit <name>`: open a profile in `$VISUAL` or `$EDITOR`, validate it,
-  and only save it when the edited YAML parses.
+  and only save it when the edited YAML parses. Only [supported editors and
+  safe options](profile-editor.md) are accepted; shell wrappers and evaluation
+  commands are rejected.
 - `codex assistant [prompt...]`: run a terminal assistant session through the
   supervised `codex app-server`; prompt args give one-shot mode and TTY stdin
   enters REPL mode. The default reasoning effort is `medium`, and the REPL
@@ -649,6 +654,28 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
 
 **OAuth-protected MCP notes:**
 
+- OAuth discovery trusts the configured MCP server origin by default. Any
+  additional origin advertised through `WWW-Authenticate resource_metadata`,
+  or protected-resource metadata `authorization_servers` must be explicitly
+  trusted. Redirects remain restricted to the selected metadata origin even
+  when other origins are trusted. Trust is matched by scheme, host, and port;
+  trusting a host does not trust its subdomains or other ports.
+- Configure additional origins with repeated
+  `--mcp.oauth-trusted-origin https://auth.example.com` flags, the newline-separated
+  `MCP_OAUTH_TRUSTED_ORIGINS` environment variable, or the YAML
+  `mcp.oauth_trusted_origins` list. Flags replace the environment or YAML list;
+  the environment replaces the YAML list. Entries must be absolute `http://`
+  or `https://` origins without credentials, a path (except an optional `/`),
+  a query, or a fragment. Explicitly trusted private origins are supported.
+  This setting authorizes discovery requests only; it does not add forwarding
+  targets or expand the scope of configured credentials.
+- When upgrading a configuration that discovers metadata or an authorization
+  server on a separate origin, add each expected origin to this list before
+  starting the client. For example, an MCP server at
+  `https://mcp.example.com/mcp` whose metadata advertises
+  `https://auth.example.com/tenant` needs `https://auth.example.com` in
+  `mcp.oauth_trusted_origins`. An untrusted server cannot expand this list by
+  advertising more origins.
 - Forwards inbound `Authorization` headers and protected-resource discovery
   GETs through the tunnel client. Discovery payload `resource` values and
   `WWW-Authenticate resource_metadata` values are rewritten to tunnel-service

@@ -99,6 +99,7 @@ type fileMCPConfig struct {
 	ClientKey                        *string            `yaml:"client_key"`
 	ExtraHeaders                     map[string]string  `yaml:"extra_headers"`
 	DiscoveryExtraHeaders            map[string]string  `yaml:"discovery_extra_headers"`
+	OAuthTrustedOrigins              []string           `yaml:"oauth_trusted_origins"`
 	StartupWaitTimeout               *string            `yaml:"startup_wait_timeout"`
 	StdioSendInitializedNotification *bool              `yaml:"stdio_send_initialized_notification"`
 	ConnectionMaxTTL                 *string            `yaml:"connection_max_ttl"`
@@ -194,6 +195,9 @@ func loadFileConfigValues(fs *pflag.FlagSet, lookupEnv func(string) (string, boo
 	}
 	if configValueOverridden(fs, lookupEnv, "mcp.discovery-extra-headers", "MCP_DISCOVERY_EXTRA_HEADERS") {
 		selectedCfg.MCP.DiscoveryExtraHeaders = nil
+	}
+	if configValueOverridden(fs, lookupEnv, "mcp.oauth-trusted-origin", "MCP_OAUTH_TRUSTED_ORIGINS") {
+		selectedCfg.MCP.OAuthTrustedOrigins = nil
 	}
 
 	env, err := selectedCfg.toEnv(lookupEnv)
@@ -386,6 +390,16 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 			return nil, err
 		}
 		env["MCP_DISCOVERY_EXTRA_HEADERS"] = discoveryExtraHeaders
+	}
+	if c.MCP.OAuthTrustedOrigins != nil {
+		// Validate each YAML element before encoding the environment list so a
+		// newline inside one element cannot grant trust to additional origins.
+		for _, raw := range c.MCP.OAuthTrustedOrigins {
+			if _, err := parseOAuthTrustedOrigin(raw); err != nil {
+				return nil, fmt.Errorf("mcp.oauth_trusted_origins: %w", err)
+			}
+		}
+		env["MCP_OAUTH_TRUSTED_ORIGINS"] = strings.Join(c.MCP.OAuthTrustedOrigins, "\n")
 	}
 	setString(env, "MCP_STARTUP_WAIT_TIMEOUT", c.MCP.StartupWaitTimeout)
 	setBool(env, "MCP_STDIO_SEND_INITIALIZED_NOTIFICATION", c.MCP.StdioSendInitializedNotification)

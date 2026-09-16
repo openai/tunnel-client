@@ -212,7 +212,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 				for {
 					fetchCtx, fetchCancel := context.WithTimeout(ctx, DefaultDiscoveryTimeout)
 					start := time.Now()
-					candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger)
+					candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger, p.MCPConfig.OAuthTrustedOrigins...)
 					if err != nil {
 						if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 							fetchCancel()
@@ -285,9 +285,10 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 						start,
 						sourceURL,
 						URLBundleOptions{
-							UnixSocketPath: unixSocketPath,
-							UnixSocketURL:  serverURL,
-							TrustedMCPURL:  serverURL,
+							UnixSocketPath:      unixSocketPath,
+							UnixSocketURL:       serverURL,
+							TrustedMCPURL:       serverURL,
+							TrustedOAuthOrigins: p.MCPConfig.OAuthTrustedOrigins,
 						},
 						logger,
 					)

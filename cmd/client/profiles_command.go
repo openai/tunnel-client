@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -352,12 +351,10 @@ func runProfileEditor(path string, lookupEnv func(string) (string, bool)) error 
 	if editor == "" {
 		return fmt.Errorf("set VISUAL or EDITOR to edit profiles")
 	}
-	parts := strings.Fields(editor)
-	if len(parts) == 0 {
-		return fmt.Errorf("set VISUAL or EDITOR to edit profiles")
+	cmd, err := profileEditorCommand(editor, path)
+	if err != nil {
+		return err
 	}
-	args := append(parts[1:], path)
-	cmd := exec.Command(parts[0], args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

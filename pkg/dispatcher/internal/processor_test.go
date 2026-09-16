@@ -3439,6 +3439,8 @@ func TestProcessorOAuthDiscoveryDisallowsOffOriginPrivateHostBundleRecords(t *te
 	t.Cleanup(configuredMCP.Close)
 	configuredMCPURL, err := url.Parse(configuredMCP.URL + "/mcp")
 	require.NoError(t, err)
+	trustedOAuthOrigin, err := url.Parse(offOrigin.URL)
+	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	responder := newRecordingResponder()
@@ -3450,6 +3452,7 @@ func TestProcessorOAuthDiscoveryDisallowsOffOriginPrivateHostBundleRecords(t *te
 		TunnelResponder: responder,
 		MCPConfig: &config.MCPConfig{
 			ServerURL:             configuredMCPURL,
+			OAuthTrustedOrigins:   []*url.URL{trustedOAuthOrigin},
 			ConnectionMaxTTL:      2 * time.Second,
 			MaxConcurrentRequests: 1,
 		},

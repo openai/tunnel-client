@@ -127,8 +127,6 @@ mcp:
 }
 
 func TestProfilesEditValidatesBeforeSaving(t *testing.T) {
-	t.Parallel()
-
 	temp := t.TempDir()
 	profileDir := filepath.Join(temp, "profiles")
 	require.NoError(t, os.MkdirAll(profileDir, 0o700))
@@ -144,12 +142,11 @@ mcp:
 `)
 	require.NoError(t, os.WriteFile(path, original, 0o600))
 
-	editor := filepath.Join(temp, "editor.sh")
-	require.NoError(t, os.WriteFile(editor, []byte("#!/bin/sh\nprintf 'config_version: 3\\n' > \"$1\"\n"), 0o600))
+	editor := writeProfileEditorScript(t, filepath.Join(temp, "vim"), "printf 'config_version: 3\\n' > \"$1\"\n")
 
 	_, _, err := executeProfilesCommand(t, map[string]string{
 		"HOME":   t.TempDir(),
-		"EDITOR": "sh " + editor,
+		"EDITOR": editor,
 	}, "profiles", "--profile-dir", profileDir, "edit", "sample")
 
 	require.Error(t, err)
@@ -161,7 +158,6 @@ mcp:
 }
 
 func TestProfilesRejectInvalidTemplateBeforeSaving(t *testing.T) {
-	t.Parallel()
 	const profile = `config_version: 2
 harpoon:
   targets:
@@ -190,7 +186,6 @@ harpoon:
 	} {
 		for _, operation := range []string{"add", "edit"} {
 			t.Run(tc.name+"/"+operation, func(t *testing.T) {
-				t.Parallel()
 				temp := t.TempDir()
 				profileDir := filepath.Join(temp, "profiles")
 				require.NoError(t, os.Mkdir(profileDir, 0o700))
@@ -204,9 +199,7 @@ harpoon:
 					args = append(args, "--from-file", source)
 				} else {
 					require.NoError(t, os.WriteFile(path, []byte(profile), 0o600))
-					editor := filepath.Join(temp, "editor.sh")
-					require.NoError(t, os.WriteFile(editor, []byte("#!/bin/sh\ncat > \"$1\" <<'PROFILE_EOF'\n"+contents+"PROFILE_EOF\n"), 0o600))
-					env["EDITOR"] = "sh " + editor
+					env["EDITOR"] = writeProfileEditorScript(t, filepath.Join(temp, "vim"), "cat > \"$1\" <<'PROFILE_EOF'\n"+contents+"PROFILE_EOF\n")
 				}
 				_, _, err := executeProfilesCommand(t, env, args...)
 				require.ErrorContains(t, err, tc.want)
@@ -224,16 +217,13 @@ harpoon:
 }
 
 func TestProfilesEditCreatesMissingProfileFromSkeleton(t *testing.T) {
-	t.Parallel()
-
 	temp := t.TempDir()
 	profileDir := filepath.Join(temp, "profiles")
-	editor := filepath.Join(temp, "editor.sh")
-	require.NoError(t, os.WriteFile(editor, []byte("#!/bin/sh\nprintf 'config_version: 1\\ncontrol_plane:\\n  tunnel_id: tunnel_0123456789abcdef0123456789abcdef\\n  api_key: env:CONTROL_PLANE_API_KEY\\nmcp:\\n  server_urls:\\n    - channel: main\\n      url: https://mcp.example/mcp\\n' > \"$1\"\n"), 0o600))
+	editor := writeProfileEditorScript(t, filepath.Join(temp, "vim"), "printf 'config_version: 1\\ncontrol_plane:\\n  tunnel_id: tunnel_0123456789abcdef0123456789abcdef\\n  api_key: env:CONTROL_PLANE_API_KEY\\nmcp:\\n  server_urls:\\n    - channel: main\\n      url: https://mcp.example/mcp\\n' > \"$1\"\n")
 
 	stdout, stderr, err := executeProfilesCommand(t, map[string]string{
 		"HOME":   t.TempDir(),
-		"EDITOR": "sh " + editor,
+		"EDITOR": editor,
 	}, "profiles", "--profile-dir", profileDir, "edit", "new_profile")
 
 	require.NoError(t, err, stderr)
@@ -303,7 +293,6 @@ func TestProfilesAddPreservesSelectedRootAndExternalSource(t *testing.T) {
 }
 
 func TestProfilesEditHandlesEditorFileReplacement(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("test editor uses sh")
 	}
@@ -313,7 +302,6 @@ func TestProfilesEditHandlesEditorFileReplacement(t *testing.T) {
 			name = "escaping symlink replacement"
 		}
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			dir := t.TempDir()
 			profileDir := filepath.Join(dir, "profile directory")
 			require.NoError(t, os.Mkdir(profileDir, 0o700))
@@ -323,15 +311,14 @@ func TestProfilesEditHandlesEditorFileReplacement(t *testing.T) {
 			require.NoError(t, os.WriteFile(profilePath, original, 0o600))
 			source := filepath.Join(dir, "source.yaml")
 			require.NoError(t, os.WriteFile(source, replacement, 0o600))
-			script := "#!/bin/sh\ncp \"$1\" \"$2.replacement\"\nchmod 644 \"$2.replacement\"\nmv \"$2.replacement\" \"$2\"\n"
+			script := "source=" + quoteProfileEditorTestPath(source) + "\ncp \"$source\" \"$1.replacement\"\nchmod 644 \"$1.replacement\"\nmv \"$1.replacement\" \"$1\"\n"
 			if escape {
-				script = "#!/bin/sh\nrm \"$2\"\nln -s \"$1\" \"$2\"\n"
+				script = "source=" + quoteProfileEditorTestPath(source) + "\nrm \"$1\"\nln -s \"$source\" \"$1\"\n"
 			}
-			editor := filepath.Join(dir, "editor.sh")
-			require.NoError(t, os.WriteFile(editor, []byte(script), 0o600))
+			editor := writeProfileEditorScript(t, filepath.Join(dir, "vim"), script)
 			_, stderr, err := executeProfilesCommand(t, map[string]string{
 				"HOME":   dir,
-				"EDITOR": "sh " + editor + " " + source,
+				"EDITOR": editor,
 			}, "profiles", "--profile-dir", profileDir, "edit", "sample")
 			if escape {
 				require.Error(t, err)

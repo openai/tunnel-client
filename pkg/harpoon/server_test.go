@@ -439,6 +439,7 @@ func TestCallTargetUsesDiscoveredOAuthUnixSocket(t *testing.T) {
 		oauth.URLBundleOptions{
 			UnixSocketPath: socketPath,
 			UnixSocketURL:  mustParseURL(t, resourceURL),
+			TrustedMCPURL:  mustParseURL(t, resourceURL),
 		},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)

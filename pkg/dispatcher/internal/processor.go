@@ -84,6 +84,7 @@ type mcpProcessor struct {
 	hostBus           hostbus.HostRegistrationBus
 	mcpServerURL      *url.URL
 	mcpUnixSocketPath string
+	oauthOrigins      []*url.URL
 	withDeadlineCause func(context.Context, time.Time, error) (context.Context, context.CancelFunc)
 }
 
@@ -292,6 +293,7 @@ func NewProcessor(p processorParams) (Processor, error) {
 		hostBus:           p.HostBus,
 		mcpServerURL:      p.MCPConfig.ServerURL,
 		mcpUnixSocketPath: p.MCPConfig.UnixSocketPath,
+		oauthOrigins:      append([]*url.URL(nil), p.MCPConfig.OAuthTrustedOrigins...),
 		withDeadlineCause: context.WithDeadlineCause,
 	}, nil
 }
@@ -732,7 +734,7 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 		return fmt.Errorf("dispatcher processor: missing MCP server URL")
 	}
 
-	candidates, _, err := oauth.BuildOAuthDiscoveryCandidates(ctx, p.oauthHTTPClient, p.mcpServerURL, logger)
+	candidates, _, err := oauth.BuildOAuthDiscoveryCandidates(ctx, p.oauthHTTPClient, p.mcpServerURL, logger, p.oauthOrigins...)
 	if err != nil {
 		return err
 	}
@@ -757,9 +759,10 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 			time.Now(),
 			sourceURL,
 			oauth.URLBundleOptions{
-				UnixSocketPath: p.mcpUnixSocketPath,
-				UnixSocketURL:  p.mcpServerURL,
-				TrustedMCPURL:  p.mcpServerURL,
+				UnixSocketPath:      p.mcpUnixSocketPath,
+				UnixSocketURL:       p.mcpServerURL,
+				TrustedMCPURL:       p.mcpServerURL,
+				TrustedOAuthOrigins: p.oauthOrigins,
 			},
 			logger,
 		)

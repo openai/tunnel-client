@@ -33,8 +33,9 @@ const (
 
 // DiscoveryCandidate represents a URL plus its discovery source.
 type DiscoveryCandidate struct {
-	URL    *url.URL        `json:"-"`
-	Source DiscoverySource `json:"source"`
+	URL            *url.URL        `json:"-"`
+	Source         DiscoverySource `json:"source"`
+	trustedOrigins []*url.URL
 }
 
 // DiscoveryAttempt captures one discovery attempt for UI/reporting.
@@ -112,14 +113,16 @@ func buildWellKnownCandidates(serverURL *url.URL) []DiscoveryCandidate {
 			withPath.Path = path.Join(base.Path, pathSuffix)
 		}
 		candidates = append(candidates, DiscoveryCandidate{
-			URL:    &withPath,
-			Source: DiscoverySourceWellKnownPath,
+			URL:            &withPath,
+			Source:         DiscoverySourceWellKnownPath,
+			trustedOrigins: []*url.URL{{Scheme: serverURL.Scheme, Host: serverURL.Host}},
 		})
 	}
 
 	candidates = append(candidates, DiscoveryCandidate{
-		URL:    base,
-		Source: DiscoverySourceWellKnownRoot,
+		URL:            base,
+		Source:         DiscoverySourceWellKnownRoot,
+		trustedOrigins: []*url.URL{{Scheme: serverURL.Scheme, Host: serverURL.Host}},
 	})
 
 	return candidates
@@ -127,12 +130,14 @@ func buildWellKnownCandidates(serverURL *url.URL) []DiscoveryCandidate {
 
 // BuildOAuthDiscoveryCandidates returns the ordered list of OAuth discovery candidates
 // plus probe metadata for UI/reporting. It attempts WWW-Authenticate first, then
-// the RFC 9728 well-known URLs.
+// the RFC 9728 well-known URLs. Only serverURL and additional operator-trusted
+// origins may receive metadata requests; advertised URLs cannot expand trust.
 func BuildOAuthDiscoveryCandidates(
 	ctx context.Context,
 	client *http.Client,
 	serverURL *url.URL,
 	logger *slog.Logger,
+	trustedOrigins ...*url.URL,
 ) ([]DiscoveryCandidate, *WWWAuthenticateProbeStatus, error) {
 	if logger == nil {
 		return nil, nil, fmt.Errorf("oauth discovery: logger is required")
@@ -146,9 +151,16 @@ func BuildOAuthDiscoveryCandidates(
 	probe := probeWWWAuthenticateResourceMetadata(probeCtx, client, serverURL, logger)
 	candidates := make([]DiscoveryCandidate, 0, 3)
 	if probe.URL != nil {
+		origins := []*url.URL{{Scheme: serverURL.Scheme, Host: serverURL.Host}}
+		for _, origin := range trustedOrigins {
+			if origin != nil {
+				origins = append(origins, &url.URL{Scheme: origin.Scheme, Host: origin.Host})
+			}
+		}
 		candidates = append(candidates, DiscoveryCandidate{
-			URL:    probe.URL,
-			Source: DiscoverySourceWWWAuthenticate,
+			URL:            probe.URL,
+			Source:         DiscoverySourceWWWAuthenticate,
+			trustedOrigins: origins,
 		})
 	}
 	candidates = append(candidates, buildWellKnownCandidates(serverURL)...)

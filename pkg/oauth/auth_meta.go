@@ -91,21 +91,25 @@ type authServerMetadataCandidate struct {
 	Document  AuthServerMetadataDocument
 }
 
-// FetchAuthServerMetadata fetches RFC 8414 authorization server metadata for issuerURL.
-func FetchAuthServerMetadata(ctx context.Context, client *http.Client, issuerURL string) (*AuthServerMetadata, error) {
-	meta, _, err := FetchAuthServerMetadataWithResult(ctx, client, issuerURL)
+// FetchAuthServerMetadata fetches RFC 8414 authorization server metadata for
+// issuerURL, which must belong to one of the operator-trusted origins.
+func FetchAuthServerMetadata(ctx context.Context, client *http.Client, issuerURL string, trustedOrigins ...*url.URL) (*AuthServerMetadata, error) {
+	meta, _, err := FetchAuthServerMetadataWithResult(ctx, client, issuerURL, trustedOrigins...)
 	return meta, err
 }
 
-// FetchAuthServerMetadataWithResult fetches metadata and captures detailed fetch attempts.
+// FetchAuthServerMetadataWithResult fetches metadata and captures detailed fetch
+// attempts. The issuer URL does not itself grant trust to its origin.
 func FetchAuthServerMetadataWithResult(
 	ctx context.Context,
 	client *http.Client,
 	issuerURL string,
+	trustedOrigins ...*url.URL,
 ) (*AuthServerMetadata, *AuthServerMetadataFetchResult, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	client = withTrustedDiscoveryOrigins(client, trustedOrigins)
 
 	candidates, err := buildAuthServerMetadataCandidateURLs(issuerURL)
 	if err != nil {

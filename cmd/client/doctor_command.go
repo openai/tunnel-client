@@ -176,7 +176,7 @@ func runDoctor(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) doctorR
 				client := &http.Client{Transport: transport, Timeout: 2 * time.Second}
 				defer client.CloseIdleConnections()
 				checks = append(checks, doctorReachabilityCheck(client, mainBinding.ServerURL))
-				checks = append(checks, doctorOAuthMetadataCheck(client, mainBinding.ServerURL))
+				checks = append(checks, doctorOAuthMetadataCheck(client, mainBinding.ServerURL, cfg.MCP.OAuthTrustedOrigins...))
 			}
 		} else {
 			checks = append(checks, doctorCheck{
@@ -421,7 +421,7 @@ func doctorReachabilityCheck(client *http.Client, serverURL *url.URL) doctorChec
 	}
 }
 
-func doctorOAuthMetadataCheck(client *http.Client, serverURL *url.URL) doctorCheck {
+func doctorOAuthMetadataCheck(client *http.Client, serverURL *url.URL, trustedOrigins ...*url.URL) doctorCheck {
 	if serverURL == nil {
 		return doctorCheck{ID: "oauth_metadata", Status: doctorStatusSkip, Summary: "no HTTP MCP target configured"}
 	}
@@ -429,7 +429,7 @@ func doctorOAuthMetadataCheck(client *http.Client, serverURL *url.URL) doctorChe
 	defer cancel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	candidates, probe, err := oauth.BuildOAuthDiscoveryCandidates(ctx, client, serverURL, logger)
+	candidates, probe, err := oauth.BuildOAuthDiscoveryCandidates(ctx, client, serverURL, logger, trustedOrigins...)
 	if err != nil {
 		return doctorOAuthMetadataFailure(err.Error())
 	}

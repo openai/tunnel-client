@@ -297,6 +297,7 @@ type MCPConfig struct {
 	MaxConcurrentRequests            int
 	ExtraHeaders                     map[string]string
 	DiscoveryExtraHeaders            map[string]string
+	OAuthTrustedOrigins              []*url.URL
 	HTTPProxy                        *url.URL
 	HTTPProxySource                  ProxySource
 }
@@ -553,6 +554,7 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.String("mcp.client-key", "", "Path to PEM client private key for MCP mTLS (format <path|env:VAR>) (env.MCP_CLIENT_KEY)")
 	fs.StringArray("mcp.extra-headers", nil, "Static HTTP headers to send to the configured MCP server origin (format 'Key: Value', repeatable; values accept env:VAR or file:/path) (env.MCP_EXTRA_HEADERS)")
 	fs.StringArray("mcp.discovery-extra-headers", nil, "Static HTTP headers to send to MCP discovery/probe requests for the configured MCP server origin (format 'Key: Value', repeatable; values accept env:VAR or file:/path) (env.MCP_DISCOVERY_EXTRA_HEADERS)")
+	fs.StringArray("mcp.oauth-trusted-origin", nil, "Additional HTTP(S) origin trusted for OAuth discovery (repeatable; origin only, without a path) (env.MCP_OAUTH_TRUSTED_ORIGINS)")
 	fs.Duration("mcp.startup-wait-timeout", 0, "Maximum opt-in startup wait for the main MCP HTTP listener before first poll (env.MCP_STARTUP_WAIT_TIMEOUT)")
 	fs.Duration("mcp.connection-max-ttl", defaultMCPConnectionMaxTTL, "Maximum lifetime of MCP transport connections (env.MCP_CONNECTION_MAX_TTL)")
 	fs.Int("mcp.max-concurrent-requests", defaultMCPMaxConcurrentRequests, "Maximum number of requests actively dispatched to the MCP server (env.MCP_MAX_CONCURRENT_REQUESTS)")
@@ -1929,6 +1931,10 @@ func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), gl
 	if err != nil {
 		return MCPConfig{}, err
 	}
+	oauthTrustedOrigins, err := buildOAuthTrustedOrigins(fs, lookupEnv)
+	if err != nil {
+		return MCPConfig{}, err
+	}
 
 	boundHTTPTransportCount := 0
 	for i := range bindings {
@@ -1978,6 +1984,7 @@ func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), gl
 		MaxConcurrentRequests:            maxConcurrent,
 		ExtraHeaders:                     extraHeaders,
 		DiscoveryExtraHeaders:            discoveryExtraHeaders,
+		OAuthTrustedOrigins:              oauthTrustedOrigins,
 		HTTPProxy:                        mcpProxy,
 		HTTPProxySource:                  mcpProxySource,
 	}
