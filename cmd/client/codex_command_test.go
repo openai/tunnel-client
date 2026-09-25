@@ -269,20 +269,34 @@ func TestCodexStatusTextSeparatesPluginStateAfterUninstall(t *testing.T) {
 func TestCodexStatusJSONReportsBridgeReadyWhenAssistantProbeStalls(t *testing.T) {
 	t.Parallel()
 
-	codexBin := writeFakeCodexScript(t, "GO_WANT_CODEX_STALL_THREAD_START=1")
+	for _, tc := range []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{name: "stalled_request", timeout: 50 * time.Millisecond},
+		// Keep the configured timeout positive while exhausting the probe budget.
+		{name: "exhausted_budget", timeout: time.Nanosecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	stdout, stderr, err := executeCommandWithCodexTimeouts(t, codexBin, map[string]string{
-		"HOME": t.TempDir(),
-	}, codexCommandTimeouts{statusAssistantProbe: 50 * time.Millisecond}, "codex", "status", "--json")
+			codexBin := writeFakeCodexScript(t, "GO_WANT_CODEX_STALL_THREAD_START=1")
 
-	require.NoError(t, err, stderr)
-	require.Contains(t, stdout, `"state": "bridge_ready"`)
-	require.Contains(t, stdout, `"bridge_ready": true`)
-	require.Contains(t, stdout, `"assistant_state": "unavailable"`)
-	require.Regexp(t, `"assistant_error": "thread/start timed out after [0-9]+ms`, stdout)
-	// The stderr reader is asynchronous; process/ready is published before
-	// the probe starts. Bridge tests verify inclusion of captured stderr.
-	require.Contains(t, stdout, `recent bridge events: process/ready codex app-server ready`)
+			stdout, stderr, err := executeCommandWithCodexTimeouts(t, codexBin, map[string]string{
+				"HOME": t.TempDir(),
+			}, codexCommandTimeouts{statusAssistantProbe: tc.timeout}, "codex", "status", "--json")
+
+			require.NoError(t, err, stderr)
+			require.Contains(t, stdout, `"state": "bridge_ready"`)
+			require.Contains(t, stdout, `"bridge_ready": true`)
+			require.Contains(t, stdout, `"assistant_state": "unavailable"`)
+			require.Regexp(t, `"assistant_error": "thread/start timed out after (0s|[0-9]+ms);`, stdout)
+			require.Contains(t, stdout, `context deadline exceeded`)
+			// The stderr reader is asynchronous; process/ready is published before
+			// the probe starts. Bridge tests verify inclusion of captured stderr.
+			require.Contains(t, stdout, `recent bridge events: process/ready codex app-server ready`)
+		})
+	}
 }
 
 func TestCodexInstallPrefersHostDefaultWhenMultipleInstallersAreAvailable(t *testing.T) {
