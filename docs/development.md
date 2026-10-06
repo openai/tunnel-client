@@ -52,6 +52,38 @@ version tags and commit SHA. Semver build metadata (`+...`) is rejected
 because Docker tags cannot represent it. The image build uses Buildx cache,
 emits an SBOM attestation, and records signed GitHub artifact provenance.
 
+### Release notes
+
+Every release must have substantive, customer-facing notes. Before publishing a
+tag, review the changes from the previous stable tag to the exact reviewed
+release commit and write the notes in a Markdown file. Describe the shipped
+features and fixes, security behavior, and any compatibility or upgrade guidance
+that affects operators. Confirm each claim against that source range and its
+validation evidence; exclude internal details and unverified claims. Generated
+commit lists, empty bodies, and version-only placeholders do not satisfy this
+requirement.
+
+After the release workflow publishes the release, populate its body using the
+reviewed notes and verify the published text:
+
+```bash
+release_tag=v1.2.3
+notes_file=/tmp/tunnel-client-v1.2.3-release-notes.md
+published_notes_file="$(mktemp)"
+
+test -s "$notes_file"
+gh release edit "$release_tag" --repo openai/tunnel-client --notes-file "$notes_file"
+gh release view "$release_tag" --repo openai/tunnel-client --json body \
+  | jq -jr '.body' > "$published_notes_file"
+test -s "$published_notes_file"
+diff -u "$notes_file" "$published_notes_file"
+```
+
+Read the published body to confirm it contains the substantive notes for the
+correct version. Complete this check before the Homebrew handoff or reporting
+the release complete. A successful tag workflow or uploaded assets alone do not
+complete this step.
+
 The supported Homebrew installation path is documented in
 [`../README.md#install-with-homebrew`](../README.md#install-with-homebrew).
 
