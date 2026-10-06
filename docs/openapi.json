@@ -1211,6 +1211,17 @@
             "$ref": "#/components/schemas/ResponsePayloadType",
             "description": "Indicates whether the payload contains a JSON response body (JSON-RPC response, JSON-RPC notification), or an ack-only notification/session termination response",
             "default": "jsonrpc_response"
+          },
+          "resp_timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponseTiming"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional untrusted v1 client timing for a matching terminal JSON-RPC result/error when a measured duration is available; otherwise omit it. Invalid or unsupported telemetry is ignored without rejecting the response. Fully deploy the tolerant service reader before releasing timing-enabled clients; subsequent service rollback targets must retain that reader."
           }
         },
         "additionalProperties": false,
@@ -1413,6 +1424,17 @@
             "type": "object",
             "title": "Jsonrpc",
             "description": "JSON-RPC request body to send upstream"
+          },
+          "trace_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TraceContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional W3C context for client trace correlation. Foundation only: not emitted yet. Never forward to the customer MCP server unless the customer's local client configuration explicitly enables forwarding; default disabled. No baggage."
           }
         },
         "additionalProperties": true,
@@ -1503,6 +1525,39 @@
         ],
         "title": "ResponsePayloadType"
       },
+      "ResponseTiming": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "maximum": 1,
+            "minimum": 1,
+            "title": "Version"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "streamable_http"
+            ],
+            "title": "Transport"
+          },
+          "target_elapsed_us": {
+            "type": "integer",
+            "maximum": 86400000000,
+            "minimum": 0,
+            "title": "Target Elapsed Us",
+            "description": "Monotonic elapsed microseconds from sending the MCP operation to receiving its matching final JSON-RPC result or error. Includes the customer network, MCP execution, SDK processing and streaming backpressure; excludes tunnel response posting and retries. Freeze once and reuse across response POST retries."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "transport",
+          "target_elapsed_us"
+        ],
+        "title": "ResponseTiming"
+      },
       "WrongClusterErrorBody": {
         "properties": {
           "code": {
@@ -1524,6 +1579,34 @@
           "policy_revision"
         ],
         "title": "WrongClusterErrorBody"
+      },
+      "TraceContext": {
+        "properties": {
+          "traceparent": {
+            "type": "string",
+            "maxLength": 55,
+            "minLength": 55,
+            "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+            "title": "Traceparent"
+          },
+          "tracestate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracestate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "traceparent"
+        ],
+        "title": "TraceContext"
       }
     }
   }

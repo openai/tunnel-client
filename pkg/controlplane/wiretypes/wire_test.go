@@ -65,6 +65,35 @@ func TestRawJSONRPCPolledCommandMarshalFieldNames(t *testing.T) {
 	}
 }
 
+func TestLegacyJSONRPCDecoderIgnoresOptionalTelemetry(t *testing.T) {
+	t.Parallel()
+
+	const rpc = `{"jsonrpc":"2.0","id":"rpc-1","method":"tools/list","params":{"_meta":{"customer":"keep"}}}`
+	for _, metadata := range []string{
+		`"trace_context":{"traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}`,
+		`"trace_context":false`,
+	} {
+		fixture := `{"commands":[{"request_id":"req-1","shard_token":"shard-1","command_type":"jsonrpc","channel":"main","headers":{"X-Original":["keep"]},` + metadata + `,"jsonrpc":` + rpc + `}]}`
+		var envelope PolledCommandEnvelope
+		if err := json.Unmarshal([]byte(fixture), &envelope); err != nil {
+			t.Fatalf("decode poll envelope with optional metadata: %v", err)
+		}
+		if len(envelope.Commands) != 1 {
+			t.Fatalf("command count = %d, want 1", len(envelope.Commands))
+		}
+		var command RawJSONRPCPolledCommand
+		if err := json.Unmarshal(envelope.Commands[0], &command); err != nil {
+			t.Fatalf("legacy decoder must ignore optional metadata: %v", err)
+		}
+		if command.RequestID != "req-1" || command.ShardToken != "shard-1" || command.CommandType != CommandTypeJSONRPC || command.Channel != "main" {
+			t.Fatalf("optional metadata changed established command fields: %#v", command)
+		}
+		if command.Headers.Get("X-Original") != "keep" || string(command.JSONRPC) != rpc {
+			t.Fatalf("optional metadata changed MCP headers or JSON-RPC payload: %#v", command)
+		}
+	}
+}
+
 func TestResponseTimeoutIsOptionalDurationString(t *testing.T) {
 	t.Parallel()
 

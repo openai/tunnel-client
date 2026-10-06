@@ -14,6 +14,25 @@ import (
 	"time"
 )
 
+func TestOpenAPIOptionalTelemetryFields(t *testing.T) {
+	t.Parallel()
+
+	spec, _ := readOpenAPISpec(t)
+	componentSchemas := schemas(t, spec)
+	for _, field := range []struct{ model, name string }{
+		{"JsonRpcPolledCommand", "trace_context"},
+		{"TunnelResponsePayload", "resp_timing"},
+	} {
+		model := mustMap(t, componentSchemas[field.model], field.model)
+		properties := mustMap(t, model["properties"], field.model+".properties")
+		optional := mustMap(t, properties[field.name], field.model+"."+field.name)
+		if slices.Contains(stringSlice(t, model["required"], field.model+".required"), field.name) {
+			t.Fatalf("%s.%s must remain optional", field.model, field.name)
+		}
+		requireValidAgainstSchema(t, spec, optional, nil, field.model+" null "+field.name)
+	}
+}
+
 func TestOpenAPIContractSurface(t *testing.T) {
 	t.Parallel()
 
