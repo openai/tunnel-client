@@ -35,18 +35,18 @@
     "SPDXRef-File-staged-be4e6770f63ad0f8",
     "SPDXRef-File-staged-db7af02381876a75"
   ],
-  "documentNamespace": "https://github.com/openai/tunnel-client/sbom/baseline/216564f827b9d626b37d052a0a564bdbd70020d740bae8e9105cb03327277805",
+  "documentNamespace": "https://github.com/openai/tunnel-client/sbom/baseline/33f08aea36bfbeff95dcab9d1e0b0074f13b78ba1ad36f1b6eceb11884a4a971",
   "files": [
     {
       "SPDXID": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "89815183e1ac7b41144aa2a16b5b31298b58eea4"
+          "checksumValue": "7a4b964e8926d96f6aaab616e240fd3f068fe615"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "9b13bfe9134fabe7dae11cf836e70d7bc799ee54782e79245de439124452b268"
+          "checksumValue": "442fe024ff4e419d7485548e6614103bd4205c32b02bf888988dcedd78115490"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -65,11 +65,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "fe3242817157bdcc7a09903ea6c9e26857cf28c2"
+          "checksumValue": "5ed240f925e592f52c44801e565814f428f17929"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "14003d504872f8a992f7c2eccdf12b033bdda1bf39a59d8770012051bd831359"
+          "checksumValue": "f7268418ab8f41139ade335b86749407476876e44a030669d1d232a7d9b2661b"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -111,11 +111,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "2f055bd9e0bb7262f48590297dd2033c36742605"
+          "checksumValue": "c7ebc258e8581a1b3ab972c2a912b3b66ab03ef5"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "1f9f63fea1e9a0129b56e8740a71a2accab6f8db768411f4da0406da0296d0a4"
+          "checksumValue": "f43c9e10be9d4c3bfa85cb9fafe4385e63cbc726439ee30acbb4811070b60770"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -157,11 +157,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "c3dfc970868c1b4302abf5296975b695d5ec2bae"
+          "checksumValue": "f8435d550f73ecd0a1d9063941fbe3d4bc6d57b3"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "a92dc44826ae710e4078fb43c0188e303f501a2a318f24e19bc5deb80a754782"
+          "checksumValue": "279a2f467430124815768f9f38c569be0e0bd6b811079912d63e9c635b520e44"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -203,11 +203,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "8671a052beb59612d94eab615fa51fa832d32c5c"
+          "checksumValue": "cf6b88097fad1381d7c4de604a79e30d020b519d"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "7654e81b17c951d67f62442bb71143118c5ee457401b62c3f8f200531902cdb1"
+          "checksumValue": "802ef9571ddc0595f3b85b95e18bc689f79310748b3e956c7fbce0d619d9bc20"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -249,11 +249,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "5cb227ecf638b829f39d2813d232aed5bd645fee"
+          "checksumValue": "3755b52f51e251b1561e8ea52d593b526640ee6b"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "00cf8d62b17f8d3739bb80d911bf4159718aba475fd52c1154a36d8906b74894"
+          "checksumValue": "b484831ca9baf058044fcd20a8e69876715af96263b8659d994b5c816cd60722"
         }
       ],
       "copyrightText": "NOASSERTION",
@@ -12819,18 +12819,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-2f8d489a0d8cda74",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-3837f7c1d0353a43",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -12838,23 +12838,23 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-39f8a52c1dd1a326",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-44059b374f7f732d",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -12862,9 +12862,33 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-54b4037102ba6c18",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-68e90fda8cd2ed9a",
@@ -12891,30 +12915,6 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-7c3cdf635621cfa5",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-87b6503ace72098d",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
@@ -12937,30 +12937,6 @@
       "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/cloudflared",
       "supplier": "NOASSERTION",
       "versionInfo": "v1.44.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-a06994cc43a457d2",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-a7662b5b4ac7fe45",
@@ -12987,18 +12963,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-d00b74fe81b4a64a",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-bd710eea51cdd458",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13006,9 +12982,9 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-da4d7903fcde4824",
@@ -13347,18 +13323,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f2eb4e0bb7bdf7d0",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f9ac117028217a07",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.41.0:*:*:*:*:go:*:*",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13366,33 +13342,33 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-0763a82ca5e5c6d0",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-ff1e8f674ce93da2",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:opentelemetry:opentelemetry:v1.43.0:*:*:*:*:go:*:*",
           "referenceType": "cpe23Type"
         }
       ],
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
+      "name": "go.opentelemetry.io/otel",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-327d846a9b66cfc0",
@@ -13419,6 +13395,30 @@
       "versionInfo": "v1.44.0"
     },
     {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-3d70d4fe1bcbf90d",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/metric",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4c9ffaf84b847bb9",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
@@ -13441,6 +13441,30 @@
       "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/cloudflared.exe",
       "supplier": "NOASSERTION",
       "versionInfo": "v1.44.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4f5929aebdca9855",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/metric",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-5032240506a285f5",
@@ -13467,18 +13491,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-592775b3635f42dc",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-582167220cf1db3e",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13486,23 +13510,23 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-9d2419a6ce48cbe7",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-63d32e5f152324e7",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13512,21 +13536,21 @@
       "name": "go.opentelemetry.io/otel/metric",
       "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-add31efd9c7f00a7",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-ac53aa68968f2c9e",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13534,9 +13558,9 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-b62a7fcf4e9e03ac",
@@ -13561,30 +13585,6 @@
       "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/cloudflared",
       "supplier": "NOASSERTION",
       "versionInfo": "v1.44.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-bc528f5a0f2d6485",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-c93b7c5f2a6882c6",
@@ -13635,18 +13635,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-fc95665e8dfbfaef",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-f554f0a3de1f47f2",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13654,23 +13654,23 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-363aecf6a65d8c16",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-195109c4aca75c0f",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13678,9 +13678,81 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-2ff2e8c87fe41ff6",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-364ade9e0c2f7eb3",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-5336db05a903ef0c",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-621083f420231472",
@@ -13731,18 +13803,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-9ecaa81aeb5034c2",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-7952a20a69af12e6",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13750,57 +13822,9 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a53f52d0e7e48ec8",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a5e69a13cb978781",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-b28dae3deb2ff640",
@@ -13827,30 +13851,6 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-b2e2689e1364daa5",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c408a434e07872b4",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
@@ -13875,18 +13875,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-e14b224edbc3b0f2",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c5e95743d8426f16",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -13894,9 +13894,9 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/sdk",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-f0d21b04d670df24",
@@ -13947,66 +13947,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2793a63efa330ba8",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-150d9ca56e04735c",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2ebe2f945b84c9b6",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-5494b0361056acfa",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14016,21 +13968,69 @@
       "name": "go.opentelemetry.io/otel/sdk/metric",
       "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-6df403029f4b4f25",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-43f6dbbc10a52cee",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk/metric",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-44af62d29176b136",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk/metric",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-4834fa968e48b04c",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14040,45 +14040,21 @@
       "name": "go.opentelemetry.io/otel/sdk/metric",
       "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-ceda1ce02005bb76",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-751710ce9c87644a",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/sdk/metric",
-      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-d595444f4a3c13c7",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14088,21 +14064,45 @@
       "name": "go.opentelemetry.io/otel/sdk/metric",
       "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-53a4b6f7bb37b66d",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-7fea3c211e351b2c",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk/metric@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:sdk\\/metric:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/sdk/metric",
+      "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-24935713e608c154",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14110,9 +14110,57 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/trace",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-40be284ff39138ba",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/trace",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-508d412e135b5af2",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
+          "referenceType": "purl"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
+          "referenceType": "cpe23Type"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "go.opentelemetry.io/otel/trace",
+      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
+      "supplier": "NOASSERTION",
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-547d5e6a8a975c4f",
@@ -14139,18 +14187,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-6af9f7e1293d089d",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-5ee93164c404a809",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14160,7 +14208,7 @@
       "name": "go.opentelemetry.io/otel/trace",
       "sourceInfo": "acquired package info from go module information: /payloads/windows_amd64/tunnel-client.exe",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-6c1b9b14d351a7a0",
@@ -14187,18 +14235,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8271ff23311820bc",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-a6959d95194e0b13",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14208,31 +14256,7 @@
       "name": "go.opentelemetry.io/otel/trace",
       "sourceInfo": "acquired package info from go module information: /payloads/windows_arm64/tunnel-client.exe",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8b552b30d8a69470",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/trace",
-      "sourceInfo": "acquired package info from go module information: /payloads/darwin_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-a7bfd0facec12bc7",
@@ -14283,30 +14307,6 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-bc9c33dcf3c80f36",
-      "copyrightText": "NOASSERTION",
-      "downloadLocation": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
-          "referenceType": "purl"
-        },
-        {
-          "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
-          "referenceType": "cpe23Type"
-        }
-      ],
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "name": "go.opentelemetry.io/otel/trace",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_amd64/tunnel-client",
-      "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
-    },
-    {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c1f0aae662cb0f1b",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
@@ -14331,18 +14331,18 @@
       "versionInfo": "v1.44.0"
     },
     {
-      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-f89a5d93dc52a990",
+      "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c43bde2d3af16f79",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE-MANAGER",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.41.0",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.43.0",
           "referenceType": "purl"
         },
         {
           "referenceCategory": "SECURITY",
-          "referenceLocator": "cpe:2.3:a:otel:trace:v1.41.0:*:*:*:*:*:*:*",
+          "referenceLocator": "cpe:2.3:a:otel:trace:v1.43.0:*:*:*:*:*:*:*",
           "referenceType": "cpe23Type"
         }
       ],
@@ -14350,9 +14350,9 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "go.opentelemetry.io/otel/trace",
-      "sourceInfo": "acquired package info from go module information: /payloads/linux_arm64/tunnel-client",
+      "sourceInfo": "acquired package info from go module information: /payloads/darwin_arm64/tunnel-client",
       "supplier": "NOASSERTION",
-      "versionInfo": "v1.41.0"
+      "versionInfo": "v1.43.0"
     },
     {
       "SPDXID": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-fe7716daef8b037c",
@@ -18938,37 +18938,37 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-7c3cdf635621cfa5"
-    },
-    {
-      "comment": "evident-by: indicates the package's existence is evident by the given file",
-      "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
-      "relationshipType": "OTHER",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-7970cbd1c13bf6f8"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-fc95665e8dfbfaef"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f9ac117028217a07"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a53f52d0e7e48ec8"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-582167220cf1db3e"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-ceda1ce02005bb76"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-5336db05a903ef0c"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-6af9f7e1293d089d"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-7fea3c211e351b2c"
+    },
+    {
+      "comment": "evident-by: indicates the package's existence is evident by the given file",
+      "relatedSpdxElement": "SPDXRef-File-...windows-amd64-tunnel-client.exe-7b46ff3bb27157eb",
+      "relationshipType": "OTHER",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-5ee93164c404a809"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -19238,37 +19238,37 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
       "relationshipType": "OTHER",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-54b4037102ba6c18"
+    },
+    {
+      "comment": "evident-by: indicates the package's existence is evident by the given file",
+      "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
+      "relationshipType": "OTHER",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-4e8b7075a03f6ca1"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f2eb4e0bb7bdf7d0"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4f5929aebdca9855"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-592775b3635f42dc"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-2ff2e8c87fe41ff6"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-9ecaa81aeb5034c2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-150d9ca56e04735c"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-5494b0361056acfa"
-    },
-    {
-      "comment": "evident-by: indicates the package's existence is evident by the given file",
-      "relatedSpdxElement": "SPDXRef-File-...windows-arm64-tunnel-client.exe-0d96c6758ad9c5e9",
-      "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8271ff23311820bc"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-a6959d95194e0b13"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -19934,7 +19934,7 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-amd64-tunnel-client-4bfd8df3af00e3fb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-d00b74fe81b4a64a"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-44059b374f7f732d"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -19946,25 +19946,25 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-amd64-tunnel-client-4bfd8df3af00e3fb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-0763a82ca5e5c6d0"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-3d70d4fe1bcbf90d"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-amd64-tunnel-client-4bfd8df3af00e3fb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-b2e2689e1364daa5"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-195109c4aca75c0f"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-amd64-tunnel-client-4bfd8df3af00e3fb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2793a63efa330ba8"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-44af62d29176b136"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-amd64-tunnel-client-4bfd8df3af00e3fb",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8b552b30d8a69470"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-40be284ff39138ba"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -20630,37 +20630,37 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-2f8d489a0d8cda74"
-    },
-    {
-      "comment": "evident-by: indicates the package's existence is evident by the given file",
-      "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
-      "relationshipType": "OTHER",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-69b12dbd3864eedc"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-add31efd9c7f00a7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-ff1e8f674ce93da2"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-e14b224edbc3b0f2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-f554f0a3de1f47f2"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2ebe2f945b84c9b6"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-7952a20a69af12e6"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-53a4b6f7bb37b66d"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-43f6dbbc10a52cee"
+    },
+    {
+      "comment": "evident-by: indicates the package's existence is evident by the given file",
+      "relatedSpdxElement": "SPDXRef-File-payloads-darwin-arm64-tunnel-client-c855b91e439c2b6b",
+      "relationshipType": "OTHER",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c43bde2d3af16f79"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -21338,7 +21338,7 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-amd64-tunnel-client-670133af9fdba22f",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-39f8a52c1dd1a326"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-bd710eea51cdd458"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -21350,25 +21350,25 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-amd64-tunnel-client-670133af9fdba22f",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-bc528f5a0f2d6485"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-ac53aa68968f2c9e"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-amd64-tunnel-client-670133af9fdba22f",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a5e69a13cb978781"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-364ade9e0c2f7eb3"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-amd64-tunnel-client-670133af9fdba22f",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-d595444f4a3c13c7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-751710ce9c87644a"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-amd64-tunnel-client-670133af9fdba22f",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-bc9c33dcf3c80f36"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-24935713e608c154"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -22046,7 +22046,7 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-arm64-tunnel-client-dd01def569283f0b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-a06994cc43a457d2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-3837f7c1d0353a43"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -22058,25 +22058,25 @@
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-arm64-tunnel-client-dd01def569283f0b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-9d2419a6ce48cbe7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-63d32e5f152324e7"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-arm64-tunnel-client-dd01def569283f0b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-363aecf6a65d8c16"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c5e95743d8426f16"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-arm64-tunnel-client-dd01def569283f0b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-6df403029f4b4f25"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-4834fa968e48b04c"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
       "relatedSpdxElement": "SPDXRef-File-payloads-linux-arm64-tunnel-client-dd01def569283f0b",
       "relationshipType": "OTHER",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-f89a5d93dc52a990"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-508d412e135b5af2"
     },
     {
       "comment": "evident-by: indicates the package's existence is evident by the given file",
@@ -26767,32 +26767,32 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-7c3cdf635621cfa5"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
-      "relationshipType": "DEPENDENCY_OF",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-7970cbd1c13bf6f8"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-fc95665e8dfbfaef"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f9ac117028217a07"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a53f52d0e7e48ec8"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-582167220cf1db3e"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-ceda1ce02005bb76"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-5336db05a903ef0c"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-6af9f7e1293d089d"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-7fea3c211e351b2c"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
+      "relationshipType": "DEPENDENCY_OF",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-5ee93164c404a809"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-0861e3497d2ac822",
@@ -27012,7 +27012,7 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-39f8a52c1dd1a326"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-bd710eea51cdd458"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
@@ -27022,22 +27022,22 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-bc528f5a0f2d6485"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-ac53aa68968f2c9e"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a5e69a13cb978781"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-364ade9e0c2f7eb3"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-d595444f4a3c13c7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-751710ce9c87644a"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-bc9c33dcf3c80f36"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-24935713e608c154"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-4c63378768b9f718",
@@ -27257,7 +27257,7 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-a06994cc43a457d2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-3837f7c1d0353a43"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
@@ -27267,22 +27267,22 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-9d2419a6ce48cbe7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-63d32e5f152324e7"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-363aecf6a65d8c16"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c5e95743d8426f16"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-6df403029f4b4f25"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-4834fa968e48b04c"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-f89a5d93dc52a990"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-508d412e135b5af2"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-5d405232025d49c0",
@@ -27497,32 +27497,32 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-2f8d489a0d8cda74"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
-      "relationshipType": "DEPENDENCY_OF",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-69b12dbd3864eedc"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-add31efd9c7f00a7"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-ff1e8f674ce93da2"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-e14b224edbc3b0f2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-f554f0a3de1f47f2"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2ebe2f945b84c9b6"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-7952a20a69af12e6"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-53a4b6f7bb37b66d"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-43f6dbbc10a52cee"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
+      "relationshipType": "DEPENDENCY_OF",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c43bde2d3af16f79"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-65da2b71e74eafd5",
@@ -27742,32 +27742,32 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
       "relationshipType": "DEPENDENCY_OF",
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-54b4037102ba6c18"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
+      "relationshipType": "DEPENDENCY_OF",
       "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-exporters-prometheus-4e8b7075a03f6ca1"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f2eb4e0bb7bdf7d0"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4f5929aebdca9855"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-592775b3635f42dc"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-2ff2e8c87fe41ff6"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-9ecaa81aeb5034c2"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-150d9ca56e04735c"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-5494b0361056acfa"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
-      "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8271ff23311820bc"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-a6959d95194e0b13"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-6e582a1839010036",
@@ -27982,7 +27982,7 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-d00b74fe81b4a64a"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-44059b374f7f732d"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
@@ -27992,22 +27992,22 @@
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-0763a82ca5e5c6d0"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-3d70d4fe1bcbf90d"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-b2e2689e1364daa5"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-195109c4aca75c0f"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2793a63efa330ba8"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-44af62d29176b136"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
       "relationshipType": "DEPENDENCY_OF",
-      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8b552b30d8a69470"
+      "spdxElementId": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-40be284ff39138ba"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-openai-tunnel-client-d8aa9a83ae0b1cc4",
@@ -28800,12 +28800,17 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-2f8d489a0d8cda74",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-3837f7c1d0353a43",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-39f8a52c1dd1a326",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-44059b374f7f732d",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-54b4037102ba6c18",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28815,17 +28820,7 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-7c3cdf635621cfa5",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
       "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-87b6503ace72098d",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-a06994cc43a457d2",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28835,7 +28830,7 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-d00b74fe81b4a64a",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-bd710eea51cdd458",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28910,12 +28905,12 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f2eb4e0bb7bdf7d0",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-f9ac117028217a07",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-0763a82ca5e5c6d0",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-ff1e8f674ce93da2",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28925,7 +28920,17 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-3d70d4fe1bcbf90d",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
       "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4c9ffaf84b847bb9",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-4f5929aebdca9855",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28935,27 +28940,22 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-592775b3635f42dc",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-582167220cf1db3e",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-9d2419a6ce48cbe7",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-63d32e5f152324e7",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-add31efd9c7f00a7",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-ac53aa68968f2c9e",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
       "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-b62a7fcf4e9e03ac",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-bc528f5a0f2d6485",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28970,12 +28970,27 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-fc95665e8dfbfaef",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-metric-f554f0a3de1f47f2",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-363aecf6a65d8c16",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-195109c4aca75c0f",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-2ff2e8c87fe41ff6",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-364ade9e0c2f7eb3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-5336db05a903ef0c",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -28990,17 +29005,7 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-9ecaa81aeb5034c2",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a53f52d0e7e48ec8",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-a5e69a13cb978781",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-7952a20a69af12e6",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -29010,17 +29015,12 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-b2e2689e1364daa5",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
       "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c408a434e07872b4",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-e14b224edbc3b0f2",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-c5e95743d8426f16",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -29035,37 +29035,47 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2793a63efa330ba8",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-150d9ca56e04735c",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-2ebe2f945b84c9b6",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-43f6dbbc10a52cee",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-5494b0361056acfa",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-44af62d29176b136",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-6df403029f4b4f25",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-4834fa968e48b04c",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-ceda1ce02005bb76",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-751710ce9c87644a",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-d595444f4a3c13c7",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-sdk-metric-7fea3c211e351b2c",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-53a4b6f7bb37b66d",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-24935713e608c154",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-40be284ff39138ba",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-508d412e135b5af2",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -29075,7 +29085,7 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-6af9f7e1293d089d",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-5ee93164c404a809",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -29085,12 +29095,7 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8271ff23311820bc",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-8b552b30d8a69470",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-a6959d95194e0b13",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
@@ -29105,17 +29110,12 @@
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-bc9c33dcf3c80f36",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
-    },
-    {
       "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c1f0aae662cb0f1b",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
     {
-      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-f89a5d93dc52a990",
+      "relatedSpdxElement": "SPDXRef-Package-go-module-go.opentelemetry.io-otel-trace-c43bde2d3af16f79",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-DocumentRoot-Directory-tunnel-client-baseline"
     },
