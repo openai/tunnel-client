@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -65,6 +66,12 @@ type ForwardingWriteResult struct {
 	StatusCode      int
 	ResponseHeaders http.Header
 	PreservedError  *PreservedMCPError
+	// StartedAt and CompletedAt bracket the underlying transport Write call.
+	// They retain the local monotonic clock for elapsed-time measurement and are
+	// zero when no underlying write was measured. A successful Write may return
+	// before the terminal MCP response is read.
+	StartedAt   time.Time `json:"-"`
+	CompletedAt time.Time `json:"-"`
 }
 
 // PreservedMCPError is a recognized JSON-RPC error response. Its

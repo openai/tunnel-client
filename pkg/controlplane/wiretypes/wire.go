@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 // CommandType is a discriminator for different kinds of polled commands.
@@ -77,12 +79,44 @@ func parseResponseTimeout(value string) (time.Duration, error) {
 // TunnelResponsePayload mirrors the body posted to POST /v1/tunnels/{tunnel_id}/response when
 // delivering MCP results back to tunnel-service.
 type TunnelResponsePayload struct {
-	RequestID       string              `json:"request_id"`
-	Channel         string              `json:"channel,omitempty"`
-	JSONResponse    json.RawMessage     `json:"resp_json,omitempty"`
-	ResponseHeaders http.Header         `json:"resp_headers,omitempty"`
-	ResponseCode    int                 `json:"resp_code,omitempty"`
-	ResponseType    ResponsePayloadType `json:"resp_type,omitempty"`
+	RequestID       string                `json:"request_id"`
+	Channel         string                `json:"channel,omitempty"`
+	JSONResponse    json.RawMessage       `json:"resp_json,omitempty"`
+	ResponseHeaders http.Header           `json:"resp_headers,omitempty"`
+	ResponseCode    int                   `json:"resp_code,omitempty"`
+	ResponseType    ResponsePayloadType   `json:"resp_type,omitempty"`
+	ResponseTiming  *types.ResponseTiming `json:"resp_timing,omitempty"`
+}
+
+// UnmarshalJSON preserves response decoding when optional timing is malformed.
+func (p *TunnelResponsePayload) UnmarshalJSON(data []byte) error {
+	type payloadAlias TunnelResponsePayload
+	decoded := struct {
+		*payloadAlias
+		ResponseTiming json.RawMessage `json:"resp_timing"`
+	}{payloadAlias: (*payloadAlias)(p)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	p.ResponseTiming = nil
+	var timing struct {
+		Version         *int    `json:"version"`
+		Transport       *string `json:"transport"`
+		TargetElapsedUS *int64  `json:"target_elapsed_us"`
+	}
+	if err := json.Unmarshal(decoded.ResponseTiming, &timing); err != nil ||
+		timing.Version == nil || timing.Transport == nil || timing.TargetElapsedUS == nil {
+		return nil
+	}
+	value := types.ResponseTiming{
+		Version:         *timing.Version,
+		Transport:       *timing.Transport,
+		TargetElapsedUS: *timing.TargetElapsedUS,
+	}
+	if value.Valid() {
+		p.ResponseTiming = &value
+	}
+	return nil
 }
 
 // BaseRawPolledCommand contains fields common to all polled command payloads.
@@ -113,6 +147,9 @@ type BaseRawPolledCommand struct {
 type RawJSONRPCPolledCommand struct {
 	BaseRawPolledCommand
 	JSONRPC json.RawMessage `json:"jsonrpc"`
+	// Decode optional trace metadata separately so malformed carriers never
+	// prevent an otherwise valid command from being forwarded.
+	TraceContext json.RawMessage `json:"trace_context,omitempty"`
 }
 
 // Rely on default json marshal/unmarshal for time.Time fields.

@@ -221,6 +221,7 @@ func newProcessorChannelBindings(p processorChannelBindingsParams) (map[types.Ch
 		}
 		out[canonical] = dispatcherinternal.ChannelBinding{
 			Transport:                  transport,
+			TransportKind:              binding.TransportKind,
 			Priority:                   binding.Priority,
 			Routable:                   binding.Routable,
 			SupportsMCP:                binding.SupportsMCP,

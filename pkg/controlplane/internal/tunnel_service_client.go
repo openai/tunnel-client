@@ -638,6 +638,7 @@ func (c *TunnelServiceClient) PostResponse(ctx context.Context, requestID types.
 		ResponseHeaders: responseHeaders,
 		ResponseCode:    response.ResponseCode(),
 		ResponseType:    responseType,
+		ResponseTiming:  response.Timing(),
 	}
 	payload.Channel = channel.String()
 	if rawResponse := response.Payload(); len(rawResponse) > 0 {

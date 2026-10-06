@@ -26,6 +26,7 @@ func TestForwardingConnectionPropagatesHeaders(t *testing.T) {
 	sortStrings := cmpopts.SortSlices(func(a, b string) bool { return a < b })
 
 	callID := mustMakeID(t, "call-1")
+	var writeObservedAt time.Time
 
 	fake := &fakeConnection{
 		writeFunc: func(ctx context.Context, msg jsonrpc.Message) error {
@@ -34,6 +35,7 @@ func TestForwardingConnectionPropagatesHeaders(t *testing.T) {
 				t.Fatalf("carrier missing in context")
 			}
 			carrier.StoreResponse(wantStatus, respHeaders)
+			writeObservedAt = time.Now()
 			return nil
 		},
 		readFunc: func(ctx context.Context) (jsonrpc.Message, error) {
@@ -61,6 +63,10 @@ func TestForwardingConnectionPropagatesHeaders(t *testing.T) {
 	if result.StatusCode != wantStatus {
 		t.Fatalf("unexpected status code: got %d, want %d", result.StatusCode, wantStatus)
 	}
+	require.False(t, result.StartedAt.IsZero())
+	require.False(t, result.CompletedAt.IsZero())
+	require.False(t, result.StartedAt.After(writeObservedAt), "timing must start before the downstream write")
+	require.False(t, result.CompletedAt.Before(writeObservedAt), "timing must include the downstream write")
 	if diff := cmp.Diff(respHeaders, result.ResponseHeaders, sortStrings); diff != "" {
 		t.Fatalf("write headers mismatch (-want +got):\n%s", diff)
 	}
@@ -112,6 +118,44 @@ func TestForwardingConnectionWriteErrorClosesBase(t *testing.T) {
 	}
 }
 
+func TestForwardingConnectionWriteTimingExcludesStdioLifecycleWait(t *testing.T) {
+	t.Parallel()
+
+	base := &fakeConnection{}
+	transport := NewStdioDeadlineRetiringForwardingTransport(NewForwardingTransport(contextCapturingTransport{
+		connect: func(context.Context) (mcp.Connection, error) { return base, nil },
+	}))
+	first, err := transport.Connect(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = first.Close() })
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	waiting := make(chan struct{})
+	waitCtx = &doneObservedContext{Context: waitCtx, observed: waiting}
+	connected := make(chan serializedConnectResult, 1)
+	go func() {
+		conn, connectErr := transport.Connect(waitCtx)
+		connected <- serializedConnectResult{conn: conn, err: connectErr}
+	}()
+	waitForSerializedSignal(t, waiting, "second Connect to wait for the stdio lifecycle slot")
+	require.NoError(t, first.Close())
+	second := waitForSerializedConnectResult(t, connected)
+	require.NoError(t, second.err)
+	require.NotNil(t, second.conn)
+	t.Cleanup(func() { _ = second.conn.Close() })
+
+	afterConnect := time.Now()
+	result, err := second.conn.Write(context.Background(), nil, &jsonrpc.Request{
+		ID: mustMakeID(t, "after-wait"), Method: "ping",
+	})
+	require.NoError(t, err)
+	require.False(t, result.StartedAt.IsZero())
+	require.False(t, result.CompletedAt.IsZero())
+	require.False(t, result.StartedAt.Before(afterConnect), "downstream timing must exclude time waiting for another lifecycle")
+	require.False(t, result.CompletedAt.Before(result.StartedAt))
+}
+
 func TestForwardingConnectionPreservesRecognizedNonSuccessMCPError(t *testing.T) {
 	t.Parallel()
 
@@ -154,13 +198,19 @@ func TestForwardingConnectionPreservesRecognizedNonSuccessMCPError(t *testing.T)
 				"Mcp-Protocol-Version": {"2025-06-18"},
 			}
 			writeErr := errors.New("SDK rejected non-success response")
+			var writeObservedAt, closeObservedAt time.Time
 			fake := &fakeConnection{
 				writeFunc: func(ctx context.Context, _ jsonrpc.Message) error {
 					carrier := internal.CarrierFromContext(ctx)
 					require.NotNil(t, carrier)
 					carrier.StoreResponse(tc.statusCode, wantHeaders)
 					carrier.StoreResponseBodyCapture([]byte(tc.payload), false, nil)
+					writeObservedAt = time.Now()
 					return writeErr
+				},
+				closeFunc: func() error {
+					closeObservedAt = time.Now()
+					return nil
 				},
 			}
 
@@ -177,6 +227,11 @@ func TestForwardingConnectionPreservesRecognizedNonSuccessMCPError(t *testing.T)
 			require.Equal(t, []byte(tc.payload), result.PreservedError.Payload())
 			require.NotContains(t, string(result.PreservedError.Payload()), "tunnel_failure")
 			require.Equal(t, 1, fake.closeCalls, "existing connection lifecycle must still close after SDK rejection")
+			require.False(t, result.StartedAt.IsZero(), "preserving an SDK error must retain measured timing")
+			require.False(t, result.CompletedAt.IsZero())
+			require.False(t, result.StartedAt.After(writeObservedAt))
+			require.False(t, result.CompletedAt.Before(writeObservedAt))
+			require.False(t, result.CompletedAt.After(closeObservedAt), "timing must stop before adapter cleanup")
 
 			mutated := result.PreservedError.Payload()
 			mutated[0] = 'x'
@@ -212,11 +267,13 @@ func TestForwardingConnectionPreservesHTTPMCPErrorEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
+	beforeWrite := time.Now()
 	result, err := conn.Write(
 		context.Background(),
 		http.Header{"Accept": {"application/json, text/event-stream"}},
 		&jsonrpc.Request{ID: mustMakeID(t, "http-error"), Method: "initialize"},
 	)
+	afterWrite := time.Now()
 	require.NoError(t, err)
 	require.Equal(t, http.StatusMethodNotAllowed, result.StatusCode)
 	require.Equal(t, "2025-06-18", result.ResponseHeaders.Get("Mcp-Protocol-Version"))
@@ -224,6 +281,11 @@ func TestForwardingConnectionPreservesHTTPMCPErrorEndToEnd(t *testing.T) {
 	require.NotNil(t, result.PreservedError)
 	require.EqualValues(t, -32004, result.PreservedError.Code())
 	require.Equal(t, payload, string(result.PreservedError.Payload()))
+	require.False(t, result.StartedAt.IsZero())
+	require.False(t, result.CompletedAt.IsZero())
+	require.False(t, result.StartedAt.Before(beforeWrite))
+	require.False(t, result.CompletedAt.Before(result.StartedAt))
+	require.False(t, result.CompletedAt.After(afterWrite))
 }
 
 func TestForwardingConnectionReturnsTypedNonProtocolResponse(t *testing.T) {
@@ -649,6 +711,8 @@ func TestForwardingConnectionWriteNilBaseReturnsZeroes(t *testing.T) {
 	if result.ResponseHeaders != nil {
 		t.Fatalf("expected nil headers, got %v", result.ResponseHeaders)
 	}
+	require.True(t, result.StartedAt.IsZero())
+	require.True(t, result.CompletedAt.IsZero())
 }
 
 func TestForwardingConnectionReadNilBaseReturnsNils(t *testing.T) {
@@ -672,15 +736,18 @@ func TestForwardingConnectionWriteNilContextReturnsError(t *testing.T) {
 
 	conn := &forwardingConnection{base: &fakeConnection{}}
 	//lint:ignore SA1012 exercising nil-context guard in ContextWithHeaders
-	_, err := conn.Write(nil, nil, req)
+	result, err := conn.Write(nil, nil, req)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
+	require.True(t, result.StartedAt.IsZero())
+	require.True(t, result.CompletedAt.IsZero())
 }
 
 type fakeConnection struct {
 	writeFunc           func(context.Context, jsonrpc.Message) error
 	readFunc            func(context.Context) (jsonrpc.Message, error)
+	closeFunc           func() error
 	lastForwardedHeader http.Header
 	closeCalls          int
 }
@@ -704,6 +771,9 @@ func (f *fakeConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
 
 func (f *fakeConnection) Close() error {
 	f.closeCalls++
+	if f.closeFunc != nil {
+		return f.closeFunc()
+	}
 	return nil
 }
 

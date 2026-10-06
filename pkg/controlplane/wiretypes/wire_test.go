@@ -81,7 +81,12 @@ func TestLegacyJSONRPCDecoderIgnoresOptionalTelemetry(t *testing.T) {
 		if len(envelope.Commands) != 1 {
 			t.Fatalf("command count = %d, want 1", len(envelope.Commands))
 		}
-		var command RawJSONRPCPolledCommand
+		// Snapshot the legacy decoder without trace_context so this remains a
+		// compatibility check as the current decoder learns the optional field.
+		var command struct {
+			BaseRawPolledCommand
+			JSONRPC json.RawMessage `json:"jsonrpc"`
+		}
 		if err := json.Unmarshal(envelope.Commands[0], &command); err != nil {
 			t.Fatalf("legacy decoder must ignore optional metadata: %v", err)
 		}

@@ -17,6 +17,7 @@ var (
 	_ controlplane.OauthDiscoveryCommand     = (*oauthDiscoveryCommand)(nil)
 	_ controlplane.PolledCommand             = (*jsonRpcCommand)(nil)
 	_ controlplane.JsonRpcCommand            = (*jsonRpcCommand)(nil)
+	_ controlplane.TraceContextProvider      = (*jsonRpcCommand)(nil)
 	_ controlplane.PolledCommand             = (*sessionTerminationCommand)(nil)
 	_ controlplane.SessionTerminationCommand = (*sessionTerminationCommand)(nil)
 	_ typedCommand                           = (*oauthDiscoveryCommand)(nil)
@@ -74,7 +75,16 @@ func (c *basePolledCommand) commandType() wiretypes.CommandType { return "" }
 // jsonRpcCommand represents a JSON-RPC command; it implements JsonRpcCommand via Message().
 type jsonRpcCommand struct {
 	basePolledCommand
-	message jsonrpc.Message
+	message      jsonrpc.Message
+	traceContext *types.TraceContext
+}
+
+func (c *jsonRpcCommand) TraceContext() *types.TraceContext {
+	if c.traceContext == nil {
+		return nil
+	}
+	result := *c.traceContext
+	return &result
 }
 
 // Message is only implemented by jsonRpcCommand

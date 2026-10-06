@@ -81,8 +81,10 @@ func TestStdioForwardingTransportInjectsInitializedBeforeReleasingLifecycle(t *t
 
 	duplicate, err := transport.Connect(context.Background())
 	require.NoError(t, err)
-	_, err = duplicate.Write(context.Background(), nil, &jsonrpc.Request{Method: initializedNotificationMethod})
+	result, err := duplicate.Write(context.Background(), nil, &jsonrpc.Request{Method: initializedNotificationMethod})
 	require.NoError(t, err)
+	require.True(t, result.StartedAt.IsZero(), "suppressed notification must not report downstream timing")
+	require.True(t, result.CompletedAt.IsZero())
 	require.Equal(t, []string{"initialize", initializedNotificationMethod}, baseConn.writtenMethods(), "caller notification should be acknowledged without a duplicate stdio write")
 	requireLifecycleLockReleased(t, serializedTransport)
 }

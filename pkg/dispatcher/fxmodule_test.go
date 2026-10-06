@@ -48,6 +48,7 @@ func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
 	mainBinding, ok := bindings[types.DefaultChannel]
 	require.True(t, ok)
 	require.NotNil(t, mainBinding.Transport)
+	require.Equal(t, config.MCPTransportHTTPStreamable, mainBinding.TransportKind)
 	require.True(t, mainBinding.SupportsMCP)
 	require.True(t, mainBinding.SupportsOAuth)
 	require.True(t, mainBinding.SupportsSessionTermination)
@@ -55,6 +56,7 @@ func TestNewProcessorChannelBindingsSuccess(t *testing.T) {
 	harpoonBinding, ok := bindings[types.ChannelHarpoon]
 	require.True(t, ok)
 	require.NotNil(t, harpoonBinding.Transport)
+	require.Equal(t, config.MCPTransportInMemory, harpoonBinding.TransportKind)
 	require.True(t, harpoonBinding.SupportsMCP)
 	require.False(t, harpoonBinding.SupportsOAuth)
 	require.False(t, harpoonBinding.SupportsSessionTermination)
@@ -82,6 +84,7 @@ func TestNewProcessorChannelBindingsSerializesStdioTransport(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, fmt.Sprintf("%T", bindings[types.DefaultChannel].Transport), "serializedForwardingTransport")
+	require.Equal(t, config.MCPTransportStdio, bindings[types.DefaultChannel].TransportKind)
 	conn, err := bindings[types.DefaultChannel].Transport.Connect(context.Background())
 	require.NoError(t, err)
 	_, ok := conn.(mcpclient.ResponseDeadlineRetiringConnection)

@@ -15,9 +15,173 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/types"
 	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
 	"github.com/openai/tunnel-client/testsupport/mockproxy"
+	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
 )
+
+const (
+	runtimeTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	runtimeTracestate  = "vendor=opaque"
+)
+
+// TestRuntimeTraceAndTimingCompatibility verifies the wire behavior through
+// every shipped runtime: local trace opt-in changes MCP metadata, while timing
+// remains available independently of the forwarding setting.
+func TestRuntimeTraceAndTimingCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name, yaml, flag string
+		wantTrace        bool
+	}{
+		{name: "default-off"},
+		{name: "enabled", yaml: "true", wantTrace: true},
+		{name: "explicit-false", yaml: "true", flag: "false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+				profile, healthFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				if tc.yaml != "" {
+					data, err := os.ReadFile(profile)
+					require.NoError(t, err)
+					data = []byte(strings.Replace(string(data), "mcp:\n", "mcp:\n  forward_trace_context: "+tc.yaml+"\n", 1))
+					require.NoError(t, os.WriteFile(profile, data, 0o600))
+				}
+				return runtimeScenario{
+					name: tc.name, profilePath: profile, healthURLFile: healthFile, pidFile: pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory: newRuntimeTraceTimingFixture,
+						configure: func(_ *testing.T, run *runtimeSubjectRun) {
+							if tc.flag != "" {
+								run.env["MCP_FORWARD_TRACE_CONTEXT"] = "true"
+								run.args = append(run.args, "--mcp.forward-trace-context="+tc.flag)
+							}
+						},
+						afterReady: func(t *testing.T, run *runtimeSubjectRun) {
+							assertRuntimeTerminalTiming(t, run.fixture.controlPlane, "runtime-trace-tool", "streamable_http")
+							matched := 0
+							for _, request := range run.fixture.mcpServer.ReceivedHTTPRequests() {
+								if !assertRuntimeTraceMetadata(t, request.Body, tc.wantTrace) {
+									continue
+								}
+								matched++
+								require.Empty(t, request.Headers.Get("traceparent"), "metadata forwarding must not inject HTTP tracing headers")
+								require.Empty(t, request.Headers.Get("tracestate"))
+								require.Empty(t, request.Headers.Get("baggage"))
+							}
+							require.Equal(t, 1, matched, "one traced tools/call should reach the MCP server")
+						},
+					},
+				}
+			})
+		})
+	}
+}
+
+func newRuntimeTraceTimingFixture(t *testing.T) runtimeFixture {
+	t.Helper()
+	mcpServer := mockmcpserver.NewMockMCPServer(
+		mockmcpserver.WithOAuthDiscoveryResources(),
+		mockmcpserver.WithCalls(mockmcpserver.Call{Tool: "echo", Result: json.RawMessage(`{"ok":true}`)}),
+	)
+	mcpServer.Start(t)
+	controlPlane := newRuntimeTraceTimingControlPlane(t, "runtime-trace-tool", "echo", true)
+	return runtimeFixture{controlPlane: controlPlane, mcpServer: mcpServer}
+}
+
+func newRuntimeTraceTimingControlPlane(t *testing.T, requestID, tool string, httpTransport bool) *mocktunnelservice.MockTunnelService {
+	t.Helper()
+	params, err := json.Marshal(map[string]any{
+		"name": tool, "arguments": map[string]string{"name": "Ada"}, "_meta": map[string]string{"operator": "preserved"},
+	})
+	require.NoError(t, err)
+	command := mocktunnelservice.NewCommand(requestID, json.RawMessage(fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":"runtime-trace-call","method":"tools/call","params":%s}`, params,
+	)), nil)
+	var envelope map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(command, &envelope))
+	envelope["trace_context"] = json.RawMessage(fmt.Sprintf(
+		`{"traceparent":%q,"tracestate":%q,"baggage":"tenant=private"}`, runtimeTraceparent, runtimeTracestate,
+	))
+	command, err = json.Marshal(envelope)
+	require.NoError(t, err)
+	opts := []mocktunnelservice.Option{
+		mocktunnelservice.WithAPIKey(runtimeArtifactAPIKey),
+		mocktunnelservice.WithTunnelID(runtimeArtifactTunnelID),
+	}
+	if httpTransport {
+		opts = append(opts, mocktunnelservice.WithSessionHeaderPropagation(), mocktunnelservice.WithInitializationPhaseCommands())
+	} else {
+		opts = append(opts, mocktunnelservice.WithInitializationPhaseCommandsWithoutSessionHeaders())
+	}
+	// Session propagation selects a mutator when commands are appended, so it
+	// must be configured before the HTTP tool command is added.
+	opts = append(opts, mocktunnelservice.WithCommandResponses(mocktunnelservice.CommandResponse{
+		Command:           command,
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{RequestID: requestID}},
+	}))
+	controlPlane := mocktunnelservice.NewMockTunnelService(opts...)
+	controlPlane.Start(t)
+	return controlPlane
+}
+
+func assertRuntimeTerminalTiming(t *testing.T, controlPlane *mocktunnelservice.MockTunnelService, requestID, transport string) {
+	t.Helper()
+	matched := 0
+	for _, response := range controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched) {
+		if response.RequestID != requestID {
+			continue
+		}
+		matched++
+		require.Equal(t, http.StatusOK, response.ResponseCode)
+		require.Equal(t, "jsonrpc_response", response.ResponseType)
+		var message map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(response.JSONResponse, &message))
+		require.NotContains(t, message, "error", "timing must accompany a successful tool result")
+		require.Contains(t, message, "result")
+		require.NotNil(t, response.ResponseTiming)
+		require.Equal(t, 1, response.ResponseTiming.Version)
+		require.Equal(t, transport, response.ResponseTiming.Transport)
+		require.GreaterOrEqual(t, response.ResponseTiming.TargetElapsedUS, int64(0))
+		require.LessOrEqual(t, response.ResponseTiming.TargetElapsedUS, types.MaxTargetElapsedUS)
+	}
+	require.Equal(t, 1, matched, "one matching terminal response should be posted")
+}
+
+// The fixtures record complete requests before returning their tool response,
+// so these snapshots are safe to inspect once the response script is idle.
+func assertRuntimeTraceMetadata(t *testing.T, body []byte, wantTrace bool) bool {
+	t.Helper()
+	var request struct {
+		Method string `json:"method"`
+		Params struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(body, &request) != nil || request.Method != "tools/call" {
+		return false
+	}
+	var operator string
+	require.NoError(t, json.Unmarshal(request.Params.Meta["operator"], &operator))
+	require.Equal(t, "preserved", operator)
+	if wantTrace {
+		var traceparent, tracestate string
+		require.NoError(t, json.Unmarshal(request.Params.Meta["traceparent"], &traceparent))
+		require.NoError(t, json.Unmarshal(request.Params.Meta["tracestate"], &tracestate))
+		require.Equal(t, runtimeTraceparent, traceparent)
+		require.Equal(t, runtimeTracestate, tracestate)
+	} else {
+		require.NotContains(t, request.Params.Meta, "traceparent")
+		require.NotContains(t, request.Params.Meta, "tracestate")
+	}
+	require.NotContains(t, request.Params.Meta, "baggage")
+	return true
+}
 
 // TestRuntimeComponentHealthConfigurationCompatibility applies the same profile
 // configuration, environment, flags and requests to each real shipped flavor.

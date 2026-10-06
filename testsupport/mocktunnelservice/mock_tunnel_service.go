@@ -17,6 +17,7 @@ import (
 	"time"
 
 	wiretypes "github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 const (
@@ -101,6 +102,7 @@ type ReceivedResponse struct {
 	ResponseHeaders http.Header
 	ResponseCode    int
 	ResponseType    string
+	ResponseTiming  *types.ResponseTiming
 	MatchedCommand  bool
 }
 
@@ -738,6 +740,7 @@ func (m *MockTunnelService) ReceivedResponses(filter ResponseMatchFilter) []Rece
 			ResponseHeaders: cloneHeader(resp.ResponseHeaders),
 			ResponseCode:    resp.ResponseCode,
 			ResponseType:    resp.ResponseType,
+			ResponseTiming:  cloneResponseTiming(resp.ResponseTiming),
 			MatchedCommand:  resp.MatchedCommand,
 		})
 	}
@@ -947,6 +950,7 @@ func (m *MockTunnelService) handleResponse(w http.ResponseWriter, r *http.Reques
 		ResponseHeaders: cloneHeader(payload.ResponseHeaders),
 		ResponseCode:    payload.ResponseCode,
 		ResponseType:    string(payload.ResponseType),
+		ResponseTiming:  cloneResponseTiming(payload.ResponseTiming),
 		MatchedCommand:  matched,
 	}
 	m.received = append(m.received, record)
@@ -1314,6 +1318,14 @@ func (m *MockTunnelService) failf(format string, args ...any) {
 		return
 	}
 	panic(fmt.Sprintf(format, args...))
+}
+
+func cloneResponseTiming(timing *types.ResponseTiming) *types.ResponseTiming {
+	if timing == nil {
+		return nil
+	}
+	copied := *timing
+	return &copied
 }
 
 func cloneJSON(raw json.RawMessage) json.RawMessage {

@@ -43,7 +43,7 @@ go.opentelemetry.io/otel/exporters/prometheus|direct|v0.60.0|Apache-2.0, BSD-3-C
 go.opentelemetry.io/otel/metric|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/metric@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.opentelemetry.io/otel/sdk|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/sdk@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.opentelemetry.io/otel/sdk/metric|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/sdk/metric@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
-go.opentelemetry.io/otel/trace|transitive|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/trace@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+go.opentelemetry.io/otel/trace|direct|v1.41.0|Apache-2.0, BSD-3-Clause|go.opentelemetry.io/otel/trace@v1.41.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.uber.org/dig|transitive|v1.19.0|MIT|go.uber.org/dig@v1.19.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.uber.org/fx|direct|v1.23.0|MIT|go.uber.org/fx@v1.23.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.uber.org/multierr|transitive|v1.11.0|MIT|go.uber.org/multierr@v1.11.0/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64

@@ -36,6 +36,7 @@ type TunnelResponse struct {
 	responseCode int
 	responseType ResponseType
 	channel      Channel
+	timing       *ResponseTiming
 }
 
 // NewTunnelResponse constructs a TunnelResponse, defensively copying the
@@ -94,6 +95,26 @@ func NewSessionTerminationResponse(channel Channel, code int, headers http.Heade
 		responseType: ResponseTypeSessionTermination,
 		channel:      channel,
 	}
+}
+
+// WithTiming returns a copy carrying a frozen duration. Invalid metadata or
+// non-response payloads leave the original response unchanged.
+func (t *TunnelResponse) WithTiming(timing ResponseTiming) *TunnelResponse {
+	if t == nil || t.responseType != ResponseTypeJSONRPCResponse || !timing.Valid() {
+		return t
+	}
+	result := *t
+	result.timing = &timing
+	return &result
+}
+
+// Timing returns a defensive copy of the optional response timing.
+func (t *TunnelResponse) Timing() *ResponseTiming {
+	if t == nil || t.timing == nil {
+		return nil
+	}
+	result := *t.timing
+	return &result
 }
 
 // Payload returns the raw JSON payload for the response.

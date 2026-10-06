@@ -6,6 +6,10 @@ initialized=0
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
 
+  if [[ -n "${MOCK_MCP_RAW_MESSAGE_LOG:-}" ]]; then
+    printf '%s\n' "$line" >> "$MOCK_MCP_RAW_MESSAGE_LOG"
+  fi
+
   case "$line" in
     *\"notifications/initialized\"*)
       if [[ -n "${MOCK_MCP_MESSAGE_LOG:-}" ]]; then

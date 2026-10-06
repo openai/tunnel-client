@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -179,11 +180,12 @@ func WithUnixSocketPath(path string) Option {
 
 // MockMCPServer hosts a Streamable HTTP MCP server backed by scripted tool handlers.
 type MockMCPServer struct {
-	mu       sync.Mutex
-	calls    []*Call
-	received []IncomingRequest
-	httpSeen []IncomingHTTPRequest
-	requests chan struct{}
+	mu           sync.Mutex
+	calls        []*Call
+	received     []IncomingRequest
+	httpSeen     []IncomingHTTPRequest
+	requests     chan struct{}
+	httpRequests chan struct{}
 
 	server     *mcp.Server
 	httpServer *httptest.Server
@@ -225,7 +227,8 @@ var stdioLock sync.Mutex
 // NewMockMCPServer constructs an empty mock server configured by optional options.
 func NewMockMCPServer(opts ...Option) *MockMCPServer {
 	mock := &MockMCPServer{
-		requests: make(chan struct{}, 1),
+		requests:     make(chan struct{}, 1),
+		httpRequests: make(chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(mock)
@@ -531,6 +534,21 @@ func (m *MockMCPServer) WaitForRequests(ctx context.Context, n int) error {
 	}
 }
 
+// WaitForHTTPRequest waits for a recorded HTTP request matching match.
+// Request notifications drive progress; ctx bounds a missing-request failure.
+func (m *MockMCPServer) WaitForHTTPRequest(ctx context.Context, match func(IncomingHTTPRequest) bool) error {
+	for {
+		if slices.ContainsFunc(m.ReceivedHTTPRequests(), match) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-m.httpRequests:
+		}
+	}
+}
+
 func isLoopbackHost(hostport string) bool {
 	host := hostport
 	if parsedHost, _, err := net.SplitHostPort(hostport); err == nil {
@@ -614,6 +632,10 @@ func (m *MockMCPServer) recordHTTPRequest(req *http.Request, body []byte) {
 		Headers:  req.Header.Clone(),
 		Body:     bytes.Clone(body),
 	})
+	select {
+	case m.httpRequests <- struct{}{}:
+	default:
+	}
 }
 
 func (m *MockMCPServer) checkRequiredHeaders(w http.ResponseWriter, req *http.Request) bool {

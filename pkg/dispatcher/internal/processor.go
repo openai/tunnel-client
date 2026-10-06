@@ -53,6 +53,7 @@ type Processor interface {
 // MCP server URL rather than arbitrary auxiliary channels.
 type ChannelBinding struct {
 	Transport                  mcpclient.ForwardingTransport
+	TransportKind              runtimeconfig.MCPTransportKind
 	Priority                   int
 	Routable                   func() bool
 	SupportsMCP                bool
@@ -74,18 +75,19 @@ type processorParams struct {
 }
 
 type mcpProcessor struct {
-	logger            *slog.Logger
-	channels          map[types.Channel]channelConfig
-	tunnelResponder   controlplane.Responder
-	connectionMaxTTL  time.Duration
-	metrics           *processorMetrics
-	tunnelID          types.TunnelID
-	oauthHTTPClient   *http.Client
-	hostBus           hostbus.HostRegistrationBus
-	mcpServerURL      *url.URL
-	mcpUnixSocketPath string
-	oauthOrigins      []*url.URL
-	withDeadlineCause func(context.Context, time.Time, error) (context.Context, context.CancelFunc)
+	logger              *slog.Logger
+	channels            map[types.Channel]channelConfig
+	tunnelResponder     controlplane.Responder
+	connectionMaxTTL    time.Duration
+	forwardTraceContext bool
+	metrics             *processorMetrics
+	tunnelID            types.TunnelID
+	oauthHTTPClient     *http.Client
+	hostBus             hostbus.HostRegistrationBus
+	mcpServerURL        *url.URL
+	mcpUnixSocketPath   string
+	oauthOrigins        []*url.URL
+	withDeadlineCause   func(context.Context, time.Time, error) (context.Context, context.CancelFunc)
 }
 
 // responsePostResult keeps the control-plane request ID together with any
@@ -126,10 +128,11 @@ type channelFeatures struct {
 }
 
 type channelConfig struct {
-	transport mcpclient.ForwardingTransport
-	features  channelFeatures
-	priority  int
-	routable  func() bool
+	transport     mcpclient.ForwardingTransport
+	transportKind runtimeconfig.MCPTransportKind
+	features      channelFeatures
+	priority      int
+	routable      func() bool
 }
 
 func (c channelConfig) isRoutable() bool {
@@ -225,7 +228,8 @@ func NewProcessor(p processorParams) (Processor, error) {
 		}
 
 		channels[channelName] = channelConfig{
-			transport: binding.Transport,
+			transport:     binding.Transport,
+			transportKind: binding.TransportKind,
 			features: channelFeatures{
 				supportsMCP:                binding.SupportsMCP,
 				supportsOAuth:              binding.SupportsOAuth,
@@ -282,19 +286,29 @@ func NewProcessor(p processorParams) (Processor, error) {
 	})
 	baseLogger.Info("dispatcher channels registered", slog.Any("channels", registered))
 
+	forwardTraceContext := p.MCPConfig.ForwardTraceContext
+	for name := range p.MCPConfig.ExtraHeaders {
+		if strings.EqualFold(name, "traceparent") || strings.EqualFold(name, "tracestate") {
+			// A configured customer trace carrier retains ownership.
+			forwardTraceContext = false
+			break
+		}
+	}
+
 	return &mcpProcessor{
-		logger:            baseLogger,
-		channels:          channels,
-		tunnelResponder:   p.TunnelResponder,
-		connectionMaxTTL:  p.MCPConfig.ConnectionMaxTTL,
-		metrics:           processorMetrics,
-		tunnelID:          p.ControlPlaneCfg.TunnelID,
-		oauthHTTPClient:   p.OAuthHTTPClient,
-		hostBus:           p.HostBus,
-		mcpServerURL:      p.MCPConfig.ServerURL,
-		mcpUnixSocketPath: p.MCPConfig.UnixSocketPath,
-		oauthOrigins:      append([]*url.URL(nil), p.MCPConfig.OAuthTrustedOrigins...),
-		withDeadlineCause: context.WithDeadlineCause,
+		logger:              baseLogger,
+		channels:            channels,
+		tunnelResponder:     p.TunnelResponder,
+		connectionMaxTTL:    p.MCPConfig.ConnectionMaxTTL,
+		forwardTraceContext: forwardTraceContext,
+		metrics:             processorMetrics,
+		tunnelID:            p.ControlPlaneCfg.TunnelID,
+		oauthHTTPClient:     p.OAuthHTTPClient,
+		hostBus:             p.HostBus,
+		mcpServerURL:        p.MCPConfig.ServerURL,
+		mcpUnixSocketPath:   p.MCPConfig.UnixSocketPath,
+		oauthOrigins:        append([]*url.URL(nil), p.MCPConfig.OAuthTrustedOrigins...),
+		withDeadlineCause:   context.WithDeadlineCause,
 	}, nil
 }
 
@@ -550,6 +564,11 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 	}
 
 	headers := ensureDefaultAcceptHeader(cmd.Headers())
+	if p.forwardTraceContext && (channelCfg.transportKind == runtimeconfig.MCPTransportStdio || channelCfg.transportKind == runtimeconfig.MCPTransportHTTPStreamable) {
+		if provider, ok := cmd.(controlplane.TraceContextProvider); ok {
+			req = forwardTraceContext(req, headers, provider.TraceContext())
+		}
+	}
 	writeResult, err := conn.Write(ctx, headers, req)
 	if ctx.Err() != nil {
 		if !retireExpiredResponseConnection(ctx, conn) {
@@ -568,6 +587,9 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		encodedError := preserved.Payload()
 		respHeader = jsonRPCResponseHeaders(ctx, logger, respHeader)
 		tunnelResponse := types.NewTunnelResponse(channel, encodedError, statusCode, respHeader)
+		if !isNotification {
+			tunnelResponse = withResponseTiming(tunnelResponse, channelCfg.transportKind, writeResult.StartedAt, writeResult.CompletedAt)
+		}
 		post := p.postTunnelResponse(ctx, requestID, tunnelResponse)
 		if post.err != nil {
 			logger.ErrorContext(ctx, "failed to post preserved MCP error response to control plane", post.errorAttrs()...)
@@ -656,7 +678,7 @@ func (p *mcpProcessor) processJsonRpcCommand(ctx context.Context, logger *slog.L
 		return nil
 	}
 
-	responseDelivered := p.forwardResponses(ctx, conn, logger, cmd, statusCode, respHeader, requestKindAttrs, latencyRecorded, channel)
+	responseDelivered := p.forwardResponses(ctx, conn, logger, cmd, statusCode, respHeader, requestKindAttrs, latencyRecorded, channel, channelCfg.transportKind, writeResult.StartedAt)
 	if !responseDelivered && errors.Is(context.Cause(ctx), errResponseDeadlineExceeded) {
 		return ctx.Err()
 	}
@@ -806,7 +828,7 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 // or expire. Intermediate JSON-RPC notifications remain stream events. If the
 // downstream connection ends first, the dispatcher posts a terminal error
 // response so product callers do not wait forever.
-func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.ForwardingConnection, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, metricAttrs []attribute.KeyValue, latencyRecorded *latencyFlags, channel types.Channel) (responseDelivered bool) {
+func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.ForwardingConnection, logger *slog.Logger, cmd controlplane.JsonRpcCommand, responseCode int, responseHeaders http.Header, metricAttrs []attribute.KeyValue, latencyRecorded *latencyFlags, channel types.Channel, transportKind runtimeconfig.MCPTransportKind, startedAt time.Time) (responseDelivered bool) {
 	ttlCtx := ctx
 	cancel := func() {}
 	if p.connectionMaxTTL > 0 {
@@ -873,6 +895,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 
 	for {
 		msg, readErr := conn.Read(ttlCtx)
+		completedAt := time.Now()
 		if readErr != nil {
 			recordWorkFailure(ttlCtx, readErr, 0)
 			switch {
@@ -964,6 +987,7 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		responseHeaders = jsonRPCResponseHeaders(ctx, logger, responseHeaders)
 
 		tunnelResponse := types.NewTunnelResponse(channel, encodedResponse, responseCode, responseHeaders)
+		tunnelResponse = withResponseTiming(tunnelResponse, transportKind, startedAt, completedAt)
 
 		post := p.postTunnelResponse(ttlCtx, cmd.RequestID(), tunnelResponse)
 		if post.err != nil {
@@ -1016,6 +1040,33 @@ func jsonRPCResponseHeaders(ctx context.Context, logger *slog.Logger, responseHe
 	}
 
 	return headers
+}
+
+// withResponseTiming freezes an interval measured before response encoding and
+// control-plane delivery. It includes SDK and receive backpressure; it does not
+// isolate execution inside the customer MCP server.
+func withResponseTiming(response *types.TunnelResponse, transportKind runtimeconfig.MCPTransportKind, startedAt, completedAt time.Time) *types.TunnelResponse {
+	if startedAt.IsZero() || completedAt.IsZero() {
+		return response
+	}
+	elapsed := completedAt.Sub(startedAt)
+	if elapsed < 0 || elapsed > time.Duration(types.MaxTargetElapsedUS)*time.Microsecond {
+		return response
+	}
+	var transport string
+	switch transportKind {
+	case runtimeconfig.MCPTransportStdio:
+		transport = "stdio"
+	case runtimeconfig.MCPTransportHTTPStreamable:
+		transport = "streamable_http"
+	default:
+		return response
+	}
+	return response.WithTiming(types.ResponseTiming{
+		Version:         1,
+		Transport:       transport,
+		TargetElapsedUS: elapsed.Microseconds(),
+	})
 }
 
 // forwardNotification returns false after a delivery failure so the caller can

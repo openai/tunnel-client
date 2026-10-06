@@ -499,3 +499,64 @@ func (r roundTripperWithBearer) RoundTrip(req *http.Request) (*http.Response, er
 	clone.Header.Set("Authorization", "Bearer "+r.token)
 	return r.base.RoundTrip(clone)
 }
+
+func TestMockMCPServerWaitForHTTPRequest(t *testing.T) {
+	t.Parallel()
+	matchDelete := func(request IncomingHTTPRequest) bool {
+		return request.Method == http.MethodDelete && request.Headers.Get("Mcp-Session-Id") != ""
+	}
+	recordDelete := func(server *MockMCPServer) {
+		request := httptest.NewRequest(http.MethodDelete, "/", nil)
+		request.Header.Set("Mcp-Session-Id", "probe-session")
+		server.recordHTTPRequest(request, nil)
+	}
+
+	t.Run("already_recorded", func(t *testing.T) {
+		server := NewMockMCPServer()
+		recordDelete(server)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.WaitForHTTPRequest(ctx, matchDelete); err != nil {
+			t.Fatalf("wait for recorded DELETE: %v", err)
+		}
+	})
+
+	t.Run("waits_for_matching_request", func(t *testing.T) {
+		server := NewMockMCPServer()
+		server.recordHTTPRequest(httptest.NewRequest(http.MethodGet, "/", nil), nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		waiting := make(chan struct{})
+		result := make(chan error, 1)
+		var ready sync.Once
+		go func() {
+			result <- server.WaitForHTTPRequest(ctx, func(request IncomingHTTPRequest) bool {
+				ready.Do(func() { close(waiting) })
+				return matchDelete(request)
+			})
+		}()
+		select {
+		case <-waiting:
+		case <-ctx.Done():
+			t.Fatal("waiter did not inspect the unmatched GET")
+		}
+		recordDelete(server)
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Fatalf("wait for new DELETE: %v", err)
+			}
+		case <-ctx.Done():
+			t.Fatal("HTTP recorder did not wake the waiter for DELETE")
+		}
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		server := NewMockMCPServer()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := server.WaitForHTTPRequest(ctx, matchDelete); err != context.Canceled {
+			t.Fatalf("cancelled wait = %v, want %v", err, context.Canceled)
+		}
+	})
+}

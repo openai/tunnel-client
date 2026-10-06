@@ -572,6 +572,22 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
     duplicate from the caller. Enable it only for stdio servers that implement
     the MCP lifecycle notification and callers that can omit it; leaving it
     disabled forwards the caller's notifications without generating one.
+- **Trace context forwarding (optional)**
+  - Flag: `--mcp.forward-trace-context`
+  - Env: `MCP_FORWARD_TRACE_CONTEXT`
+  - YAML: `mcp.forward_trace_context`
+  - Default: `false` in `tunnel-client`, `tunnel-client-runtime`, and
+    `tunnel-client-runtime-cloudflared`. Explicit `false` overrides `true` from
+    a lower-precedence source.
+  - When enabled, valid tunnel-supplied W3C `traceparent` and optional
+    `tracestate` are forwarded through MCP request `params._meta` over stdio
+    and Streamable HTTP. Existing caller trace fields in metadata or request
+    headers take precedence.
+    This option adds no baggage and does not inject HTTP headers.
+  - The MCP server must consume request metadata to connect its traces.
+    Instrumentation that reads only HTTP tracing headers may not consume it.
+  - Before downgrading to a client without this option, remove its YAML key
+    and CLI flag; older clients reject unknown configuration keys and flags.
 - **Multiple entries**
   - Flags are repeatable; each entry can target a different channel.
   - Environment variables accept newline-delimited entries.
@@ -715,6 +731,19 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   auto-registered path leaves browser authorization direct to the upstream
   authorization server. Tunnel does not expose arbitrary authorization-server
   routes.
+
+### Response timing compatibility
+
+The client reports bounded, client-observed MCP elapsed time in optional
+`resp_timing` response metadata. This includes downstream transport delays.
+Reporting timing requires no customer MCP server changes. Trace forwarding
+remains separately opt-in.
+
+Fully deploy service readers that tolerate `resp_timing` before releasing a
+client that emits it. After timing-enabled clients are released, every service
+rollback target must retain that tolerant reader; older services are unsupported.
+Legacy clients can continue omitting timing, and the original end-to-end latency
+remains available.
 
 ## Channels
 

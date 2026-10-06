@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -148,8 +149,9 @@ func (c *forwardingConnection) Write(ctx context.Context, header http.Header, ms
 		return ForwardingWriteResult{}, err
 	}
 
+	result := ForwardingWriteResult{StartedAt: time.Now()}
 	err = c.base.Write(ctxWithHeaders, msg)
-	result := ForwardingWriteResult{}
+	result.CompletedAt = time.Now()
 	if carrier != nil {
 		result.StatusCode, result.ResponseHeaders = carrier.ResponseStatusAndHeaders()
 	}

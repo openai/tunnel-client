@@ -422,6 +422,8 @@ func initializationRequireRejected(t *testing.T, transport *serializedForwarding
 	require.Equal(t, http.StatusConflict, result.StatusCode)
 	require.NotNil(t, result.PreservedError)
 	require.EqualValues(t, -32002, result.PreservedError.Code())
+	require.True(t, result.StartedAt.IsZero(), "local guard rejection must not report downstream timing")
+	require.True(t, result.CompletedAt.IsZero())
 	message, err := jsonrpc.DecodeMessage(result.PreservedError.Payload())
 	require.NoError(t, err)
 	response, ok := message.(*jsonrpc.Response)

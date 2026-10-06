@@ -43,6 +43,12 @@ type ResponseDeadlineProvider interface {
 	ResponseDeadline() (time.Time, bool)
 }
 
+// TraceContextProvider is an optional extension for commands carrying a W3C
+// trace context. Forwarding requires explicit local configuration.
+type TraceContextProvider interface {
+	TraceContext() *types.TraceContext
+}
+
 // Fetcher abstracts the control-plane poll endpoint. Implementations should
 // honor the provided limit and return at most that many commands so the poller
 // can respect downstream backpressure. TunnelServiceRequestID is returned so

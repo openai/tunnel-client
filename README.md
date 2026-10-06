@@ -39,6 +39,11 @@ then read the onboarding guide below.
   [routing correction and activation notes](docs/routing-correction.md).
   Supporting clients work with existing services immediately; corrections are
   enabled separately after client release. No configuration change is needed.
+- **Using MCP timing or distributed tracing?** Read the
+  [timing release and rollback guidance](docs/configuration.md#response-timing-compatibility).
+  Trace forwarding is disabled by default; opt in with
+  `--mcp.forward-trace-context` to carry W3C trace context in MCP `params._meta`
+  over stdio and Streamable HTTP.
 - **Embedding an MCP server directly in a Go process?** Use the Go SDK with
   the MCP SDK's in-memory transport; see
   [`examples/go-sdk-inmemory`](examples/go-sdk-inmemory).

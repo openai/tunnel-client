@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net/http"
@@ -287,6 +288,18 @@ func runRuntimeSubject(t *testing.T, subject runtimeSubject, scenario runtimeSce
 	waitForRuntimeArtifactOutput(t, run.proc, "shared readiness", readinessSignals...)
 	if len(subject.startupSignals) > 0 {
 		waitForRuntimeArtifactOutput(t, run.proc, "completed startup", subject.startupSignals...)
+	}
+	// Stateful HTTP fixtures observe probe cleanup separately from readiness:
+	// the initialized log is emitted before the deferred session Close sends
+	// DELETE. Wait for that request before freezing HTTP parity observations.
+	// Scenarios that skip the probe do not emit this readiness signal.
+	if runtimeArtifactOutputContainsAll(run.proc.output.String(), []string{runtimeArtifactMCPReadySignal}) {
+		ctx, cancel := context.WithTimeout(context.Background(), runtimeArtifactSignalTimeout)
+		err := fixture.mcpServer.WaitForHTTPRequest(ctx, func(request mockmcpserver.IncomingHTTPRequest) bool {
+			return request.Method == http.MethodDelete && request.Headers.Get("Mcp-Session-Id") != ""
+		})
+		cancel()
+		require.NoErrorf(t, err, "%s startup probe did not send session cleanup DELETE", subject.name)
 	}
 	if scenario.options.afterReady != nil {
 		scenario.options.afterReady(t, run)

@@ -67,9 +67,9 @@ X-Tunnel-Client-Capabilities: wrong-cluster-v1
 ```
 
 This is a common, extensible set of capability names, not a header dedicated to
-routing. A client advertises only behavior it implements. New optional features
-add names to this set; each feature defines what its name means and which
-operations it affects. Names use case-sensitive ASCII HTTP `token` syntax, with
+routing. A client advertises only behavior it implements. Features that use
+capability negotiation add names to this set; each feature defines what its name
+means and which operations it affects. Names use case-sensitive ASCII HTTP `token` syntax, with
 no quoted strings, parameters, or whitespace inside a name.
 
 Consumers parse the header as follows:
@@ -623,6 +623,48 @@ A successful POST returns:
   "status": "ok"
 }
 ```
+
+## Optional response timing and trace context
+
+A client may attach `resp_timing` to a matching terminal JSON-RPC result or
+error when it has measured the downstream duration:
+
+```json
+"resp_timing": {"version": 1, "transport": "streamable_http", "target_elapsed_us": 123456}
+```
+
+Version 1 accepts `stdio` or `streamable_http` and integer microseconds from
+zero through `86400000000` (24 hours). The official client measures using its
+local monotonic clock, immediately before the downstream write after lifecycle
+admission through observation of the matching terminal response. This includes
+the private network, MCP server work, SDK processing, and stream backpressure
+(including waiting while progress notifications are uploaded). It does not
+isolate server execution time. Work before that write, terminal response
+encoding, and terminal response upload/retries are outside the measurement.
+Downstream connection establishment during the write is included. Keep the
+duration frozen across response POST attempts.
+
+Omit timing for notifications, acknowledgments, local rejections, transport
+failures without a terminal MCP response, and unavailable or out-of-range
+measurements. Keep existing end-to-end latency visible; timing is optional
+diagnostic metadata. The service ignores malformed or unsupported timing
+without rejecting an otherwise valid response.
+
+Deploy the service's tolerant `resp_timing` reader fully before releasing
+timing-enabled clients. Clients send timing without negotiation or a capability
+flag. Once these clients are released, every service rollback target must retain
+that reader; older services are unsupported. Existing clients that omit timing
+continue to work.
+
+A JSON-RPC poll command may also include an optional W3C `trace_context` with
+`traceparent` and optional `tracestate`. Receiving this field does not enable
+customer MCP forwarding. The official client forwards validated v00 context in
+MCP `params._meta` only with the explicit local
+[`mcp.forward_trace_context` option](configuration.md), disabled by default.
+It preserves existing customer trace fields and adds no baggage. This works
+over stdio and Streamable HTTP; HTTP instrumentation that reads only headers
+does not see the MCP metadata. Missing or malformed context leaves the original
+operation unchanged. Trace identifiers are never metric labels.
 
 ## Errors, retries, and concurrency
 

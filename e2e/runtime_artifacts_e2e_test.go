@@ -443,6 +443,62 @@ func TestRuntimeOAuthStdioHarpoonMultiChannelConfigProfilePID(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist, "runtime should remove its PID file on shutdown")
 }
 
+func TestRuntimeStdioTraceAndTimingCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name, env, flag string
+		wantTrace       bool
+	}{
+		{name: "default-off"},
+		{name: "enabled", env: "true", wantTrace: true},
+		{name: "explicit-false", env: "true", flag: "false"},
+	} {
+		for _, subject := range subjects {
+			t.Run(tc.name+"/"+subject.name, func(t *testing.T) {
+				t.Parallel()
+				controlPlane := newRuntimeTraceTimingControlPlane(t, "runtime-trace-stdio-tool", "hello", false)
+				healthFile := filepath.Join(t.TempDir(), "health.url")
+				messageLog := filepath.Join(t.TempDir(), "mcp.messages")
+				stdioArgs := mockmcpserver.StdioServerCommand(t)
+				commandParts := make([]string, len(stdioArgs))
+				for i, arg := range stdioArgs {
+					commandParts[i] = runtimeArtifactCommandQuote(arg)
+				}
+				args := runtimeArtifactStdioArgs(controlPlane, healthFile, strings.Join(commandParts, " "))
+				env := map[string]string{"MOCK_MCP_RAW_MESSAGE_LOG": messageLog}
+				if tc.env != "" {
+					env["MCP_FORWARD_TRACE_CONTEXT"] = tc.env
+				}
+				if tc.flag != "" {
+					args = append(args, "--mcp.forward-trace-context="+tc.flag)
+				}
+				proc := startRuntimeArtifactWithEnv(t, subject.binary, env, args...)
+				healthBaseURL := waitForRuntimeArtifactHealthURL(t, proc, healthFile)
+				waitForRuntimeArtifactIdle(t, proc, controlPlane)
+				waitForRuntimeArtifactOutput(t, proc, "stdio readiness", runtimeArtifactStdioReadySignal)
+				client := &http.Client{Timeout: 2 * time.Second}
+				defer client.CloseIdleConnections()
+				require.Equal(t, http.StatusOK, runtimeArtifactStatus(t, client, healthBaseURL+"/readyz"))
+				assertRuntimeArtifactStdioToolCall(t, controlPlane)
+				assertRuntimeTerminalTiming(t, controlPlane, "runtime-trace-stdio-tool", "stdio")
+				messages, err := os.ReadFile(messageLog)
+				require.NoError(t, err)
+				matched := 0
+				for body := range strings.SplitSeq(string(messages), "\n") {
+					if assertRuntimeTraceMetadata(t, []byte(body), tc.wantTrace) {
+						matched++
+					}
+				}
+				require.Equal(t, 1, matched, "one traced tools/call should reach the stdio child")
+				require.NoError(t, proc.stop())
+			})
+		}
+	}
+}
+
 func TestRuntimeStdioCommandKeepsShellMetacharactersLiteral(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stdio test helper uses bash")
@@ -904,6 +960,7 @@ func runtimeArtifactEnvironment(overrides map[string]string) []string {
 		"LOG_FILE":                               {},
 		"LOG_FORMAT":                             {},
 		"LOG_LEVEL":                              {},
+		"MCP_FORWARD_TRACE_CONTEXT":              {},
 		"OPEN_WEB_UI":                            {},
 		"OPENAI_API_KEY":                         {},
 		"ALL_PROXY":                              {},

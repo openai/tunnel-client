@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openai/tunnel-client/pkg/types"
 )
 
 func TestOpenAPIOptionalTelemetryFields(t *testing.T) {
@@ -540,6 +542,22 @@ func TestGoResponsePayloadsMatchOpenAPI(t *testing.T) {
 	responseSchema := mustMap(t, requestContent["schema"], "response.requestBody.schema")
 
 	payloads := []TunnelResponsePayload{
+		{
+			RequestID:      "req-timed-zero",
+			Channel:        "main",
+			JSONResponse:   json.RawMessage(`{"jsonrpc":"2.0","id":"rpc-zero","result":{}}`),
+			ResponseCode:   http.StatusOK,
+			ResponseType:   ResponsePayloadJSONRPC,
+			ResponseTiming: &types.ResponseTiming{Version: 1, Transport: "stdio", TargetElapsedUS: 0},
+		},
+		{
+			RequestID:      "req-timed-error",
+			Channel:        "main",
+			JSONResponse:   json.RawMessage(`{"jsonrpc":"2.0","id":"rpc-error","error":{"code":-32603,"message":"failed"}}`),
+			ResponseCode:   http.StatusInternalServerError,
+			ResponseType:   ResponsePayloadJSONRPC,
+			ResponseTiming: &types.ResponseTiming{Version: 1, Transport: "streamable_http", TargetElapsedUS: types.MaxTargetElapsedUS},
+		},
 		{
 			RequestID:    "req-jsonrpc",
 			Channel:      "main",
