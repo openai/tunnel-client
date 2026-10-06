@@ -29,6 +29,8 @@ go build \
   ./cmd/client
 ```
 
+## Releases
+
 Before creating a release tag, stamp the source version so downloaded release
 archives build with the tag semantic version:
 
@@ -36,6 +38,11 @@ archives build with the tag semantic version:
 make release-source-version VERSION=1.2.3
 make release-tag VERSION=1.2.3
 ```
+
+Review and commit the source stamp, matching version assertions, and any
+affected SPDX baselines before publishing. `make release-tag` checks the source
+version and prints a tag name; it does not create or push a Git tag. Pushing
+that tag at the reviewed release commit starts the release workflow.
 
 The release workflow validates the multi-architecture image on `master` and
 publishes it to `ghcr.io/openai/tunnel-client` for Linux `amd64` and `arm64`
@@ -61,6 +68,27 @@ and `tunnel-client help quickstart` startup commands on an arm64 macOS runner
 without uploading artifacts or creating a release. `--allow-prerelease`
 exists only for explicit test paths; stable Formula generation continues to
 reject prereleases.
+
+### Post-release development version
+
+After verifying a stable release and completing its Homebrew handoff, prepare
+a reviewed source change for the next owner-selected development version, for
+example `1.2.4-dev` after `1.2.3`:
+
+```bash
+make release-source-version VERSION=1.2.4-dev
+```
+
+Update the version-specific assertions and fixtures, regenerate affected SPDX
+baselines and hash metadata, and run the normal validation before merging the
+change. Verify the resulting source version and `master` checks. Keep the
+published stable tag, release assets, and Homebrew Formula tied to the stable
+release.
+
+This development reset changes `pkg/version/VERSION`; it does not require a Git
+development tag. A public `v1.2.4-dev` tag starts a separate prerelease through
+the same release workflow. Publish one only with explicit prerelease approval
+and a matching reviewed source version.
 
 ## Unit tests
 
