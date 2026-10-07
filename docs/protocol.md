@@ -39,6 +39,16 @@ The canonical client endpoints are:
 Use the plural `/v1/tunnels/...` paths. Singular `/v1/tunnel/...` paths are
 compatibility aliases and are not part of the contract for new clients.
 
+Tunnel IDs are opaque identifiers. Clients accept the existing
+`tunnel_<32 lowercase letters or digits>` form and
+`tunnel_<namespace>_<32 lowercase letters or digits>` aliases, where the
+namespace is exactly four lowercase ASCII letters or digits. A namespace does
+not grant access or change authentication. Preserve the complete ID returned by
+the service in every request. The service resolves an alias to its tunnel before
+checking ownership. Existing tunnel IDs remain valid. Deploy supporting service
+readers before configuring namespaced IDs, and retain legacy IDs for client
+versions that only accept them.
+
 ## Authentication and common headers
 
 Send the tunnel API key on every request:

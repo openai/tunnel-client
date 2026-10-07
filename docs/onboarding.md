@@ -217,7 +217,10 @@ export CONTROL_PLANE_TUNNEL_ID="tunnel_0123456789abcdef0123456789abcdef"
 export MCP_SERVER_URL="https://mcp.internal.example.com/mcp"
 ```
 
-`CONTROL_PLANE_TUNNEL_ID` must match the runtime validator: `tunnel_` followed by 32 lowercase hexadecimal characters.
+`CONTROL_PLANE_TUNNEL_ID` accepts `tunnel_<32 lowercase letters or digits>` or
+`tunnel_<namespace>_<32 lowercase letters or digits>`, where namespace is exactly
+four lowercase ASCII letters or digits. Preserve the complete ID returned by the
+service.
 
 For the full surface (flags, defaults, advanced knobs), see [`configuration.md`](configuration.md).
 

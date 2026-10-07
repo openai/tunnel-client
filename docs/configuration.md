@@ -365,7 +365,7 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
   - Flag: `--control-plane.tunnel-id`
   - Env: `CONTROL_PLANE_TUNNEL_ID`
   - Required: yes
-  - Format: `tunnel_` followed by 32 lowercase hexadecimal characters (for example `tunnel_0123456789abcdef0123456789abcdef`)
+  - Format: `tunnel_<32 lowercase letters or digits>` or `tunnel_<namespace>_<32 lowercase letters or digits>`, where namespace is exactly four lowercase ASCII letters or digits. Preserve the complete ID returned by the service.
 - **API key**
   - Flag: `--control-plane.api-key=env:VARNAME` or `--control-plane.api-key=file:/path/to/secret`
   - Env (preferred): `CONTROL_PLANE_API_KEY`

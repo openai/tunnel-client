@@ -45,6 +45,50 @@ import (
 
 var testMeterProvider = noopmetric.NewMeterProvider()
 
+func TestTunnelServiceClientPreservesExternalTunnelID(t *testing.T) {
+	t.Parallel()
+
+	for _, tunnelID := range []string{
+		"tunnel_0123456789abcdef0123456789abcdef",
+		"tunnel_extn_0123456789abcdef0123456789abcdef",
+		"tunnel_ab12_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+		"tunnel_0000_0123456789abcdef0123456789abcdef",
+	} {
+		t.Run(tunnelID, func(t *testing.T) {
+			t.Parallel()
+			server := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
+				assert.Equal(t, r.URL.Path, r.URL.EscapedPath())
+				switch r.URL.Path {
+				case "/v1/tunnels/" + tunnelID:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"id":"` + tunnelID + `","name":"test","description":"test"}`))
+				case "/v1/tunnels/" + tunnelID + "/poll":
+					w.WriteHeader(http.StatusNoContent)
+				case "/v1/tunnels/" + tunnelID + "/response":
+					w.WriteHeader(http.StatusOK)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			client, err := NewTunnelServiceClient(t.Context(), &config.ControlPlaneConfig{
+				BaseURL: mustParseURL(t, server.URL), TunnelID: types.TunnelID(tunnelID),
+				APIKey: "test-api-key", PollTimeout: time.Second,
+			}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+			require.NoError(t, err)
+			metadata, err := client.FetchTunnelMetadata(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tunnelID, metadata.ID)
+			_, _, err = client.Poll(t.Context(), 1)
+			require.NoError(t, err)
+			ctx := tunnelctx.ContextWithShardToken(t.Context(), "test-shard")
+			ctx = tunnelctx.ContextWithChannel(ctx, types.DefaultChannel)
+			_, err = client.PostResponse(ctx, types.RequestID("test-request"), types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{}))
+			require.NoError(t, err)
+		})
+	}
+}
+
 func encodeResponse(t *testing.T, resp *jsonrpc.Response) json.RawMessage {
 	t.Helper()
 

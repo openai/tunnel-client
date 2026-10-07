@@ -2700,6 +2700,23 @@ func TestLoadValidatesTunnelIDFormat(t *testing.T) {
 		"missing-prefix":       "0123456789abcdef0123456789abcdef",
 		"uppercase-characters": "tunnel_0123456789ABCDEF0123456789abcdef",
 		"too-short":            "tunnel_1234",
+		"alias-too-short":      "tunnel_ab12_" + strings.Repeat("a", 31),
+		"alias-too-long":       "tunnel_ab12_" + strings.Repeat("a", 33),
+		"alias-uppercase":      "tunnel_ab12_" + strings.Repeat("A", 32),
+		"namespace-empty":      "tunnel__" + strings.Repeat("a", 32),
+		"namespace-one":        "tunnel_a_" + strings.Repeat("a", 32),
+		"namespace-two":        "tunnel_ab_" + strings.Repeat("a", 32),
+		"namespace-three":      "tunnel_ab1_" + strings.Repeat("a", 32),
+		"namespace-five":       "tunnel_ab123_" + strings.Repeat("a", 32),
+		"namespace-too-long":   "tunnel_" + strings.Repeat("a", 64) + "_" + strings.Repeat("a", 32),
+		"namespace-uppercase":  "tunnel_Extn_" + strings.Repeat("a", 32),
+		"namespace-hyphen":     "tunnel_new-product_" + strings.Repeat("a", 32),
+		"namespace-non-ascii":  "tunnel_café_" + strings.Repeat("a", 32),
+		"namespace-newline":    "tunnel_new\nproduct_" + strings.Repeat("a", 32),
+		"namespace-escaped":    "tunnel_codex%2f_" + strings.Repeat("a", 32),
+		"repeated-namespace":   "tunnel_extn_extn_" + strings.Repeat("a", 32),
+		"slash-namespace":      "extn/" + envTunnelID,
+		"escaped-namespace":    "extn%2F" + envTunnelID,
 	}
 
 	for name, tunnelID := range testCases {
@@ -2721,6 +2738,52 @@ func TestLoadValidatesTunnelIDFormat(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadPreservesExternalTunnelIDs(t *testing.T) {
+	t.Parallel()
+
+	for _, tunnelID := range []string{
+		envTunnelID,
+		"tunnel_extn_" + strings.Repeat("z", 32),
+		"tunnel_ab12_" + strings.Repeat("z", 32),
+		"tunnel_0000_" + strings.Repeat("z", 32),
+	} {
+		for _, source := range []string{"flag", "environment", "yaml"} {
+			t.Run(source+"/"+tunnelID, func(t *testing.T) {
+				t.Parallel()
+				var args []string
+				if source == "flag" {
+					args = []string{"--control-plane.tunnel-id", tunnelID}
+				}
+				if source == "yaml" {
+					path := filepath.Join(t.TempDir(), "config.yaml")
+					if err := os.WriteFile(path, []byte("control_plane:\n  tunnel_id: "+tunnelID+"\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					args = []string{"--config", path}
+				}
+				cfg, err := LoadRuntimeForTest(args, func(key string) (string, bool) {
+					switch key {
+					case "OPENAI_API_KEY":
+						return "key", true
+					case "MCP_SERVER_URL":
+						return "https://mcp.example.invalid", true
+					case "CONTROL_PLANE_TUNNEL_ID":
+						return tunnelID, source == "environment"
+					default:
+						return "", false
+					}
+				})
+				if err != nil {
+					t.Fatalf("Load returned error: %v", err)
+				}
+				if got := cfg.ControlPlane.TunnelID.String(); got != tunnelID {
+					t.Fatalf("external tunnel ID changed: got %q, want %q", got, tunnelID)
+				}
+			})
+		}
 	}
 }
 

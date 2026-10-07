@@ -44,6 +44,9 @@ then read the onboarding guide below.
   Trace forwarding is disabled by default; opt in with
   `--mcp.forward-trace-context` to carry W3C trace context in MCP `params._meta`
   over stdio and Streamable HTTP.
+- **Using a namespaced tunnel ID?** Preserve the full ID returned by the service.
+  The client accepts legacy IDs and aliases with a four-character namespace;
+  see [tunnel identifiers](docs/protocol.md#scope).
 - **Embedding an MCP server directly in a Go process?** Use the Go SDK with
   the MCP SDK's in-memory transport; see
   [`examples/go-sdk-inmemory`](examples/go-sdk-inmemory).

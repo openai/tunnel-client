@@ -91,7 +91,7 @@ var (
 	errMissingControlPlaneAPIKey   = errors.New("control plane API key is required; set --control-plane.api-key (env:/file:) or CONTROL_PLANE_API_KEY or OPENAI_API_KEY")
 	errMalformedControlPlaneAPIKey = errors.New("control plane API key is malformed")
 	controlPlaneAPIKeyPattern      = regexp.MustCompile("^[0-9A-Za-z_-]+$")
-	tunnelIDPattern                = regexp.MustCompile(`^tunnel_[a-z0-9]{32}$`)
+	tunnelIDPattern                = regexp.MustCompile(`^tunnel_([a-z0-9]{4}_)?[a-z0-9]{32}$`)
 	logFormatToString              = map[LogFormat]string{
 		LogFormatStructText: "struct-text",
 		LogFormatJSON:       "json",
@@ -852,7 +852,8 @@ func ParseProxyCheckInterval(raw string) (time.Duration, error) {
 	return time.ParseDuration(raw)
 }
 
-// ValidateTunnelID verifies that the tunnel id matches the runtime contract.
+// ValidateTunnelID accepts legacy IDs and aliases with a namespace of exactly 4
+// lowercase letters or digits. Clients preserve the full ID for service resolution.
 func ValidateTunnelID(tunnelID string) error {
 	tunnelID = strings.TrimSpace(tunnelID)
 	if tunnelID == "" {
@@ -862,7 +863,7 @@ func ValidateTunnelID(tunnelID string) error {
 		return fmt.Errorf("invalid tunnel ID %q: must be safe for use as a URL path parameter", tunnelID)
 	}
 	if !tunnelIDPattern.MatchString(tunnelID) {
-		return fmt.Errorf("invalid tunnel ID %q: must match tunnel_<32 lowercase letters or digits>", tunnelID)
+		return fmt.Errorf("invalid tunnel ID %q: must match tunnel_<32 lowercase letters or digits> or tunnel_<namespace>_<32 lowercase letters or digits>, with a namespace of exactly 4 lowercase letters or digits", tunnelID)
 	}
 	return nil
 }

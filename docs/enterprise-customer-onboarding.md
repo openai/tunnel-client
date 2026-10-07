@@ -53,7 +53,7 @@ For a deeper explanation and more diagrams, see
     the tunnel ID field
   - tunnel-client control plane: `/v1/tunnels/{tunnel_id}/poll` and
     `/v1/tunnels/{tunnel_id}/response`
-  - Format: `tunnel_` followed by 32 lowercase hexadecimal characters.
+  - Format: `tunnel_<32 lowercase letters or digits>` or `tunnel_<namespace>_<32 lowercase letters or digits>`, where namespace is exactly four lowercase ASCII letters or digits. Preserve the complete ID returned by the service.
 - **OpenAI-hosted MCP tunnel endpoint**: The OpenAI-managed virtual MCP server
   endpoint that ChatGPT targets for the selected `tunnel_id`.
 - **Tunnel Client**: A customer-run process that:
