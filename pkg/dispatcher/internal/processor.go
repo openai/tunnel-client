@@ -842,6 +842,9 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 		if terminalResponseDelivered || (mcpResponseReceived && responseDeadlineReached(ttlCtx)) {
 			return
 		}
+		if preserving, ok := conn.(mcpclient.CompletedResponsePreservingConnection); mcpResponseReceived && ok && preserving.PreserveAfterResponseCompletion() {
+			return
+		}
 		if retireExpiredResponseConnection(ttlCtx, conn) {
 			return
 		}
@@ -976,8 +979,8 @@ func (p *mcpProcessor) forwardResponses(ctx context.Context, conn mcpclient.Forw
 			return
 		}
 		// The matching terminal MCP response completes the downstream lifecycle.
-		// Do not close the connection if response delivery later expires: serialized
-		// shared transports may already be serving the next command.
+		// Shared stdio must survive response delivery failures as well as expiry:
+		// its released lifecycle slot may already be serving the next command.
 		mcpResponseReceived = true
 		finalResponse := true
 

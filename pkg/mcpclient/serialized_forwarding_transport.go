@@ -696,6 +696,13 @@ func (t *serializedForwardingTransport) resetInitializedNotification() {
 	t.initializedMu.Unlock()
 }
 
+// PreserveAfterResponseCompletion opts shared stdio into retaining its child
+// after a validated terminal response, independently of control-plane delivery.
+// Other serialized transports keep their existing early-exit cleanup policy.
+func (c *serializedForwardingConnection) PreserveAfterResponseCompletion() bool {
+	return c != nil && c.transport != nil && c.transport.aliasRetiredIDs
+}
+
 func (c *serializedForwardingConnection) Close() error {
 	if c.base == nil {
 		c.release()

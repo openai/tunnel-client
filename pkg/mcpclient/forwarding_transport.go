@@ -60,6 +60,15 @@ type ResponseDeadlineRetiringConnection interface {
 	RetireResponseDeadline() bool
 }
 
+// CompletedResponsePreservingConnection identifies shared transports whose
+// physical connection must survive control-plane delivery failures after the
+// downstream request completes. Callers must first validate and encode a
+// terminal response with the same valid ID as the request. Incomplete or
+// malformed responses still require normal connection cleanup.
+type CompletedResponsePreservingConnection interface {
+	PreserveAfterResponseCompletion() bool
+}
+
 // ForwardingWriteResult is the result of forwarding an MCP message, including
 // a local lifecycle rejection before the message reaches the server.
 type ForwardingWriteResult struct {
