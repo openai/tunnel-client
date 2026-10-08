@@ -39,6 +39,9 @@ while IFS= read -r line; do
       fi
       printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"bash","version":"0.0"}}}\n' "$id"
       ;;
+    *\"server/discover\"*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"bash","version":"0.0"}}}}\n' "$id"
+      ;;
     *\"tools/list\"*)
       printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"hello","description":"hello","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}]}}\n' "$id"
       ;;

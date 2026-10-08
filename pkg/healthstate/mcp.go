@@ -5,15 +5,17 @@ import "time"
 // MCPDetails reports observations of the configured main MCP channel. Discovery
 // is historical evidence from forwarded traffic, not an active health probe.
 type MCPDetails struct {
-	Channel         string           `json:"channel"`
-	Transport       string           `json:"transport"`
-	ChildState      string           `json:"child_state,omitempty"`
-	ChildGeneration string           `json:"child_generation,omitempty"`
-	InitializeEpoch uint64           `json:"initialize_epoch"`
-	Evidence        string           `json:"evidence"`
-	Initialize      MCPInitialize    `json:"initialize"`
-	ToolsList       MCPToolsList     `json:"tools_list"`
-	StartupProbe    *MCPStartupProbe `json:"startup_probe,omitempty"`
+	Channel             string             `json:"channel"`
+	Transport           string             `json:"transport"`
+	ChildState          string             `json:"child_state,omitempty"`
+	ChildGeneration     string             `json:"child_generation,omitempty"`
+	InitializeEpoch     uint64             `json:"initialize_epoch"`
+	ServerDiscoverEpoch uint64             `json:"server_discover_epoch,omitempty"`
+	Evidence            string             `json:"evidence"`
+	Initialize          MCPInitialize      `json:"initialize"`
+	ServerDiscover      *MCPServerDiscover `json:"server_discover,omitempty"`
+	ToolsList           MCPToolsList       `json:"tools_list"`
+	StartupProbe        *MCPStartupProbe   `json:"startup_probe,omitempty"`
 }
 
 func (MCPDetails) healthDetails() {}
@@ -29,6 +31,17 @@ type MCPInitialize struct {
 	ServerName       string     `json:"server_name,omitempty"`
 	ServerVersion    string     `json:"server_version,omitempty"`
 	CapabilityNames  []string   `json:"capability_names"`
+}
+
+// MCPServerDiscover contains only bounded protocol and capability metadata
+// from a successful modern server/discover response in this child generation.
+// It is independent of the legacy initialize receipt.
+type MCPServerDiscover struct {
+	OK                bool       `json:"ok"`
+	Limited           bool       `json:"limited"`
+	ObservedAt        *time.Time `json:"observed_at,omitempty"`
+	SupportedVersions []string   `json:"supported_versions"`
+	CapabilityNames   []string   `json:"capability_names"`
 }
 
 // MCPToolsList is a bounded projection of one observed catalog traversal.

@@ -293,6 +293,7 @@ type serializedForwardingConnection struct {
 	expectedID            jsonrpc.ID
 	requestMethod         string
 	selfContainedRequest  bool
+	selfContainedVersion  string
 	deadlineRetirable     bool
 	retired               bool
 	observationGeneration string
@@ -327,9 +328,13 @@ func (c *serializedForwardingConnection) Write(
 			return ForwardingWriteResult{}, err
 		}
 	}
-	selfContained := c.transport != nil && c.transport.requireInitialization && isSelfContainedMCPRequest(msg)
+	protocolVersion, selfContained := "", false
+	if c.transport != nil && c.transport.requireInitialization {
+		protocolVersion, selfContained = selfContainedMCPRequestVersion(msg)
+	}
 	c.stateMu.Lock()
 	c.selfContainedRequest = selfContained
+	c.selfContainedVersion = protocolVersion
 	c.stateMu.Unlock()
 	if c.transport.rejectBeforeInitialization(msg, selfContained) {
 		// No bytes reached the child, so there is no response to read or retire.
@@ -474,7 +479,7 @@ func (c *serializedForwardingConnection) completeObservedWrite(msg jsonrpc.Messa
 	}
 	if completed && accepted && c.transport != nil {
 		if request, ok := msg.(*jsonrpc.Request); ok {
-			c.observationToken = c.transport.observation.requestWritten(c.observationGeneration, request)
+			c.observationToken = c.transport.observation.requestWritten(c.observationGeneration, request, c.selfContainedVersion)
 		}
 	}
 	c.writeCompleted = completed
@@ -592,26 +597,34 @@ func (c *serializedForwardingConnection) writeInitializedNotification(ctx contex
 // Detect the self-contained protocol without interpreting tool parameters or
 // negotiating a session. The server still validates supported versions and
 // capability contents. Requests in this protocol never initialize a legacy child.
-func isSelfContainedMCPRequest(msg jsonrpc.Message) bool {
+func selfContainedMCPRequestVersion(msg jsonrpc.Message) (string, bool) {
 	request, ok := msg.(*jsonrpc.Request)
 	if !ok || request == nil {
-		return false
+		return "", false
 	}
 	var params struct {
 		Meta map[string]json.RawMessage `json:"_meta"`
 	}
 	if json.Unmarshal(request.Params, &params) != nil {
-		return false
+		return "", false
 	}
 	var version string
 	if json.Unmarshal(params.Meta["io.modelcontextprotocol/protocolVersion"], &version) != nil {
-		return false
+		return "", false
 	}
 	if _, err := time.Parse(time.DateOnly, version); err != nil || version < "2026-07-28" {
-		return false
+		return "", false
 	}
 	var capabilities map[string]json.RawMessage
-	return json.Unmarshal(params.Meta["io.modelcontextprotocol/clientCapabilities"], &capabilities) == nil && capabilities != nil
+	if json.Unmarshal(params.Meta["io.modelcontextprotocol/clientCapabilities"], &capabilities) != nil || capabilities == nil {
+		return "", false
+	}
+	return version, true
+}
+
+func isSelfContainedMCPRequest(msg jsonrpc.Message) bool {
+	_, ok := selfContainedMCPRequestVersion(msg)
+	return ok
 }
 
 func (t *serializedForwardingTransport) rejectBeforeInitialization(msg jsonrpc.Message, selfContained bool) bool {
@@ -747,7 +760,7 @@ func (c *serializedForwardingConnection) RetireResponseDeadline() bool {
 	c.stateMu.Lock()
 	token := c.observationToken
 	c.stateMu.Unlock()
-	if token.method == "tools/list" && c.transport.observation != nil {
+	if (token.method == "server/discover" || token.method == "tools/list") && c.transport.observation != nil {
 		c.transport.observation.failed(token, "discovery_response_deadline", false)
 	}
 	c.releaseRetired()
@@ -935,6 +948,7 @@ func (c *serializedForwardingConnection) clearLifecycleStateLocked() {
 	c.expectedID = jsonrpc.ID{}
 	c.requestMethod = ""
 	c.selfContainedRequest = false
+	c.selfContainedVersion = ""
 	c.observationToken = protocolObservationToken{}
 	c.observationWriteDone = nil
 }

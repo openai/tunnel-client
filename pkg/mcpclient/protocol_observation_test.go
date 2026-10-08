@@ -23,6 +23,12 @@ import (
 
 const observedInitializeFixture = `{"protocolVersion":"2025-11-25","serverInfo":{"name":"receipt-fixture","version":"1.2.3"},"capabilities":{"tools":{},"experimental":{"private-key":true}},"instructions":"private instructions"}`
 
+const (
+	observedServerDiscoverFixture = `{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{},"experimental":{"private-key":true}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"modern-fixture","version":"1.0.0"}},"instructions":"private instructions"}`
+	observedModernProtocolVersion = "2026-07-28"
+	observedModernParams          = `{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`
+)
+
 func newObservationFixture(t *testing.T) (*ProtocolObservation, string) {
 	t.Helper()
 	o := NewProtocolObservation(&runtimeconfig.MCPConfig{TransportKind: runtimeconfig.MCPTransportStdio}, nil)
@@ -41,14 +47,27 @@ func observationRequest(t *testing.T, method, params string) *jsonrpc.Request {
 
 func observationInitialize(t *testing.T, o *ProtocolObservation, generation string) {
 	t.Helper()
-	token := o.requestWritten(generation, observationRequest(t, "initialize", ""))
+	token := o.requestWritten(generation, observationRequest(t, "initialize", ""), "")
 	o.response(token, &jsonrpc.Response{Result: json.RawMessage(observedInitializeFixture)})
 	require.True(t, observationDetails(o).Initialize.OK)
 }
 
 func observationTools(t *testing.T, o *ProtocolObservation, generation, params, result string) {
 	t.Helper()
-	token := o.requestWritten(generation, observationRequest(t, "tools/list", params))
+	token := o.requestWritten(generation, observationRequest(t, "tools/list", params), "")
+	o.response(token, &jsonrpc.Response{Result: json.RawMessage(result)})
+}
+
+func observationServerDiscover(t *testing.T, o *ProtocolObservation, generation string) {
+	t.Helper()
+	token := o.requestWritten(generation, observationRequest(t, "server/discover", observedModernParams), observedModernProtocolVersion)
+	o.response(token, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+	require.NotNil(t, observationDetails(o).ServerDiscover)
+}
+
+func observationModernTools(t *testing.T, o *ProtocolObservation, generation, params, result string) {
+	t.Helper()
+	token := o.requestWritten(generation, observationRequest(t, "tools/list", params), observedModernProtocolVersion)
 	o.response(token, &jsonrpc.Response{Result: json.RawMessage(result)})
 }
 
@@ -68,6 +87,8 @@ func TestProtocolObservationLifecycle(t *testing.T) {
 	observationInitialize(t, o, generation)
 	details := observationDetails(o)
 	require.Equal(t, uint64(1), details.InitializeEpoch)
+	require.Zero(t, details.ServerDiscoverEpoch)
+	require.Nil(t, details.ServerDiscover)
 	require.Equal(t, "receipt-fixture", details.Initialize.ServerName)
 	require.Equal(t, []string{"tools"}, details.Initialize.CapabilityNames)
 	observationTools(t, o, generation, "", `{"tools":[{"name":"echo","description":"private description","inputSchema":{"secret":"private schema"}}]}`)
@@ -78,7 +99,7 @@ func TestProtocolObservationLifecycle(t *testing.T) {
 	require.NotContains(t, string(encoded), "private")
 	require.NotContains(t, string(encoded), "inputSchema")
 
-	init := o.requestWritten(generation, observationRequest(t, "initialize", ""))
+	init := o.requestWritten(generation, observationRequest(t, "initialize", ""), "")
 	require.Equal(t, uint64(2), observationDetails(o).InitializeEpoch)
 	require.False(t, observationDetails(o).Initialize.OK)
 	require.False(t, observationDetails(o).ToolsList.OK)
@@ -132,6 +153,210 @@ func TestProtocolObservationCatalogTraversal(t *testing.T) {
 	require.False(t, observationDetails(o).ToolsList.Complete)
 }
 
+func TestProtocolObservationServerDiscoverFailuresAndRecovery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		response   *jsonrpc.Response
+		reason     string
+		limited    bool
+		wantStatus healthstate.Status
+		wantState  string
+	}{
+		{
+			name: "error", response: &jsonrpc.Response{Error: errors.New("private discovery failure")},
+			reason: "mcp_discovery_error", wantStatus: healthstate.StatusDegraded, wantState: "failed",
+		},
+		{
+			name: "malformed", response: &jsonrpc.Response{Result: json.RawMessage(`{"supportedVersions":["2026-07-28"]}`)},
+			reason: "invalid_server_discover_result", wantStatus: healthstate.StatusDegraded, wantState: "failed",
+		},
+		{
+			name: "null_result_type", response: &jsonrpc.Response{Result: json.RawMessage(`{"resultType":null,"supportedVersions":["2026-07-28"],"capabilities":{}}`)},
+			reason: "invalid_server_discover_result", wantStatus: healthstate.StatusDegraded, wantState: "failed",
+		},
+		{
+			name: "oversized", response: &jsonrpc.Response{Result: append(
+				[]byte(observedServerDiscoverFixture), bytes.Repeat([]byte{' '}, maxObservationResultBytes+1-len(observedServerDiscoverFixture))...,
+			)},
+			reason: "observation_result_limit", limited: true, wantStatus: healthstate.StatusUnknown, wantState: "not_observed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			o, generation := newObservationFixture(t)
+			observationServerDiscover(t, o, generation)
+			observationModernTools(t, o, generation, observedModernParams, `{"tools":[{"name":"old"}]}`)
+			require.True(t, observationDetails(o).ToolsList.Complete)
+			token := o.requestWritten(
+				generation,
+				observationRequest(t, "server/discover", observedModernParams),
+				observedModernProtocolVersion,
+			)
+			require.Nil(t, observationDetails(o).ServerDiscover)
+			require.False(t, observationDetails(o).ToolsList.OK)
+			o.response(token, test.response)
+			snapshot := o.Snapshot(time.Time{})
+			details := observationDetails(o)
+			require.Equal(t, test.wantStatus, snapshot.Status)
+			require.Equal(t, test.wantState, snapshot.State)
+			require.Equal(t, test.reason, snapshot.ReasonCode)
+			require.Equal(t, test.limited, snapshot.Limited)
+			require.Zero(t, details.InitializeEpoch)
+			require.False(t, details.Initialize.OK)
+			require.Equal(t, uint64(2), details.ServerDiscoverEpoch)
+			require.NotNil(t, details.ServerDiscover)
+			require.False(t, details.ServerDiscover.OK)
+			require.NotContains(t, details.ToolsList.ToolNames, "old")
+			encoded, err := json.Marshal(snapshot)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "private")
+
+			observationServerDiscover(t, o, generation)
+			require.Equal(t, healthstate.StatusOK, o.Snapshot(time.Time{}).Status)
+			require.Equal(t, "server_discovered", o.Snapshot(time.Time{}).State)
+			require.Equal(t, uint64(3), observationDetails(o).ServerDiscoverEpoch)
+		})
+	}
+}
+
+func TestProtocolObservationServerDiscoverNegotiatesVersion(t *testing.T) {
+	t.Parallel()
+
+	o, generation := newObservationFixture(t)
+	futureVersion := "2027-01-01"
+	futureParams := strings.Replace(observedModernParams, observedModernProtocolVersion, futureVersion, 1)
+	token := o.requestWritten(generation, observationRequest(t, "server/discover", futureParams), futureVersion)
+	o.response(token, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+	snapshot := o.Snapshot(time.Time{})
+	details := observationDetails(o)
+	require.Equal(t, healthstate.StatusOK, snapshot.Status)
+	require.Equal(t, "server_discovered", snapshot.State)
+	require.False(t, details.Initialize.OK)
+	require.NotNil(t, details.ServerDiscover)
+	require.Equal(t, []string{observedModernProtocolVersion}, details.ServerDiscover.SupportedVersions)
+
+	observationModernTools(t, o, generation, observedModernParams, `{"tools":[{"name":"negotiated"}]}`)
+	require.Equal(t, "discovered", o.Snapshot(time.Time{}).State)
+	require.Equal(t, []string{"negotiated"}, observationDetails(o).ToolsList.ToolNames)
+}
+
+func TestProtocolObservationServerDiscoverStaleResponses(t *testing.T) {
+	t.Parallel()
+
+	t.Run("newer_discover", func(t *testing.T) {
+		t.Parallel()
+		o, generation := newObservationFixture(t)
+		old := o.requestWritten(generation, observationRequest(t, "server/discover", observedModernParams), observedModernProtocolVersion)
+		current := o.requestWritten(generation, observationRequest(t, "server/discover", observedModernParams), observedModernProtocolVersion)
+		o.response(current, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+		o.response(old, &jsonrpc.Response{Error: errors.New("private stale failure")})
+		details := observationDetails(o)
+		require.Equal(t, uint64(2), details.ServerDiscoverEpoch)
+		require.NotNil(t, details.ServerDiscover)
+		require.True(t, details.ServerDiscover.OK)
+		require.Equal(t, "server_discovered", o.Snapshot(time.Time{}).State)
+	})
+
+	t.Run("legacy_initialize", func(t *testing.T) {
+		t.Parallel()
+		o, generation := newObservationFixture(t)
+		stale := o.requestWritten(generation, observationRequest(t, "server/discover", observedModernParams), observedModernProtocolVersion)
+		observationInitialize(t, o, generation)
+		o.response(stale, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+		details := observationDetails(o)
+		require.True(t, details.Initialize.OK)
+		require.Nil(t, details.ServerDiscover)
+		require.Equal(t, "initialized", o.Snapshot(time.Time{}).State)
+	})
+
+	t.Run("replacement_child", func(t *testing.T) {
+		t.Parallel()
+		o, generation := newObservationFixture(t)
+		stale := o.requestWritten(generation, observationRequest(t, "server/discover", observedModernParams), observedModernProtocolVersion)
+		replacement := o.beginChild()
+		o.childStarted(replacement)
+		o.response(stale, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+		details := observationDetails(o)
+		require.Equal(t, replacement, details.ChildGeneration)
+		require.Zero(t, details.ServerDiscoverEpoch)
+		require.Nil(t, details.ServerDiscover)
+		require.Equal(t, "not_observed", o.Snapshot(time.Time{}).State)
+	})
+
+	t.Run("completed_evidence_replacement_child", func(t *testing.T) {
+		t.Parallel()
+		o, generation := newObservationFixture(t)
+		observationServerDiscover(t, o, generation)
+		observationModernTools(t, o, generation, observedModernParams, `{"tools":[{"name":"old"}]}`)
+		require.Equal(t, "discovered", o.Snapshot(time.Time{}).State)
+
+		replacement := o.beginChild()
+		o.childStarted(replacement)
+		details := observationDetails(o)
+		require.Equal(t, replacement, details.ChildGeneration)
+		require.Zero(t, details.ServerDiscoverEpoch)
+		require.Nil(t, details.ServerDiscover)
+		require.False(t, details.ToolsList.OK)
+		require.Empty(t, details.ToolsList.ToolNames)
+		require.Equal(t, "not_observed", o.Snapshot(time.Time{}).State)
+	})
+}
+
+func TestProtocolObservationModernCatalogPaginationAndInvalidation(t *testing.T) {
+	t.Parallel()
+
+	o, generation := newObservationFixture(t)
+	observationServerDiscover(t, o, generation)
+	observationModernTools(t, o, generation, observedModernParams, `{"tools":[{"name":"a"}],"nextCursor":"private-cursor"}`)
+	require.True(t, observationDetails(o).ToolsList.Partial)
+	require.False(t, observationDetails(o).ToolsList.Complete)
+	observationModernTools(t, o, generation, `{"cursor":"private-cursor","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`, `{"tools":[{"name":"b"}]}`)
+	require.Equal(t, []string{"a", "b"}, observationDetails(o).ToolsList.ToolNames)
+	require.True(t, observationDetails(o).ToolsList.Complete)
+
+	stale := o.requestWritten(
+		generation,
+		observationRequest(t, "tools/list", observedModernParams),
+		observedModernProtocolVersion,
+	)
+	o.listChanged(generation)
+	o.response(stale, &jsonrpc.Response{Result: json.RawMessage(`{"tools":[{"name":"stale"}]}`)})
+	snapshot := o.Snapshot(time.Time{})
+	details := observationDetails(o)
+	require.Equal(t, "server_discovered", snapshot.State)
+	require.Equal(t, "tools_list_changed", snapshot.ReasonCode)
+	require.True(t, details.ToolsList.Partial)
+	require.NotContains(t, details.ToolsList.ToolNames, "stale")
+	encoded, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "private-cursor")
+
+	observationModernTools(t, o, generation, observedModernParams, `{"tools":[{"name":"recovered"}]}`)
+	require.Equal(t, []string{"recovered"}, observationDetails(o).ToolsList.ToolNames)
+	require.Equal(t, "discovered", o.Snapshot(time.Time{}).State)
+
+	futureVersion := "2027-01-01"
+	futureParams := strings.Replace(observedModernParams, observedModernProtocolVersion, futureVersion, 1)
+	future := o.requestWritten(generation, observationRequest(t, "tools/list", futureParams), futureVersion)
+	require.True(t, future.acceptPage, "a bounded discovery receipt must not become an authority gate")
+	require.False(t, observationDetails(o).ToolsList.OK)
+	require.NotContains(t, observationDetails(o).ToolsList.ToolNames, "recovered")
+	o.response(future, &jsonrpc.Response{Error: errors.New("private future-version error")})
+	require.Equal(t, "failed", o.Snapshot(time.Time{}).State)
+	require.Equal(t, "mcp_discovery_error", o.Snapshot(time.Time{}).ReasonCode)
+	encoded, err = json.Marshal(o.Snapshot(time.Time{}))
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "private")
+
+	future = o.requestWritten(generation, observationRequest(t, "tools/list", futureParams), futureVersion)
+	o.response(future, &jsonrpc.Response{Result: json.RawMessage(`{"tools":[{"name":"future"}]}`)})
+	require.Equal(t, []string{"future"}, observationDetails(o).ToolsList.ToolNames)
+	require.Equal(t, "discovered", o.Snapshot(time.Time{}).State)
+}
+
 func TestProtocolObservationStaleCatalogPublication(t *testing.T) {
 	t.Parallel()
 
@@ -140,7 +365,7 @@ func TestProtocolObservationStaleCatalogPublication(t *testing.T) {
 			t.Parallel()
 			o, generation := newObservationFixture(t)
 			observationInitialize(t, o, generation)
-			old := o.requestWritten(generation, observationRequest(t, "tools/list", ""))
+			old := o.requestWritten(generation, observationRequest(t, "tools/list", ""), "")
 			page, valid := parseObservedTools(json.RawMessage(`{"tools":[{"name":"stale"}]}`))
 			require.True(t, valid)
 			switch invalidate {
@@ -149,7 +374,7 @@ func TestProtocolObservationStaleCatalogPublication(t *testing.T) {
 			case "list_changed":
 				o.listChanged(generation)
 			case "bad_cursor":
-				o.requestWritten(generation, observationRequest(t, "tools/list", `{"cursor":"unknown"}`))
+				o.requestWritten(generation, observationRequest(t, "tools/list", `{"cursor":"unknown"}`), "")
 			case "reinitialize":
 				observationInitialize(t, o, generation)
 			case "replacement_child":
@@ -171,7 +396,7 @@ func TestProtocolObservationFailuresAndRecovery(t *testing.T) {
 		t.Run(result, func(t *testing.T) {
 			t.Parallel()
 			o, generation := newObservationFixture(t)
-			token := o.requestWritten(generation, observationRequest(t, "initialize", ""))
+			token := o.requestWritten(generation, observationRequest(t, "initialize", ""), "")
 			o.response(token, &jsonrpc.Response{Result: json.RawMessage(result)})
 			require.False(t, observationDetails(o).Initialize.OK)
 			require.Equal(t, healthstate.StatusDegraded, o.Snapshot(time.Time{}).Status)
@@ -187,7 +412,7 @@ func TestProtocolObservationFailuresAndRecovery(t *testing.T) {
 		{Result: json.RawMessage(`{"tools":[{}]}`)},
 		{Result: json.RawMessage(`{"tools":[{"name":1}]}`)},
 	} {
-		token := o.requestWritten(generation, observationRequest(t, "tools/list", ""))
+		token := o.requestWritten(generation, observationRequest(t, "tools/list", ""), "")
 		o.response(token, response)
 		require.False(t, observationDetails(o).ToolsList.Complete)
 		require.Equal(t, healthstate.StatusDegraded, o.Snapshot(time.Time{}).Status)
@@ -299,7 +524,7 @@ func TestProtocolObservationInputAndPagingBounds(t *testing.T) {
 
 	for _, size := range []int{maxObservationResultBytes, maxObservationResultBytes + 1} {
 		o, generation := newObservationFixture(t)
-		token := o.requestWritten(generation, observationRequest(t, "initialize", ""))
+		token := o.requestWritten(generation, observationRequest(t, "initialize", ""), "")
 		raw := append([]byte(observedInitializeFixture), bytes.Repeat([]byte{' '}, size-len(observedInitializeFixture))...)
 		o.response(token, &jsonrpc.Response{Result: raw})
 		require.Equal(t, size <= maxObservationResultBytes, observationDetails(o).Initialize.OK)
@@ -316,6 +541,25 @@ func TestProtocolObservationInputAndPagingBounds(t *testing.T) {
 		require.Equal(t, size <= maxObservationCursorBytes, valid)
 		require.Equal(t, size > maxObservationCursorBytes, limited)
 	}
+	versions := make([]string, maxObservationVersions+1)
+	for i := range versions {
+		versions[i] = fmt.Sprintf("%04d-07-28", 2026+i)
+	}
+	discoveryResult, err := json.Marshal(map[string]any{
+		"resultType":        "complete",
+		"supportedVersions": versions,
+		"capabilities":      map[string]any{"tools": map[string]any{}},
+	})
+	require.NoError(t, err)
+	discovery, valid := parseObservedServerDiscover(discoveryResult, observedModernProtocolVersion)
+	require.True(t, valid)
+	require.True(t, discovery.Limited)
+	require.Len(t, discovery.SupportedVersions, maxObservationVersions)
+	require.LessOrEqual(t, cap(discovery.SupportedVersions), maxObservationVersions)
+	require.Contains(t, discovery.SupportedVersions, observedModernProtocolVersion)
+	omittedResultType := strings.Replace(observedServerDiscoverFixture, `"resultType":"complete",`, "", 1)
+	_, valid = parseObservedServerDiscover(json.RawMessage(omittedResultType), observedModernProtocolVersion)
+	require.True(t, valid)
 	o, generation := newObservationFixture(t)
 	observationInitialize(t, o, generation)
 	for i := range maxObservationPages {
@@ -347,10 +591,25 @@ func TestProtocolObservationNeverReusesOverflowedTokens(t *testing.T) {
 	observationTools(t, o, generation, "", `{"tools":[{"name":"still-unrecordable"}]}`)
 	require.Empty(t, observationDetails(o).ToolsList.ToolNames)
 	o.details.InitializeEpoch = math.MaxUint64
-	o.requestWritten(generation, observationRequest(t, "initialize", ""))
+	o.requestWritten(generation, observationRequest(t, "initialize", ""), "")
 	require.Equal(t, uint64(math.MaxUint64), observationDetails(o).InitializeEpoch)
 	require.False(t, observationDetails(o).Initialize.OK)
 	require.True(t, o.Snapshot(time.Time{}).Limited)
+
+	modern, modernGeneration := newObservationFixture(t)
+	modern.details.ServerDiscoverEpoch = math.MaxUint64
+	modern.requestWritten(
+		modernGeneration,
+		observationRequest(t, "server/discover", observedModernParams),
+		observedModernProtocolVersion,
+	)
+	modernDetails := observationDetails(modern)
+	require.Equal(t, uint64(math.MaxUint64), modernDetails.ServerDiscoverEpoch)
+	require.NotNil(t, modernDetails.ServerDiscover)
+	require.False(t, modernDetails.ServerDiscover.OK)
+	require.True(t, modernDetails.ServerDiscover.Limited)
+	require.True(t, modern.Snapshot(time.Time{}).Limited)
+	require.Equal(t, "server_discover_epoch_limit", modern.Snapshot(time.Time{}).ReasonCode)
 }
 
 func TestProtocolObservationConcurrentInvalidationAndSnapshot(t *testing.T) {
@@ -358,7 +617,7 @@ func TestProtocolObservationConcurrentInvalidationAndSnapshot(t *testing.T) {
 
 	o, generation := newObservationFixture(t)
 	observationInitialize(t, o, generation)
-	token := o.requestWritten(generation, observationRequest(t, "tools/list", ""))
+	token := o.requestWritten(generation, observationRequest(t, "tools/list", ""), "")
 	page, valid := parseObservedTools(json.RawMessage(`{"tools":[{"name":"stale"}]}`))
 	require.True(t, valid)
 	parsed := make(chan struct{})
@@ -454,6 +713,104 @@ func TestStdioProtocolObservationMatchesForwardedExchanges(t *testing.T) {
 			require.Equal(t, "closed", o.Snapshot(time.Time{}).State)
 		})
 	}
+}
+
+func TestStdioProtocolObservationModernDiscoveryWithoutInitialize(t *testing.T) {
+	t.Parallel()
+
+	o, _ := newObservationFixture(t)
+	base := newStubSerializedForwardingConnection()
+	transport := ObserveStdioForwardingTransport(
+		NewStdioForwardingTransportWithOptions(
+			&stubSerializedForwardingTransport{conn: base},
+			StdioForwardingOptions{},
+		),
+		o,
+	)
+	roundTrip := func(method, result string) {
+		t.Helper()
+		conn, err := transport.Connect(t.Context())
+		require.NoError(t, err)
+		request := observationRequest(t, method, observedModernParams)
+		_, err = conn.Write(t.Context(), nil, request)
+		require.NoError(t, err)
+		response := &jsonrpc.Response{ID: request.ID, Result: json.RawMessage(result)}
+		base.enqueueRead(response, nil)
+		message, err := conn.Read(t.Context())
+		require.NoError(t, err)
+		require.Same(t, response, message)
+	}
+	roundTrip("server/discover", observedServerDiscoverFixture)
+
+	snapshot := o.Snapshot(time.Time{})
+	details := observationDetails(o)
+	require.Equal(t, healthstate.StatusOK, snapshot.Status)
+	require.Equal(t, "server_discovered", snapshot.State)
+	require.Zero(t, details.InitializeEpoch)
+	require.False(t, details.Initialize.OK, "modern discovery must not fabricate legacy initialization")
+	require.Equal(t, uint64(1), details.ServerDiscoverEpoch)
+	require.NotNil(t, details.ServerDiscover)
+	require.True(t, details.ServerDiscover.OK)
+	require.Equal(t, []string{observedModernProtocolVersion}, details.ServerDiscover.SupportedVersions)
+	require.Equal(t, []string{"tools"}, details.ServerDiscover.CapabilityNames)
+	encoded, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "private")
+	details.ServerDiscover.SupportedVersions[0] = "mutated"
+	details.ServerDiscover.CapabilityNames[0] = "mutated"
+	stable := observationDetails(o)
+	require.Equal(t, []string{observedModernProtocolVersion}, stable.ServerDiscover.SupportedVersions)
+	require.Equal(t, []string{"tools"}, stable.ServerDiscover.CapabilityNames)
+
+	roundTrip("tools/list", `{"tools":[{"name":"echo"}]}`)
+
+	snapshot = o.Snapshot(time.Time{})
+	details = observationDetails(o)
+	require.Equal(t, healthstate.StatusOK, snapshot.Status)
+	require.Equal(t, "discovered", snapshot.State)
+	require.Zero(t, details.InitializeEpoch)
+	require.False(t, details.Initialize.OK, "modern discovery must not fabricate legacy initialization")
+	require.True(t, details.ToolsList.Complete)
+	require.Equal(t, []string{"echo"}, details.ToolsList.ToolNames)
+
+	conn, err := transport.Connect(t.Context())
+	require.NoError(t, err)
+	legacy := observationRequest(t, "tools/call", `{"name":"echo","arguments":{}}`)
+	result, err := conn.Write(t.Context(), nil, legacy)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, result.StatusCode, "modern discovery must not open the legacy initialization gate")
+	require.NotNil(t, result.PreservedError)
+	require.Equal(t, []string{"server/discover", "tools/list"}, base.writtenMethods())
+}
+
+func TestStdioProtocolObservationServerDiscoverResponseDeadline(t *testing.T) {
+	t.Parallel()
+
+	o, _ := newObservationFixture(t)
+	base := newStubSerializedForwardingConnection()
+	transport := ObserveStdioForwardingTransport(
+		NewStdioForwardingTransportWithOptions(&stubSerializedForwardingTransport{conn: base}, StdioForwardingOptions{}),
+		o,
+	)
+	conn, err := transport.Connect(t.Context())
+	require.NoError(t, err)
+	request := observationRequest(t, "server/discover", observedModernParams)
+	_, err = conn.Write(t.Context(), nil, request)
+	require.NoError(t, err)
+	serialized := conn.(*serializedForwardingConnection)
+	serialized.stateMu.Lock()
+	stale := serialized.observationToken
+	serialized.stateMu.Unlock()
+	require.True(t, serialized.RetireResponseDeadline())
+	snapshot := o.Snapshot(time.Time{})
+	require.Equal(t, healthstate.StatusDegraded, snapshot.Status)
+	require.Equal(t, "failed", snapshot.State)
+	require.Equal(t, "discovery_response_deadline", snapshot.ReasonCode)
+	require.Equal(t, "running", observationDetails(o).ChildState)
+
+	o.response(stale, &jsonrpc.Response{Result: json.RawMessage(observedServerDiscoverFixture)})
+	require.Equal(t, "failed", o.Snapshot(time.Time{}).State, "a retired late response cannot restore discovery evidence")
+	require.False(t, observationDetails(o).ServerDiscover.OK)
 }
 
 func TestStdioProtocolObservationInitializeCapabilityWhitespace(t *testing.T) {

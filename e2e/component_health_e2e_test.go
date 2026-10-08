@@ -220,11 +220,22 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 	}
 	t.Parallel()
 
+	testCases := []struct {
+		name                    string
+		modern                  bool
+		initializedNotification bool
+	}{
+		{name: "legacy_caller_notification"},
+		{name: "legacy_shim_notification", initializedNotification: true},
+		{name: "modern_server_discover", modern: true},
+	}
 	for _, unix := range []bool{false, true} {
-		for _, initializedNotification := range []bool{false, true} {
-			t.Run(fmt.Sprintf("unix_%t/initialized_notification_%t", unix, initializedNotification), func(t *testing.T) {
+		for _, testCase := range testCases {
+			t.Run(fmt.Sprintf("unix_%t/%s", unix, testCase.name), func(t *testing.T) {
 				t.Parallel()
 
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
 				dir := t.TempDir()
 				launches := filepath.Join(dir, "launches")
 				messages := filepath.Join(dir, "messages")
@@ -232,21 +243,33 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 				script := filepath.Join(dir, "mcp.sh")
 				require.NoError(t, os.WriteFile(script, []byte(healthStdioFixture), 0o700))
 				gate := make(chan struct{})
-				initialize := healthDiscoveryCommand("initialize", `{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-e2e","version":"1"}}`)
-				initialize.DeliverAfter = gate
-				tools := healthDiscoveryCommand("tools/list", `{}`)
-				commands := []mocktunnelservice.CommandResponse{initialize}
-				if !initializedNotification {
-					commands = append(commands, stdioGuardInitializedCommand(t))
+				toolsGate := make(chan struct{})
+				var toolsOnce sync.Once
+				defer toolsOnce.Do(func() { close(toolsGate) })
+				var commands []mocktunnelservice.CommandResponse
+				if testCase.modern {
+					discover := healthDiscoveryCommand("server/discover", healthModernParams)
+					discover.DeliverAfter = gate
+					tools := healthDiscoveryCommand("tools/list", healthModernParams)
+					tools.DeliverAfter = toolsGate
+					commands = []mocktunnelservice.CommandResponse{discover, tools}
+				} else {
+					initialize := healthDiscoveryCommand("initialize", `{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-e2e","version":"1"}}`)
+					initialize.DeliverAfter = gate
+					tools := healthDiscoveryCommand("tools/list", `{}`)
+					commands = []mocktunnelservice.CommandResponse{initialize}
+					if !testCase.initializedNotification {
+						commands = append(commands, stdioGuardInitializedCommand(t))
+					}
+					commands = append(commands, tools)
 				}
-				commands = append(commands, tools)
 				h := harnesspkg.NewHarness(t,
 					harnesspkg.WithMCPCommand([]string{"bash", script, launches, messages}),
 					harnesspkg.WithScenarioTimeout(10*time.Second),
 					harnesspkg.WithControlPlaneOptions(mocktunnelservice.WithCommandResponses(commands...)),
 					harnesspkg.WithClientConfig(func(cfg *config.Config) {
 						cfg.Health.URLFile = urlFile
-						cfg.MCP.StdioSendInitializedNotification = initializedNotification
+						cfg.MCP.StdioSendInitializedNotification = testCase.initializedNotification
 						if unix {
 							cfg.Health.ListenAddr = ""
 							cfg.Health.UnixSocket = healthSocketPath(t)
@@ -264,6 +287,22 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 						require.Equal(t, "unknown", before["status"])
 						require.Empty(t, healthReadOptionalFile(t, messages), "health must not send MCP messages")
 						close(gate)
+						if testCase.modern {
+							require.NoError(t, h.ControlPlane.WaitForResponses(ctx, 1))
+							component := readHealthJSON(t, client, base+"/health/mcp")
+							require.Equal(t, "server_discovered", component["state"])
+							require.Equal(t, "ok", component["status"])
+							details := healthObject(t, component["details"])
+							require.Equal(t, float64(0), details["initialize_epoch"])
+							require.Equal(t, float64(1), details["server_discover_epoch"])
+							require.Equal(t, false, healthObject(t, details["initialize"])["ok"])
+							discover := healthObject(t, details["server_discover"])
+							require.Equal(t, true, discover["ok"])
+							require.Equal(t, []any{"2026-07-28"}, discover["supported_versions"])
+							require.Equal(t, []any{"tools"}, discover["capability_names"])
+							require.Equal(t, false, healthObject(t, details["tools_list"])["ok"])
+							toolsOnce.Do(func() { close(toolsGate) })
+						}
 					}),
 					harnesspkg.WithBeforeClientStop(func(h *harnesspkg.Harness) {
 						client, base := healthTestClient(t, urlFile)
@@ -277,14 +316,26 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 						require.Equal(t, "main", details["channel"])
 						require.Equal(t, "running", details["child_state"])
 						require.NotEmpty(t, details["child_generation"])
-						require.Equal(t, float64(1), details["initialize_epoch"])
 						init := healthObject(t, details["initialize"])
-						require.Equal(t, true, init["ok"])
-						require.Equal(t, true, init["identity_complete"])
-						require.Equal(t, "receipt-fixture", init["server_name"])
-						require.Equal(t, "1.2.3", init["server_version"])
-						require.Equal(t, "2025-11-25", init["protocol_version"])
-						require.Equal(t, []any{"tools"}, init["capability_names"])
+						if testCase.modern {
+							require.Equal(t, float64(0), details["initialize_epoch"])
+							require.Equal(t, false, init["ok"])
+							require.Equal(t, float64(1), details["server_discover_epoch"])
+							discover := healthObject(t, details["server_discover"])
+							require.Equal(t, true, discover["ok"])
+							require.Equal(t, []any{"2026-07-28"}, discover["supported_versions"])
+							require.Equal(t, []any{"tools"}, discover["capability_names"])
+						} else {
+							require.Equal(t, float64(1), details["initialize_epoch"])
+							require.Equal(t, true, init["ok"])
+							require.Equal(t, true, init["identity_complete"])
+							require.Equal(t, "receipt-fixture", init["server_name"])
+							require.Equal(t, "1.2.3", init["server_version"])
+							require.Equal(t, "2025-11-25", init["protocol_version"])
+							require.Equal(t, []any{"tools"}, init["capability_names"])
+							require.NotContains(t, details, "server_discover")
+							require.NotContains(t, details, "server_discover_epoch")
+						}
 						catalog := healthObject(t, details["tools_list"])
 						require.Equal(t, true, catalog["ok"])
 						require.Equal(t, true, catalog["complete"])
@@ -301,9 +352,12 @@ func TestHealthDetailsStdioSameChild(t *testing.T) {
 						require.Equal(t, beforeLaunches, healthReadOptionalFile(t, launches), "health requests must not launch another child")
 						pids := strings.Fields(beforeLaunches)
 						require.Len(t, pids, 1)
-						want := pids[0] + ":initialize\n"
-						want += pids[0] + ":notifications/initialized\n"
-						want += pids[0] + ":tools/list\n"
+						want := pids[0] + ":server/discover\n" + pids[0] + ":tools/list\n"
+						if !testCase.modern {
+							want = pids[0] + ":initialize\n"
+							want += pids[0] + ":notifications/initialized\n"
+							want += pids[0] + ":tools/list\n"
+						}
 						require.Equal(t, want, beforeMessages)
 						require.Len(t, h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched), len(commands))
 					}),
@@ -409,6 +463,8 @@ func healthReadOptionalFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+const healthModernParams = `{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`
+
 const healthStdioFixture = `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$$" >> "$1"
@@ -426,6 +482,7 @@ while IFS= read -r line; do
   fi
   case "$method" in
     initialize) printf '{"jsonrpc":"2.0","id":"%s","result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"receipt-fixture","version":"1.2.3"}}}\n' "$id" ;;
+    server/discover) printf '{"jsonrpc":"2.0","id":"%s","result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"modern-fixture","version":"1.0.0"}}}}\n' "$id" ;;
     tools/list) printf '{"jsonrpc":"2.0","id":"%s","result":{"tools":[{"name":"echo","description":"must-not-appear-in-health","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
   esac
 done

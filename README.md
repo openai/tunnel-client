@@ -669,9 +669,10 @@ Starter prompts for Codex:
 - It exposes an **admin/health server** (`/healthz`, `/readyz`, `/metrics`) and
   a lightweight **admin UI** (`/ui`) for operational status.
 - Local `GET /health?details=true` and `GET /health/mcp` expose bounded
-  observations of MCP discovery, polling, response delivery, queues, and active
-  work. Plain `/health` stays compact unless `--health.show-details=true` is
-  set (default false). See the [health reference](docs/health.md) for examples,
+  observations of legacy initialize and modern `server/discover` MCP discovery,
+  polling, response delivery, queues, and active work. Plain `/health` stays
+  compact unless `--health.show-details=true` is set (default false). See the
+  [health reference](docs/health.md) for examples,
   Unix sockets, and the difference between readiness and observed discovery.
 - The admin UI Overview reports the process-scoped `client_instance_id`,
   channel availability, and reasons when channels are disabled.

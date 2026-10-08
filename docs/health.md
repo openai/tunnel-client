@@ -185,11 +185,21 @@ The detailed aggregate contains that component value at `components.mcp`,
 without the component route's `schema_version`, `snapshot_at`, and `component`
 wrapper fields.
 
+For the self-contained `2026-07-28` protocol, a successful same-child
+`server/discover` response instead moves the component to `server_discovered`
+and adds a bounded `server_discover` receipt plus
+`server_discover_epoch`. The legacy `initialize.ok` remains false and
+`initialize_epoch` remains zero. A subsequent contiguous `tools/list`
+traversal moves the component to `discovered` and populates the same bounded
+`tools_list` projection. The modern receipt retains only supported protocol
+versions and recognized capability names; it does not retain instructions,
+unknown metadata, or raw response fields.
+
 ## Interpret components
 
 | Component | Evidence and limitations | Availability |
 | --- | --- | --- |
-| `mcp` | Main-channel transport, physical child generation, initialize epoch, exact retained identity and tool names. Same-child discovery applies to stdio. Other transports explicitly report that limitation and may show their separate startup probe. | All three binaries. |
+| `mcp` | Main-channel transport, physical child generation, legacy initialize or modern server-discover epoch, and bounded protocol, capability, identity, and tool metadata. Same-child discovery applies to stdio. Other transports explicitly report that limitation and may show their separate startup probe. | All three binaries. |
 | `control-plane` | Poll attempts, successful empty or nonempty polls, current wait, retry/backoff, and bounded failure category. A long poll or local backpressure is not an outage. | All three. |
 | `response-delivery` | Upload attempts, retries, active uploads, actual 200 acceptance and logical completion. The compatible benign 404 outcome is distinct from acceptance. | All three. |
 | `queue` | Local polled-command channel depth, capacity, utilization, enqueue/dequeue counts and backpressure. This says nothing about the remote queue. | All three. |
@@ -201,10 +211,12 @@ wrapper fields.
 
 For stdio, `/readyz` can return 200 before any protocol exchange because its
 startup probe skips stdio. In that case MCP state is `not_observed` with unknown
-status. Ordinary forwarded discovery moves it to `initialized` and then
-`discovered`. The identity is the child's self-report. A replacement child,
-reinitialize, or physical shutdown invalidates earlier proof; an ordinary
-request timeout that preserves the child does not erase its previous evidence.
+status. Legacy forwarded discovery moves it to `initialized` and then
+`discovered`; modern discovery moves it to `server_discovered` and then
+`discovered`. Any reported identity is the child's self-report. A replacement
+child, reinitialize, rediscovery attempt, or physical shutdown invalidates the
+affected earlier proof; an ordinary non-discovery request timeout that preserves
+the child does not erase its previous evidence.
 
 `tools_list.complete` means a contiguous first-to-last traversal was observed
 without omissions or limits. `partial` or `limited` means retained names can
@@ -225,6 +237,7 @@ inventories. The following diagnostic limits do not change forwarded traffic:
 | Registered components | 16, with unique fixed ASCII names up to 64 bytes. |
 | Encoded component / aggregate response | 24 KiB / 64 KiB. |
 | MCP response result / request metadata examined | 1 MiB / 8 KiB. |
+| Retained server-discover protocol versions | Up to 32 exact date-version strings, sorted and deduplicated. |
 | Pagination cursor / traversal | 4 KiB per cursor / 32 pages. |
 | Retained tool names | Up to 256 exact names, 128 UTF-8 bytes each, sorted and deduplicated; 16 KiB encoded name-array budget. |
 | Protocol and server identity fields | 256 UTF-8 bytes each; oversized values are omitted, not shortened into a different identity. |

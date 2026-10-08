@@ -28,6 +28,7 @@ const (
 	maxObservationToolBytes   = 128
 	maxObservationNamesJSON   = 16 << 10
 	maxObservationIdentity    = 256
+	maxObservationVersions    = 32
 )
 
 // ProtocolObservation owns bounded passive discovery evidence for the main
@@ -38,27 +39,31 @@ type ProtocolObservation struct {
 	now   func() time.Time
 	probe *ProbeState
 
-	details      healthstate.MCPDetails
-	state        string
-	reason       string
-	observedAt   *time.Time
-	epochLimited bool
+	details                    healthstate.MCPDetails
+	state                      string
+	reason                     string
+	observedAt                 *time.Time
+	epochLimited               bool
+	serverDiscoverEpochLimited bool
 
-	catalogRevision uint64
-	catalogLimited  bool
-	catalogActive   bool
-	pages           int
-	nextCursor      [sha256.Size]byte
-	hasNextCursor   bool
-	seenCursors     map[[sha256.Size]byte]struct{}
+	catalogRevision        uint64
+	catalogLimited         bool
+	catalogActive          bool
+	catalogProtocolVersion string
+	pages                  int
+	nextCursor             [sha256.Size]byte
+	hasNextCursor          bool
+	seenCursors            map[[sha256.Size]byte]struct{}
 }
 
 type protocolObservationToken struct {
-	generation string
-	epoch      uint64
-	revision   uint64
-	method     string
-	acceptPage bool
+	generation          string
+	epoch               uint64
+	serverDiscoverEpoch uint64
+	revision            uint64
+	method              string
+	protocolVersion     string
+	acceptPage          bool
 }
 
 // NewProtocolObservation constructs the passive main-channel health provider.
@@ -94,19 +99,27 @@ func (o *ProtocolObservation) Snapshot(_ time.Time) healthstate.ComponentSnapsho
 	o.mu.Lock()
 	details := o.details
 	details.Initialize.CapabilityNames = append([]string{}, details.Initialize.CapabilityNames...)
+	if details.ServerDiscover != nil {
+		discover := *details.ServerDiscover
+		discover.SupportedVersions = append([]string{}, discover.SupportedVersions...)
+		discover.CapabilityNames = append([]string{}, discover.CapabilityNames...)
+		discover.ObservedAt = copyObservationTime(discover.ObservedAt)
+		details.ServerDiscover = &discover
+	}
 	details.ToolsList.ToolNames = append([]string{}, details.ToolsList.ToolNames...)
 	details.Initialize.ObservedAt = copyObservationTime(details.Initialize.ObservedAt)
 	details.ToolsList.ObservedAt = copyObservationTime(details.ToolsList.ObservedAt)
 	snapshot := healthstate.ComponentSnapshot{
 		Status: healthstate.StatusUnknown, State: o.state, ReasonCode: o.reason,
 		ObservedAt: copyObservationTime(o.observedAt),
-		Limited:    details.Initialize.Limited || details.ToolsList.Limited || o.epochLimited || o.catalogLimited,
+		Limited: details.Initialize.Limited || details.ToolsList.Limited || o.epochLimited || o.serverDiscoverEpochLimited ||
+			(details.ServerDiscover != nil && details.ServerDiscover.Limited) || o.catalogLimited,
 	}
 	o.mu.Unlock()
 	switch snapshot.State {
 	case "disabled":
 		snapshot.Status = healthstate.StatusDisabled
-	case "initialized", "discovered":
+	case "initialized", "server_discovered", "discovered":
 		snapshot.Status = healthstate.StatusOK
 	case "failed", "closed":
 		snapshot.Status = healthstate.StatusDegraded
@@ -152,10 +165,12 @@ func (o *ProtocolObservation) beginChild() string {
 	o.details.ChildGeneration = generation
 	o.details.ChildState = "starting"
 	o.details.InitializeEpoch = 0
+	o.details.ServerDiscoverEpoch = 0
 	o.details.Initialize = healthstate.MCPInitialize{}
+	o.details.ServerDiscover = nil
 	o.details.ToolsList = healthstate.MCPToolsList{}
 	o.state, o.reason, o.observedAt = "not_observed", "", nil
-	o.epochLimited, o.catalogLimited = false, false
+	o.epochLimited, o.serverDiscoverEpochLimited, o.catalogLimited = false, false, false
 	o.catalogRevision = 0
 	o.resetCatalogLocked()
 	return generation
@@ -183,6 +198,7 @@ func (o *ProtocolObservation) childClosed(generation, reason string) {
 	}
 	o.details.ChildState = "closed"
 	o.details.Initialize = healthstate.MCPInitialize{}
+	o.details.ServerDiscover = nil
 	o.resetCatalogLocked()
 	o.state, o.reason = "closed", reason
 	o.observedAt = o.timestampLocked()
@@ -205,6 +221,7 @@ func (o *ProtocolObservation) timestampLocked() *time.Time {
 func (o *ProtocolObservation) resetCatalogLocked() {
 	o.details.ToolsList = healthstate.MCPToolsList{}
 	o.catalogActive = false
+	o.catalogProtocolVersion = ""
 	o.pages = 0
 	o.hasNextCursor = false
 	o.nextCursor = [sha256.Size]byte{}
@@ -223,11 +240,17 @@ func (o *ProtocolObservation) advanceCatalogLocked() bool {
 
 // requestWritten runs only after a successful physical write. The token carries
 // no caller data and remains valid only for that child and discovery attempt.
-func (o *ProtocolObservation) requestWritten(generation string, req *jsonrpc.Request) protocolObservationToken {
-	if o == nil || req == nil || !req.ID.IsValid() || (req.Method != "initialize" && req.Method != "tools/list") {
+func (o *ProtocolObservation) requestWritten(generation string, req *jsonrpc.Request, protocolVersion string) protocolObservationToken {
+	if o == nil || req == nil || !req.ID.IsValid() ||
+		(req.Method != "initialize" && req.Method != "server/discover" && req.Method != "tools/list") {
 		return protocolObservationToken{}
 	}
-	cursor, hasCursor, valid, limited := observationCursor(req.Params)
+	var cursor [sha256.Size]byte
+	var hasCursor, limited bool
+	valid := true
+	if req.Method == "tools/list" {
+		cursor, hasCursor, valid, limited = observationCursor(req.Params)
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if generation == "" || generation != o.details.ChildGeneration || o.details.ChildState != "running" || o.epochLimited {
@@ -243,14 +266,57 @@ func (o *ProtocolObservation) requestWritten(generation string, req *jsonrpc.Req
 		}
 		o.details.InitializeEpoch++
 		o.details.Initialize = healthstate.MCPInitialize{}
+		o.details.ServerDiscover = nil
 		o.resetCatalogLocked()
 		o.state, o.reason, o.observedAt = "not_observed", "", nil
-		return protocolObservationToken{generation: generation, epoch: o.details.InitializeEpoch, method: req.Method}
+		return protocolObservationToken{
+			generation: generation, epoch: o.details.InitializeEpoch,
+			serverDiscoverEpoch: o.details.ServerDiscoverEpoch, method: req.Method,
+		}
 	}
-	if !o.details.Initialize.OK || !o.advanceCatalogIfFirstLocked(hasCursor, valid) {
+	if req.Method == "server/discover" {
+		if protocolVersion == "" || o.serverDiscoverEpochLimited {
+			return protocolObservationToken{}
+		}
+		if o.details.ServerDiscoverEpoch == math.MaxUint64 {
+			o.serverDiscoverEpochLimited = true
+			o.details.ServerDiscover = &healthstate.MCPServerDiscover{Limited: true}
+			o.resetCatalogLocked()
+			o.restoreProtocolStateLocked()
+			o.reason = "server_discover_epoch_limit"
+			o.observedAt = o.timestampLocked()
+			return protocolObservationToken{}
+		}
+		o.details.ServerDiscoverEpoch++
+		o.details.ServerDiscover = nil
+		if !o.advanceCatalogLocked() {
+			return protocolObservationToken{}
+		}
+		o.resetCatalogLocked()
+		o.restoreProtocolStateLocked()
+		if len(req.Params) > maxObservationParamsBytes {
+			o.details.ServerDiscover = &healthstate.MCPServerDiscover{Limited: true}
+			o.reason = "observation_params_limit"
+			o.observedAt = o.timestampLocked()
+			return protocolObservationToken{}
+		}
+		return protocolObservationToken{
+			generation: generation, epoch: o.details.InitializeEpoch,
+			serverDiscoverEpoch: o.details.ServerDiscoverEpoch, revision: o.catalogRevision,
+			method: req.Method, protocolVersion: protocolVersion,
+		}
+	}
+	if !o.details.Initialize.OK && protocolVersion == "" {
 		return protocolObservationToken{}
 	}
-	token := protocolObservationToken{generation: generation, epoch: o.details.InitializeEpoch, revision: o.catalogRevision, method: req.Method}
+	if !o.advanceCatalogIfFirstLocked(hasCursor, valid, protocolVersion) {
+		return protocolObservationToken{}
+	}
+	token := protocolObservationToken{
+		generation: generation, epoch: o.details.InitializeEpoch,
+		serverDiscoverEpoch: o.details.ServerDiscoverEpoch, revision: o.catalogRevision,
+		method: req.Method, protocolVersion: protocolVersion,
+	}
 	if !valid {
 		o.invalidateCatalogLocked("invalid_tools_cursor", limited)
 		o.advanceCatalogLocked()
@@ -258,6 +324,11 @@ func (o *ProtocolObservation) requestWritten(generation string, req *jsonrpc.Req
 	}
 	if !hasCursor {
 		o.catalogActive = true
+		o.catalogProtocolVersion = protocolVersion
+	} else if protocolVersion != o.catalogProtocolVersion {
+		o.invalidateCatalogLocked("tools_protocol_mismatch", false)
+		o.advanceCatalogLocked()
+		return token
 	} else if !o.catalogActive || !o.hasNextCursor || cursor != o.nextCursor {
 		o.invalidateCatalogLocked("tools_cursor_mismatch", false)
 		o.advanceCatalogLocked()
@@ -272,7 +343,7 @@ func (o *ProtocolObservation) requestWritten(generation string, req *jsonrpc.Req
 	return token
 }
 
-func (o *ProtocolObservation) advanceCatalogIfFirstLocked(hasCursor, valid bool) bool {
+func (o *ProtocolObservation) advanceCatalogIfFirstLocked(hasCursor, valid bool, protocolVersion string) bool {
 	if o.catalogLimited {
 		return false
 	}
@@ -281,16 +352,36 @@ func (o *ProtocolObservation) advanceCatalogIfFirstLocked(hasCursor, valid bool)
 			return false
 		}
 		o.resetCatalogLocked()
-		o.state, o.reason = "initialized", ""
-		o.observedAt = copyObservationTime(o.details.Initialize.ObservedAt)
+		o.catalogProtocolVersion = protocolVersion
+		o.restoreProtocolStateLocked()
 	}
 	return true
 }
 
+func (o *ProtocolObservation) restoreProtocolStateLocked() {
+	switch {
+	case o.details.ServerDiscover != nil && o.details.ServerDiscover.OK:
+		o.state = "server_discovered"
+		o.observedAt = copyObservationTime(o.details.ServerDiscover.ObservedAt)
+	case o.details.Initialize.OK:
+		o.state = "initialized"
+		o.observedAt = copyObservationTime(o.details.Initialize.ObservedAt)
+	default:
+		o.state, o.observedAt = "not_observed", nil
+	}
+	o.reason = ""
+}
+
 func (o *ProtocolObservation) tokenMatchesLocked(token protocolObservationToken) bool {
-	return token.generation != "" && token.generation == o.details.ChildGeneration &&
-		o.details.ChildState == "running" && token.epoch == o.details.InitializeEpoch && !o.epochLimited &&
-		(token.method != "tools/list" || (token.revision == o.catalogRevision && !o.catalogLimited))
+	if token.generation == "" || token.generation != o.details.ChildGeneration || o.details.ChildState != "running" ||
+		token.epoch != o.details.InitializeEpoch || o.epochLimited {
+		return false
+	}
+	if token.method == "initialize" {
+		return true
+	}
+	return token.serverDiscoverEpoch == o.details.ServerDiscoverEpoch && !o.serverDiscoverEpochLimited &&
+		token.revision == o.catalogRevision && !o.catalogLimited
 }
 
 func (o *ProtocolObservation) response(token protocolObservationToken, response *jsonrpc.Response) {
@@ -314,6 +405,15 @@ func (o *ProtocolObservation) response(token protocolObservationToken, response 
 		o.publishInitialize(token, result)
 		return
 	}
+	if token.method == "server/discover" {
+		result, valid := parseObservedServerDiscover(response.Result, token.protocolVersion)
+		if !valid {
+			o.failed(token, "invalid_server_discover_result", result.Limited)
+			return
+		}
+		o.publishServerDiscover(token, result)
+		return
+	}
 	if token.method == "tools/list" && token.acceptPage {
 		page, valid := parseObservedTools(response.Result)
 		if !valid {
@@ -322,6 +422,18 @@ func (o *ProtocolObservation) response(token protocolObservationToken, response 
 		}
 		o.publishTools(token, page)
 	}
+}
+
+func (o *ProtocolObservation) publishServerDiscover(token protocolObservationToken, result healthstate.MCPServerDiscover) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.tokenMatchesLocked(token) {
+		return
+	}
+	result.ObservedAt = o.timestampLocked()
+	o.details.ServerDiscover = &result
+	o.state, o.reason = "server_discovered", ""
+	o.observedAt = copyObservationTime(result.ObservedAt)
 }
 
 func (o *ProtocolObservation) publishInitialize(token protocolObservationToken, result healthstate.MCPInitialize) {
@@ -342,20 +454,29 @@ func (o *ProtocolObservation) failed(token protocolObservationToken, reason stri
 	if !o.tokenMatchesLocked(token) {
 		return
 	}
-	if token.method == "tools/list" {
+	switch token.method {
+	case "tools/list":
 		o.invalidateCatalogLocked(reason, limited)
 		if !o.advanceCatalogLocked() {
 			return
 		}
-	} else {
+	case "server/discover":
+		o.details.ServerDiscover = &healthstate.MCPServerDiscover{Limited: limited}
+		o.resetCatalogLocked()
+		if !o.advanceCatalogLocked() {
+			return
+		}
+	default:
 		o.details.Initialize = healthstate.MCPInitialize{Limited: limited}
-		o.reason = reason
 	}
+	o.reason = reason
 	o.observedAt = o.timestampLocked()
 	if !limited {
 		o.state = "failed"
-	} else if !o.details.Initialize.OK {
-		o.state = "not_observed"
+	} else {
+		o.restoreProtocolStateLocked()
+		o.reason = reason
+		o.observedAt = o.timestampLocked()
 	}
 }
 
@@ -374,13 +495,15 @@ func (o *ProtocolObservation) listChanged(generation string) {
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if generation != o.details.ChildGeneration || o.details.ChildState != "running" || !o.details.Initialize.OK {
+	if generation != o.details.ChildGeneration || o.details.ChildState != "running" ||
+		(!o.details.Initialize.OK && (o.details.ServerDiscover == nil || !o.details.ServerDiscover.OK) && !o.details.ToolsList.OK && !o.catalogActive) {
 		return
 	}
 	if o.advanceCatalogLocked() {
 		o.resetCatalogLocked()
 		o.details.ToolsList.Partial = true
-		o.state, o.reason = "initialized", "tools_list_changed"
+		o.restoreProtocolStateLocked()
+		o.reason = "tools_list_changed"
 		o.observedAt = o.timestampLocked()
 	}
 }
@@ -454,6 +577,62 @@ func decodeObservationCursor(raw json.RawMessage) ([sha256.Size]byte, bool, bool
 	return sha256.Sum256([]byte(cursor)), true, true, false
 }
 
+func parseObservedServerDiscover(raw json.RawMessage, requestedVersion string) (healthstate.MCPServerDiscover, bool) {
+	var result struct {
+		ResultType        json.RawMessage            `json:"resultType"`
+		SupportedVersions *[]string                  `json:"supportedVersions"`
+		Capabilities      map[string]json.RawMessage `json:"capabilities"`
+	}
+	if !validObservationUnicode(raw) || json.Unmarshal(raw, &result) != nil ||
+		result.SupportedVersions == nil || len(*result.SupportedVersions) == 0 || result.Capabilities == nil {
+		return healthstate.MCPServerDiscover{}, false
+	}
+	// Older discovery implementations omitted the discriminator. If supplied,
+	// it must be the only currently complete response shape.
+	if len(result.ResultType) > 0 {
+		var resultType *string
+		if json.Unmarshal(result.ResultType, &resultType) != nil || resultType == nil || *resultType != "complete" {
+			return healthstate.MCPServerDiscover{}, false
+		}
+	}
+	capabilityNames, valid := observedCapabilityNames(result.Capabilities)
+	if !valid {
+		return healthstate.MCPServerDiscover{}, false
+	}
+	observed := healthstate.MCPServerDiscover{
+		OK: true, SupportedVersions: make([]string, 0, min(len(*result.SupportedVersions), maxObservationVersions)),
+		CapabilityNames: capabilityNames,
+	}
+	containsRequested := false
+	for _, version := range *result.SupportedVersions {
+		if version == "" {
+			return healthstate.MCPServerDiscover{}, false
+		}
+		if _, err := time.Parse(time.DateOnly, version); err != nil {
+			return healthstate.MCPServerDiscover{}, false
+		}
+		containsRequested = containsRequested || version == requestedVersion
+		if len(version) > maxObservationIdentity {
+			observed.Limited = true
+			continue
+		}
+		observed.SupportedVersions = append(observed.SupportedVersions, strings.Clone(version))
+	}
+	slices.Sort(observed.SupportedVersions)
+	observed.SupportedVersions = slices.Compact(observed.SupportedVersions)
+	if len(observed.SupportedVersions) > maxObservationVersions {
+		observed.SupportedVersions = observed.SupportedVersions[:maxObservationVersions]
+		observed.Limited = true
+	}
+	if containsRequested && !slices.Contains(observed.SupportedVersions, requestedVersion) {
+		observed.SupportedVersions[len(observed.SupportedVersions)-1] = strings.Clone(requestedVersion)
+		slices.Sort(observed.SupportedVersions)
+	}
+	// Do not retain the backing array for discarded or duplicate versions.
+	observed.SupportedVersions = slices.Clone(observed.SupportedVersions)
+	return observed, true
+}
+
 func parseObservedInitialize(raw json.RawMessage) (healthstate.MCPInitialize, bool) {
 	var result struct {
 		ProtocolVersion *string `json:"protocolVersion"`
@@ -480,15 +659,28 @@ func parseObservedInitialize(raw json.RawMessage) (healthstate.MCPInitialize, bo
 			*field.target = field.source
 		}
 	}
-	for _, capability := range []string{"completions", "logging", "prompts", "resources", "tasks", "tools"} {
-		if value, found := result.Capabilities[capability]; found {
-			if len(value) == 0 || value[0] != '{' {
-				return healthstate.MCPInitialize{}, false
-			}
-			observed.CapabilityNames = append(observed.CapabilityNames, capability)
-		}
+	capabilityNames, valid := observedCapabilityNames(result.Capabilities)
+	if !valid {
+		return healthstate.MCPInitialize{}, false
 	}
+	observed.CapabilityNames = capabilityNames
 	return observed, true
+}
+
+func observedCapabilityNames(capabilities map[string]json.RawMessage) ([]string, bool) {
+	names := []string{}
+	for _, capability := range []string{"completions", "logging", "prompts", "resources", "tasks", "tools"} {
+		value, found := capabilities[capability]
+		if !found {
+			continue
+		}
+		var object map[string]json.RawMessage
+		if json.Unmarshal(value, &object) != nil || object == nil {
+			return nil, false
+		}
+		names = append(names, capability)
+	}
+	return names, true
 }
 
 func parseObservedTools(raw json.RawMessage) (observedToolsPage, bool) {

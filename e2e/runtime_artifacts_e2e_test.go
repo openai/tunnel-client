@@ -499,6 +499,155 @@ func TestRuntimeStdioTraceAndTimingCompatibility(t *testing.T) {
 	}
 }
 
+type runtimeStdioMCPHealth struct {
+	Status  string `json:"status"`
+	State   string `json:"state"`
+	Details struct {
+		ChildGeneration     string `json:"child_generation"`
+		InitializeEpoch     uint64 `json:"initialize_epoch"`
+		ServerDiscoverEpoch uint64 `json:"server_discover_epoch"`
+		Initialize          struct {
+			OK bool `json:"ok"`
+		} `json:"initialize"`
+		ServerDiscover *struct {
+			OK                bool     `json:"ok"`
+			SupportedVersions []string `json:"supported_versions"`
+			CapabilityNames   []string `json:"capability_names"`
+		} `json:"server_discover"`
+		ToolsList struct {
+			OK        bool     `json:"ok"`
+			Complete  bool     `json:"complete"`
+			ToolNames []string `json:"tool_names"`
+		} `json:"tools_list"`
+	} `json:"details"`
+}
+
+// TestRuntimeStdioModernDiscoveryHealthCompatibility verifies that every
+// shipped host binary derives health from the real modern stdio exchange while
+// keeping the legacy initialization gate closed.
+func TestRuntimeStdioModernDiscoveryHealthCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, subject := range subjects {
+		t.Run(subject.name, func(t *testing.T) {
+			t.Parallel()
+			discoverGate := make(chan struct{})
+			toolsGate := make(chan struct{})
+			var discoverOnce, toolsOnce sync.Once
+			t.Cleanup(func() {
+				discoverOnce.Do(func() { close(discoverGate) })
+				toolsOnce.Do(func() { close(toolsGate) })
+			})
+			modernCommand := func(requestID, method string, gate <-chan struct{}) mocktunnelservice.CommandResponse {
+				payload, err := json.Marshal(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      requestID,
+					"method":  method,
+					"params": map[string]any{"_meta": map[string]any{
+						"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+						"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+					}},
+				})
+				require.NoError(t, err)
+				return mocktunnelservice.CommandResponse{
+					Command:      mocktunnelservice.NewCommand(requestID, payload, nil),
+					DeliverAfter: gate,
+					ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
+						RequestID: requestID,
+					}},
+				}
+			}
+			controlPlane := mocktunnelservice.NewMockTunnelService(
+				mocktunnelservice.WithAPIKey(runtimeArtifactAPIKey),
+				mocktunnelservice.WithTunnelID(runtimeArtifactTunnelID),
+				mocktunnelservice.WithCommandResponses(
+					modernCommand("runtime-modern-discover", "server/discover", discoverGate),
+					modernCommand("runtime-modern-tools", "tools/list", toolsGate),
+				),
+			)
+			controlPlane.Start(t)
+
+			healthURLFile := filepath.Join(t.TempDir(), "health.url")
+			messageLog := filepath.Join(t.TempDir(), "mcp.messages")
+			stdioArgs := mockmcpserver.StdioServerCommand(t)
+			commandParts := make([]string, len(stdioArgs))
+			for i, arg := range stdioArgs {
+				commandParts[i] = runtimeArtifactCommandQuote(arg)
+			}
+			proc := startRuntimeArtifactWithEnv(
+				t,
+				subject.binary,
+				map[string]string{"MOCK_MCP_RAW_MESSAGE_LOG": messageLog},
+				runtimeArtifactStdioArgs(controlPlane, healthURLFile, strings.Join(commandParts, " "))...,
+			)
+			healthBaseURL := waitForRuntimeArtifactHealthURL(t, proc, healthURLFile)
+			waitForRuntimeArtifactOutput(t, proc, "stdio readiness", runtimeArtifactStdioReadySignal)
+			if len(subject.startupSignals) > 0 {
+				waitForRuntimeArtifactOutput(t, proc, "completed startup", subject.startupSignals...)
+			}
+
+			client := &http.Client{Timeout: 2 * time.Second}
+			defer client.CloseIdleConnections()
+			readHealth := func() runtimeStdioMCPHealth {
+				t.Helper()
+				status, body := runtimeArtifactResponse(t, client, healthBaseURL+"/health/mcp")
+				require.Equalf(t, http.StatusOK, status, "MCP health response: %s\n%s", body, proc.output.String())
+				var snapshot runtimeStdioMCPHealth
+				require.NoError(t, json.Unmarshal([]byte(body), &snapshot))
+				return snapshot
+			}
+			before := readHealth()
+			require.Equal(t, "unknown", before.Status)
+			require.False(t, before.Details.Initialize.OK)
+
+			ctx, cancel := context.WithTimeout(t.Context(), runtimeArtifactSignalTimeout)
+			defer cancel()
+			discoverOnce.Do(func() { close(discoverGate) })
+			require.NoErrorf(t, controlPlane.WaitForResponses(ctx, 1), "modern discovery did not complete: %s", proc.output.String())
+			discovered := readHealth()
+			require.Equal(t, "ok", discovered.Status)
+			require.Equal(t, "server_discovered", discovered.State)
+			require.NotEmpty(t, discovered.Details.ChildGeneration)
+			require.Zero(t, discovered.Details.InitializeEpoch)
+			require.False(t, discovered.Details.Initialize.OK)
+			require.Equal(t, uint64(1), discovered.Details.ServerDiscoverEpoch)
+			require.NotNil(t, discovered.Details.ServerDiscover)
+			require.True(t, discovered.Details.ServerDiscover.OK)
+			require.Equal(t, []string{"2026-07-28"}, discovered.Details.ServerDiscover.SupportedVersions)
+			require.Equal(t, []string{"tools"}, discovered.Details.ServerDiscover.CapabilityNames)
+			require.False(t, discovered.Details.ToolsList.OK)
+
+			toolsOnce.Do(func() { close(toolsGate) })
+			require.NoErrorf(t, controlPlane.WaitForResponses(ctx, 2), "modern tools/list did not complete: %s", proc.output.String())
+			catalog := readHealth()
+			require.Equal(t, "ok", catalog.Status)
+			require.Equal(t, "discovered", catalog.State)
+			require.Equal(t, discovered.Details.ChildGeneration, catalog.Details.ChildGeneration)
+			require.Zero(t, catalog.Details.InitializeEpoch)
+			require.False(t, catalog.Details.Initialize.OK)
+			require.True(t, catalog.Details.ToolsList.OK)
+			require.True(t, catalog.Details.ToolsList.Complete)
+			require.Equal(t, []string{"hello"}, catalog.Details.ToolsList.ToolNames)
+
+			messages, err := os.ReadFile(messageLog)
+			require.NoError(t, err)
+			var methods []string
+			for line := range strings.SplitSeq(strings.TrimSpace(string(messages)), "\n") {
+				var request struct {
+					Method string `json:"method"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(line), &request))
+				methods = append(methods, request.Method)
+			}
+			require.Equal(t, []string{"server/discover", "tools/list"}, methods)
+			require.Empty(t, controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchUnexpected))
+			require.NoErrorf(t, proc.stop(), "%s did not shut down cleanly; output:\n%s", subject.name, proc.output.String())
+		})
+	}
+}
+
 func TestRuntimeStdioCommandKeepsShellMetacharactersLiteral(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stdio test helper uses bash")
