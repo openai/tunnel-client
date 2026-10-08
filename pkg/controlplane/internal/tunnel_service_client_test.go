@@ -2030,7 +2030,7 @@ func TestTunnelServiceClientFetchManagedCloudflareTunnelStatusErrorDoesNotReadSe
 	)
 
 	server := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
+		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"error":{"message":"` + runtimeToken + `"}}`))
 	}))
 
@@ -2047,7 +2047,7 @@ func TestTunnelServiceClientFetchManagedCloudflareTunnelStatusErrorDoesNotReadSe
 	require.Error(t, err)
 	var statusErr *APIStatusError
 	require.ErrorAs(t, err, &statusErr)
-	require.Equal(t, http.StatusForbidden, statusErr.StatusCode())
+	require.Equal(t, http.StatusNotFound, statusErr.StatusCode())
 	require.NotContains(t, err.Error(), runtimeToken)
 	require.NotContains(t, logs.String(), runtimeToken)
 }

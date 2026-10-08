@@ -227,6 +227,14 @@ func (s *Supervisor) runtimeToken(ctx context.Context) (string, error) {
 
 	runtime, err := s.fetcher.FetchManagedCloudflareTunnel(ctx)
 	if err != nil {
+		var statusErr interface{ StatusCode() int }
+		if errors.As(err, &statusErr) && statusErr.StatusCode() == http.StatusNotFound {
+			return "", errors.New(
+				"cloudflared: managed runtime credentials request returned HTTP 404; " +
+					"verify that this tunnel was created with managed Cloudflare provisioning, " +
+					"or disable --cloudflared.managed (or CLOUDFLARED_MANAGED)",
+			)
+		}
 		// Fetcher errors may come from arbitrary transports. Keep the startup
 		// error token-safe instead of formatting or chaining it.
 		return "", errors.New("cloudflared: fetch managed runtime credentials failed")

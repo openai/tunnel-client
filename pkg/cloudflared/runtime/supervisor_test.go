@@ -175,6 +175,35 @@ func TestSupervisorManagedFetchFailureIsTokenSafe(t *testing.T) {
 	require.NotContains(t, reason, runtimeToken)
 }
 
+func TestSupervisorManagedFetchNotFoundIsActionableAndTokenSafe(t *testing.T) {
+	t.Parallel()
+
+	const runtimeToken = "managed-runtime-secret-token"
+	fetcher := &managedRuntimeFetcherStub{
+		err: managedRuntimeStatusError{
+			statusCode: http.StatusNotFound,
+			message:    "response included " + runtimeToken,
+		},
+	}
+	cfg := &runtimeconfig.CloudflaredSettings{
+		Managed:      true,
+		Path:         os.Args[0],
+		ReadyTimeout: 3 * time.Second,
+	}
+	supervisor, state := newTestSupervisorWithConfig(t, io.Discard, cfg, fetcher)
+
+	err := supervisor.Start(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "HTTP 404")
+	require.Contains(t, err.Error(), "managed Cloudflare provisioning")
+	require.Contains(t, err.Error(), "disable --cloudflared.managed")
+	require.NotContains(t, err.Error(), runtimeToken)
+	require.Equal(t, 1, fetcher.calls)
+	ready, reason := state.Readiness()
+	require.False(t, ready)
+	require.NotContains(t, reason, runtimeToken)
+}
+
 func TestSupervisorReturnsStartupFailureWhenChildExits(t *testing.T) {
 	t.Parallel()
 
@@ -387,6 +416,19 @@ type managedRuntimeFetcherStub struct {
 	runtime *controlplane.ManagedCloudflareTunnelRuntime
 	err     error
 	calls   int
+}
+
+type managedRuntimeStatusError struct {
+	statusCode int
+	message    string
+}
+
+func (e managedRuntimeStatusError) Error() string {
+	return e.message
+}
+
+func (e managedRuntimeStatusError) StatusCode() int {
+	return e.statusCode
 }
 
 type lockedBuffer struct {
