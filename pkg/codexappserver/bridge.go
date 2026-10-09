@@ -771,11 +771,22 @@ func (b *Bridge) startProcess(done chan struct{}) {
 	}
 
 	b.mu.Lock()
+	b.finishProcessStartLocked()
+	b.mu.Unlock()
+}
+
+func (b *Bridge) finishProcessStartLocked() {
 	b.starting = false
 	b.ready = b.running && !b.shuttingDown
 	if b.ready {
 		b.lastError = ""
 		b.retryAfter = time.Time{}
+		b.publishLocked(Event{
+			Time:    time.Now().UTC(),
+			Source:  "lifecycle",
+			Method:  "process/ready",
+			Summary: "codex app-server ready",
+		})
 	} else if !b.shuttingDown {
 		if b.lastError == "" {
 			b.lastError = "codex app-server exited during startup"
@@ -783,16 +794,6 @@ func (b *Bridge) startProcess(done chan struct{}) {
 		if b.retryAfter.IsZero() {
 			b.retryAfter = time.Now().Add(startupRetryDelay)
 		}
-	}
-	ready := b.ready
-	b.mu.Unlock()
-	if ready {
-		b.publish(Event{
-			Time:    time.Now().UTC(),
-			Source:  "lifecycle",
-			Method:  "process/ready",
-			Summary: "codex app-server ready",
-		})
 	}
 }
 
@@ -1143,6 +1144,10 @@ func (b *Bridge) stageRequestError(stage string, timeout time.Duration, err erro
 func (b *Bridge) waitForExit(cmd *exec.Cmd, done chan struct{}) {
 	defer close(done)
 	err := cmd.Wait()
+	summary := "codex app-server exited"
+	if err != nil {
+		summary = err.Error()
+	}
 
 	b.mu.Lock()
 	if b.cmd != cmd {
@@ -1166,18 +1171,13 @@ func (b *Bridge) waitForExit(cmd *exec.Cmd, done chan struct{}) {
 			b.lastError = err.Error()
 		}
 	}
-	b.mu.Unlock()
-
-	summary := "codex app-server exited"
-	if err != nil {
-		summary = err.Error()
-	}
-	b.publish(Event{
+	b.publishLocked(Event{
 		Time:    time.Now().UTC(),
 		Source:  "lifecycle",
 		Method:  "process/exited",
 		Summary: summary,
 	})
+	b.mu.Unlock()
 }
 
 func (b *Bridge) handleEnvelope(envelope rpcEnvelope, raw json.RawMessage) {
@@ -1364,12 +1364,17 @@ func (b *Bridge) handleEnvelope(envelope rpcEnvelope, raw json.RawMessage) {
 }
 
 func (b *Bridge) publish(event Event) {
+	b.mu.Lock()
+	b.publishLocked(event)
+	b.mu.Unlock()
+}
+
+func (b *Bridge) publishLocked(event Event) {
 	event.Seq = b.eventSeq.Add(1)
 	if event.Time.IsZero() {
 		event.Time = time.Now().UTC()
 	}
 
-	b.mu.Lock()
 	if len(b.eventHistory) > 0 {
 		b.eventHistory[b.eventNext] = event
 		b.eventNext = (b.eventNext + 1) % len(b.eventHistory)
@@ -1377,13 +1382,7 @@ func (b *Bridge) publish(event Event) {
 			b.eventCount++
 		}
 	}
-	subs := make([]chan Event, 0, len(b.subscribers))
 	for sub := range b.subscribers {
-		subs = append(subs, sub)
-	}
-	b.mu.Unlock()
-
-	for _, sub := range subs {
 		select {
 		case sub <- event:
 		default:

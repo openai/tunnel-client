@@ -175,6 +175,65 @@ func TestBridgeUnexpectedExitSetsRetryDelay(t *testing.T) {
 	require.Equal(t, "codex app-server exited", lastError)
 	require.False(t, ready)
 	require.False(t, running)
+
+	seenExit := false
+	for _, event := range bridge.RecentEvents(0) {
+		switch event.Method {
+		case "process/ready":
+			require.False(t, seenExit, "process/ready followed process/exited for the same child")
+		case "process/exited":
+			seenExit = true
+		}
+	}
+	require.True(t, seenExit, "process/exited was not published")
+}
+
+func TestBridgePublishesReadyBeforeProcessLockRelease(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewBridge(nil, nil)
+	cmd := &exec.Cmd{}
+	events := make(chan Event, 2)
+	exitDone := make(chan struct{})
+	var readyEvent Event
+
+	func() {
+		bridge.mu.Lock()
+		defer bridge.mu.Unlock()
+
+		bridge.cmd = cmd
+		bridge.running = true
+		bridge.starting = true
+		bridge.subscribers[events] = struct{}{}
+		go bridge.waitForExit(cmd, exitDone)
+
+		bridge.finishProcessStartLocked()
+		select {
+		case event := <-events:
+			require.Equal(t, "process/ready", event.Method)
+			readyEvent = event
+		default:
+			require.Fail(t, "process/ready was not published before releasing the process lock")
+		}
+	}()
+
+	select {
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for process exit")
+	case <-exitDone:
+	}
+
+	var exitEvent Event
+	select {
+	case exitEvent = <-events:
+		require.Equal(t, "process/exited", exitEvent.Method)
+	default:
+		require.Fail(t, "process/exited was not published before exit completion")
+	}
+	require.Less(t, readyEvent.Seq, exitEvent.Seq)
+	snapshot := bridge.Snapshot()
+	require.False(t, snapshot.Ready)
+	require.False(t, snapshot.Running)
 }
 
 func TestBridgeConcurrentStartupRecoversWithoutLeaking(t *testing.T) {
