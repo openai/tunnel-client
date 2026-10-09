@@ -24,6 +24,7 @@ const (
 	defaultEventCapacity  = 512
 	defaultRequestTimeout = 2 * time.Minute
 	defaultStderrCapacity = 32
+	startupRetryDelay     = 500 * time.Millisecond
 )
 
 type InitializeInfo struct {
@@ -186,6 +187,7 @@ type Bridge struct {
 	lastError     string
 	startedAt     time.Time
 	lastExitAt    time.Time
+	retryAfter    time.Time
 	initialize    InitializeInfo
 	authMethod    string
 	requiresAuth  *bool
@@ -302,9 +304,17 @@ func (b *Bridge) Warmup() {
 func (b *Bridge) EnsureStarted(ctx context.Context) error {
 	for {
 		b.mu.Lock()
+		if b.shuttingDown {
+			b.mu.Unlock()
+			return errors.New("codex bridge is shutting down")
+		}
 		if b.ready {
 			b.mu.Unlock()
 			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			b.mu.Unlock()
+			return err
 		}
 		if b.starting {
 			ch := b.startupCh
@@ -313,6 +323,17 @@ func (b *Bridge) EnsureStarted(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ch:
+			}
+			continue
+		}
+		if delay := time.Until(b.retryAfter); delay > 0 {
+			b.mu.Unlock()
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
 			}
 			continue
 		}
@@ -738,6 +759,7 @@ func (b *Bridge) startProcess(done chan struct{}) {
 		b.starting = false
 		b.ready = false
 		b.lastError = err.Error()
+		b.retryAfter = time.Now().Add(startupRetryDelay)
 		b.mu.Unlock()
 		b.publish(Event{
 			Time:    time.Now().UTC(),
@@ -750,9 +772,28 @@ func (b *Bridge) startProcess(done chan struct{}) {
 
 	b.mu.Lock()
 	b.starting = false
-	b.ready = true
-	b.lastError = ""
+	b.ready = b.running && !b.shuttingDown
+	if b.ready {
+		b.lastError = ""
+		b.retryAfter = time.Time{}
+	} else if !b.shuttingDown {
+		if b.lastError == "" {
+			b.lastError = "codex app-server exited during startup"
+		}
+		if b.retryAfter.IsZero() {
+			b.retryAfter = time.Now().Add(startupRetryDelay)
+		}
+	}
+	ready := b.ready
 	b.mu.Unlock()
+	if ready {
+		b.publish(Event{
+			Time:    time.Now().UTC(),
+			Source:  "lifecycle",
+			Method:  "process/ready",
+			Summary: "codex app-server ready",
+		})
+	}
 }
 
 func (b *Bridge) startProcessLocked() error {
@@ -775,7 +816,17 @@ func (b *Bridge) startProcessLocked() error {
 		_ = stdout.Close()
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
+
+	b.mu.Lock()
+	if b.shuttingDown {
+		b.mu.Unlock()
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return errors.New("codex bridge is shutting down")
+	}
 	if err := cmd.Start(); err != nil {
+		b.mu.Unlock()
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
@@ -783,7 +834,6 @@ func (b *Bridge) startProcessLocked() error {
 	}
 
 	waitDone := make(chan struct{})
-	b.mu.Lock()
 	b.cmd = cmd
 	b.pid = cmd.Process.Pid
 	b.stdin = stdin
@@ -797,14 +847,11 @@ func (b *Bridge) startProcessLocked() error {
 	go b.waitForExit(cmd, waitDone)
 
 	if err := b.initializeProcess(context.Background()); err != nil {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		<-waitDone
 		return err
 	}
-	b.publish(Event{
-		Time:    time.Now().UTC(),
-		Source:  "lifecycle",
-		Method:  "process/ready",
-		Summary: "codex app-server ready",
-	})
 	return nil
 }
 
@@ -1098,19 +1145,26 @@ func (b *Bridge) waitForExit(cmd *exec.Cmd, done chan struct{}) {
 	err := cmd.Wait()
 
 	b.mu.Lock()
+	if b.cmd != cmd {
+		b.mu.Unlock()
+		return
+	}
 	for id, pending := range b.pending {
 		delete(b.pending, id)
 		pending.ch <- rpcEnvelope{Error: &rpcError{Message: "codex app-server exited"}}
 	}
 	b.ready = false
-	b.starting = false
 	b.stdin = nil
 	b.cmd = nil
 	b.pid = 0
 	b.running = false
 	b.lastExitAt = time.Now().UTC()
-	if err != nil && !b.shuttingDown {
-		b.lastError = err.Error()
+	if !b.shuttingDown {
+		b.retryAfter = time.Now().Add(startupRetryDelay)
+		b.lastError = "codex app-server exited"
+		if err != nil {
+			b.lastError = err.Error()
+		}
 	}
 	b.mu.Unlock()
 
