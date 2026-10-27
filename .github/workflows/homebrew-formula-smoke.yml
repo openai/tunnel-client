@@ -1,6 +1,19 @@
 name: Homebrew formula smoke
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/homebrew-formula-smoke.yml
+      - pkg/version/VERSION
+      - scripts/generate_homebrew_formula.sh
+      - scripts/homebrew_service_smoke.py
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/homebrew-formula-smoke.yml
+      - pkg/version/VERSION
+      - scripts/generate_homebrew_formula.sh
+      - scripts/homebrew_service_smoke.py
   workflow_dispatch:
     inputs:
       release_tag:
@@ -21,16 +34,18 @@ jobs:
         id: release_meta
         env:
           HOMEBREW_RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          while IFS='=' read -r key value; do
-            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
-          done < <(./scripts/release_tag.sh parse "${HOMEBREW_RELEASE_TAG}")
+          if [ -z "${HOMEBREW_RELEASE_TAG}" ]; then
+            HOMEBREW_RELEASE_TAG="$(gh api repos/openai/tunnel-client/releases/latest --jq .tag_name)"
+          fi
+          ./scripts/release_tag.sh parse "${HOMEBREW_RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
       - name: Download published release checksums
         run: |
           curl -fsSLo SHA256SUMS.txt "${{ steps.release_meta.outputs.public_base_url }}/SHA256SUMS.txt"
       - name: Render and validate Homebrew formula
         env:
-          HOMEBREW_RELEASE_TAG: ${{ inputs.release_tag }}
+          HOMEBREW_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
         run: |
           ./scripts/generate_homebrew_formula.sh \
             --tag "${HOMEBREW_RELEASE_TAG}" \
@@ -51,3 +66,14 @@ jobs:
           test -x "${prefix}/libexec/tunnel-client"
           test -x "${prefix}/libexec/cloudflared"
           test -f "${prefix}/libexec/cloudflared-manifest.json"
+      - name: Test Homebrew service lifecycle
+        run: |
+          python3 scripts/homebrew_service_smoke.py \
+            --formula openai/tunnel-client-test/tunnel-client \
+            --output "${{ runner.temp }}/tunnel-client-homebrew-service"
+      - name: Preserve Homebrew service evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tunnel-client-homebrew-service
+          path: ${{ runner.temp }}/tunnel-client-homebrew-service

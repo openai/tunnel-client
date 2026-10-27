@@ -199,8 +199,11 @@ then run `tunnel-client runtimes stop <alias>` before starting the service.
 Copy the profile to the service location, preserving your custom settings:
 
 ```bash
-cp /absolute/path/to/existing-profile.yaml "$(brew --prefix)/etc/tunnel-client.yaml"
-chmod 600 "$(brew --prefix)/etc/tunnel-client.yaml"
+service_profile="$(brew --prefix)/etc/tunnel-client.yaml"
+if [ -e "$service_profile" ]; then
+  cp -p "$service_profile" "$service_profile.backup.$(date +%Y%m%d%H%M%S)"
+fi
+install -m 600 /absolute/path/to/existing-profile.yaml "$service_profile"
 ```
 
 Use absolute paths in this profile, including paths to MCP executables,

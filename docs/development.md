@@ -277,3 +277,34 @@ Stable touch points:
 - `pkg/*`: implementation packages
 - `e2e/`: end-to-end tests using in-repo mocks
 - `testsupport/`: test helpers and doubles
+
+### Homebrew service validation
+
+The Homebrew formula smoke workflow runs for packaging changes on pull requests
+and `master`, and can also be dispatched for a chosen release. It installs the
+latest published stable release (or the selected release) in a test tap
+and runs `scripts/homebrew_service_smoke.py` on macOS. The script exercises
+start, info, restart, SIGTERM recovery, and stop against a loopback control-plane
+fixture with a generated file-based key. It checks launchd ownership, the stable
+`opt` executable, foreground execution, health/readiness, successful authenticated
+polls, logs, unchanged profile bytes and permissions, and login job removal.
+It also checks that `doctor` rejects a missing profile.
+
+On a disposable Mac with the test formula installed, run:
+
+```bash
+python3 scripts/homebrew_service_smoke.py \
+  --formula openai/tunnel-client-test/tunnel-client \
+  --output /absolute/path/to/new-evidence-directory
+```
+
+Run as a logged-in user without `sudo`. The script refuses an existing service
+profile, launch agent, or runtime; it never replaces customized profiles. It stops
+the test service and removes its profile, retaining commands, logs, the generated
+profile and launchd definition in the evidence directory. If cleanup fails, stop
+the service before removing the retained fixture files. The generated key grants
+access only to the in-process loopback fixture.
+
+Logout/login remains a manual check: start the service with a persistent real
+profile, log out and back in, then check `brew services info`, health/readiness,
+and logs without manually starting the runtime. Stop the service afterward.
