@@ -539,6 +539,13 @@ upstream headers before posting the payload. This includes MCP capability error
 `-32003` and version error `-32004`; do not replace or decorate either with
 `-32603`.
 
+When an MCP transport returns an HTTP response, the client copies the server’s
+`X-Request-Id` into `resp_headers` as `X-Tunnel-Mcp-Request-Id`.
+It is omitted when absent or named by `Connection`. Older clients and
+services may omit it. The connector’s own HTTP request ID is independent.
+Harpoon’s built-in `call_target` tool returns the target HTTP response headers
+in its tool result.
+
 At the connector boundary, tunnel-service maps every informational `1xx` status
 to `502` because an informational response cannot terminate the request. Among
 final-response statuses, it preserves values recognized by its HTTP runtime,

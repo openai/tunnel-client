@@ -1257,6 +1257,8 @@ func TestTunnelServiceClientPostResponseSanitizesResponseHeaders(t *testing.T) {
 		"Set-Cookie":                    {"target-session=secret"},
 		"WWW-Authenticate":              {`Bearer realm="first"`, "", `Bearer realm="second"`},
 		"X-Internal-Response":           {"internal-secret"},
+		"x-ReQuEsT-iD":                  {"upstream-id"},
+		"X-Tunnel-Mcp-Request-Id":       {"ignored-alias"},
 		"cOnNeCtIoN":                    {" Last-Event-ID, X-Internal-Response "},
 		"mcp-protocol-version":          {"", "2025-06-18"},
 		"wWw-aUtHeNtIcAtE":              {`Bearer realm="third"`},
@@ -1265,6 +1267,7 @@ func TestTunnelServiceClientPostResponseSanitizesResponseHeaders(t *testing.T) {
 		"Access-Control-Expose-Headers": {"Mcp-Protocol-Version"},
 		"Mcp-Protocol-Version":          {"2025-03-26", "2025-06-18"},
 		"Www-Authenticate":              {`Bearer realm="first"`, `Bearer realm="second"`, `Bearer realm="third"`},
+		"X-Tunnel-Mcp-Request-Id":       {"upstream-id"},
 	}
 
 	tests := []struct {
@@ -1289,7 +1292,7 @@ func TestTunnelServiceClientPostResponseSanitizesResponseHeaders(t *testing.T) {
 			responseType: wiretypes.ResponsePayloadJSONRPCNotify,
 			response: func() *types.TunnelResponse {
 				return types.NewJSONRPCNotification(
-					types.DefaultChannel,
+					types.ChannelHarpoon,
 					json.RawMessage(`{"jsonrpc":"2.0","method":"notifications/progress"}`),
 					http.StatusOK,
 					requestHeaders,
@@ -1375,6 +1378,13 @@ func TestSanitizeMCPResponseHeadersPreservesCanonicalAllowlist(t *testing.T) {
 		require.Equal(t, values, roundTripped.Values(name), name)
 		require.NotEmpty(t, roundTripped.Get(name), name)
 	}
+}
+
+func TestSanitizeMCPResponseHeadersDropsConnectionNominatedRequestID(t *testing.T) {
+	t.Parallel()
+	headers := http.Header{"X-Request-Id": {"upstream-id"}}
+	headers.Set("Connection", "X-REQUEST-ID")
+	require.Empty(t, sanitizeMCPResponseHeaders(headers))
 }
 
 func TestTunnelServiceClientPostResponseOAuthDiscovery(t *testing.T) {

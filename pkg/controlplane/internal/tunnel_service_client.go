@@ -835,6 +835,9 @@ func canonicalResponseHeaderName(normalizedName string) (string, bool) {
 		return "Mcp-Session-Id", true
 	case "www-authenticate":
 		return "Www-Authenticate", true
+	case "x-request-id":
+		// Keep the MCP server's ID distinct from the tunnel service's HTTP request ID.
+		return "X-Tunnel-Mcp-Request-Id", true
 	default:
 		return "", false
 	}
