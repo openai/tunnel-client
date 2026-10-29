@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,6 +21,10 @@ func (f exchangeTransport) RoundTrip(r *http.Request) (*http.Response, error) { 
 
 func TestAWSWorkloadIdentityExchangesAndCachesTokens(t *testing.T) {
 	// Use only fixture credentials. Exercise both real SDKs against protocol fixtures.
+	configDir := t.TempDir()
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(configDir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(configDir, "credentials"))
 	t.Setenv("AWS_REGION", "us-east-2")
 	t.Setenv("AWS_ACCESS_KEY_ID", "fixture-id")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "fixture-secret")
