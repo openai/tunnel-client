@@ -31,6 +31,34 @@ go build \
 
 ## Releases
 
+The separate **Experimental Android runtime** workflow validates an
+Android/arm64 cgo build on pull requests, `master`, and manual runs. It uses
+Go 1.27.3 and checksum-pinned Android NDK r30 (`30.0.16248370`) targeting API 28,
+and retains workflow artifacts for 14 days. Every tagged release also builds
+and publishes the Android plain-runtime ZIP, license report, and SPDX sidecar
+through the regular release workflow. Its build is a required release job;
+checksums, vulnerability evidence, public URLs, and signed provenance include
+the Android artifacts. Device support remains experimental.
+The full-client/Cloudflare binaries and narrow source-archive rebuild contract
+retain their existing six platforms. See [Android runtime](android-runtime.md)
+for local builds, release packaging, and device checks.
+
+The build-tooling tests do not require an NDK:
+
+```bash
+bash scripts/build_android_runtime_test.sh
+bash scripts/package_android_runtime_test.sh
+python3 scripts/android_license_report_test.py
+python3 scripts/android_release_workflow_test.py
+```
+
+New releases require 19 binary scan inputs: the existing three flavors on six
+platforms plus `runtime/android-arm64`. The release workflow passes
+`--require-android-runtime` to both the evidence generator and verifier.
+Without that option, the tools still verify older 18-input releases and
+automatically include a complete Android ZIP/SPDX/license triplet when present.
+Partial Android payloads fail verification.
+
 Before creating a release tag, stamp the source version so downloaded release
 archives build with the tag semantic version:
 

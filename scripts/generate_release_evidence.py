@@ -173,10 +173,36 @@ def artifact_purl(match: dict[str, Any]) -> str | None:
     return None
 
 
-def expected_inputs(artifact_dir: pathlib.Path, release: str) -> list[dict[str, Any]]:
+def expected_inputs(
+    artifact_dir: pathlib.Path, release: str, require_android_runtime: bool = False
+) -> list[dict[str, Any]]:
+    android_stem = f"tunnel-client-runtime-{release}-android-arm64"
+    android_files = {
+        f"{android_stem}.zip",
+        f"{android_stem}.spdx.json",
+        f"{android_stem}-licenses.txt",
+    }
+    present_android_files = {
+        path.name
+        for path in artifact_dir.iterdir()
+        if any(path.name.startswith(f"{prefix}-{release}-android-") for _, prefix in FLAVORS)
+    }
+    unexpected = present_android_files - android_files
+    if unexpected:
+        fail(f"unsupported Android release artifacts: {sorted(unexpected)}")
+    include_android = require_android_runtime or bool(present_android_files)
+    if include_android and present_android_files != android_files:
+        fail(
+            "Android runtime release artifacts are incomplete: "
+            f"missing={sorted(android_files - present_android_files)}"
+        )
+
     inputs: list[dict[str, Any]] = []
     for flavor, prefix in FLAVORS:
-        for platform in PLATFORMS:
+        platforms = PLATFORMS + (
+            ("android-arm64",) if include_android and flavor == "runtime" else ()
+        )
+        for platform in platforms:
             stem = f"{prefix}-{release}-{platform}"
             zip_path = regular_file(artifact_dir / f"{stem}.zip", "release ZIP")
             sbom_path = regular_file(artifact_dir / f"{stem}.spdx.json", "release SPDX")
@@ -224,6 +250,14 @@ def main() -> None:
     parser.add_argument("--artifact-dir", required=True)
     parser.add_argument("--grype", required=True)
     parser.add_argument("--generated-at")
+    parser.add_argument(
+        "--require-android-runtime",
+        action="store_true",
+        help=(
+            "require the Android arm64 runtime archive, SPDX, and license report "
+            "in addition to legacy platforms"
+        ),
+    )
     args = parser.parse_args()
 
     if not RELEASE_RE.fullmatch(args.release):
@@ -238,7 +272,7 @@ def main() -> None:
         fail(f"--grype must be an executable regular file: {args.grype}")
     timestamp = generated_at(args.generated_at)
 
-    inputs = expected_inputs(artifact_dir, args.release)
+    inputs = expected_inputs(artifact_dir, args.release, args.require_android_runtime)
     scans: list[dict[str, Any]] = []
     scanner: dict[str, Any] | None = None
     findings_by_vulnerability: defaultdict[str, dict[str, Any]] = defaultdict(

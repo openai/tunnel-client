@@ -23,6 +23,7 @@ ADMIN_UI_PNPM_STORE_DIR ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/tunnel-client-adminui-
 MAKE_ALL_JOBS ?= 3
 GO_TEST_PACKAGE_JOBS ?=
 GOPROXY ?= https://proxy.golang.org
+ANDROID_API ?= 28
 ifeq ($(OS),windows)
   BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(TARGET).exe
   RUNTIME_BIN = bin/$(OS)_$(ARCH)$(if $(GOARM),v$(GOARM),)/$(RUNTIME_TARGET).exe
@@ -62,7 +63,7 @@ CLIENT_STAGE_LICENSE_NAME := $(TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_STAGE_LICENSE_NAME := $(RUNTIME_TARGET)-$(OS)-$(ARCH)-licenses.txt
 RUNTIME_CLOUDFLARED_STAGE_LICENSE_NAME := $(RUNTIME_CLOUDFLARED_TARGET)-$(OS)-$(ARCH)-licenses.txt
 
-.PHONY: all help fmt test test-go-race test-runtime test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-go-cache clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
+.PHONY: all help fmt test test-go-race test-runtime test-runtime-android-build test-runtime-release-archive runtime-container-compatibility runtime-k8s-compatibility clean clean-client clean-go-cache clean-runtime build-image build-image-runtime build-image-runtime-cloudflared mod-tidy admin-ui admin-ui-test release-source-version release-tag end-user-guide-screenshots end-user-guide-html end-user-guide-slides tunnel-client-runtime tunnel-client-runtime-cloudflared runtime runtime-android runtime-cloudflared sbom sbom-runtime sbom-runtime-cloudflared sbom-baselines verify-sbom-baselines verify-license-reports
 
 # Keep an explicit mixed-goal invocation such as make -j all tunnel-client from
 # racing all's clean/tidy/format phase against a sibling goal. The default
@@ -90,10 +91,12 @@ help:
 	@echo "  $(RUNTIME_TARGET) - Build the narrow customer runtime binary"
 	@echo "  $(RUNTIME_CLOUDFLARED_TARGET) - Build the runtime binary with the pinned cloudflared companion"
 	@echo "  runtime       - Short alias for $(RUNTIME_TARGET)"
+	@echo "  runtime-android - Build the experimental Android/arm64 runtime with NDK r30 and cgo"
 	@echo "  runtime-cloudflared - Short alias for $(RUNTIME_CLOUDFLARED_TARGET)"
 	@echo "  test          - Run Go and admin UI tests"
 	@echo "  test-go-race  - Run race-enabled Go tests"
 	@echo "  test-runtime  - Run runtime package and runtime artifact tests"
+	@echo "  test-runtime-android-build - Test Android build configuration and artifact validation"
 	@echo "  test-runtime-release-archive - Package, verify, extract, and smoke-test native runtime ZIP fixtures"
 	@echo "  runtime-container-compatibility - Smoke-test already-built runtime images with hardened mounts"
 	@echo "  runtime-k8s-compatibility - Opt-in kind/k3d deployment smoke for already-built runtime images"
@@ -125,6 +128,8 @@ help:
 	@echo "Environment variables:"
 	@echo "  GOOS         - Target OS (default: $(OS))"
 	@echo "  GOARCH       - Target architecture (default: $(ARCH))"
+	@echo "  ANDROID_NDK_HOME - NDK r30 directory for runtime-android (ANDROID_NDK_ROOT also accepted)"
+	@echo "  ANDROID_API  - Android minimum API for runtime-android (default: 28)"
 	@echo "  GIT_SHA      - Git SHA/tag for version info and Docker tagging"
 	@echo "  GOPROXY      - Proxy-only Go module source for bundled cloudflared builds"
 	@echo "  MAKE_ALL_JOBS - Maximum concurrent test/build jobs used by make all (default: $(MAKE_ALL_JOBS))"
@@ -149,6 +154,9 @@ test-runtime: runtime runtime-cloudflared test-runtime-release-archive
 test-runtime-release-archive: runtime runtime-cloudflared
 	./scripts/runtime_release_archive_smoke_test.sh --flavor runtime --binary $(RUNTIME_BIN) --target-os $(OS) --target-arch $(ARCH)
 	./scripts/runtime_release_archive_smoke_test.sh --flavor runtime-cloudflared --binary $(RUNTIME_CLOUDFLARED_BIN) --target-os $(OS) --target-arch $(ARCH)
+
+test-runtime-android-build:
+	bash ./scripts/build_android_runtime_test.sh
 
 mod-tidy:
 	go mod tidy
@@ -221,6 +229,9 @@ tunnel-client-runtime-cloudflared:
 	ln -sf $(RUNTIME_CLOUDFLARED_ABS_BIN) $(RUNTIME_CLOUDFLARED_STABLE_BIN)
 
 runtime: tunnel-client-runtime
+
+runtime-android:
+	+ANDROID_NDK_HOME="$(ANDROID_NDK_HOME)" ANDROID_NDK_ROOT="$(ANDROID_NDK_ROOT)" ANDROID_API="$(ANDROID_API)" ./scripts/build_android_runtime.sh
 
 runtime-cloudflared: tunnel-client-runtime-cloudflared
 

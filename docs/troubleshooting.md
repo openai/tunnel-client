@@ -16,6 +16,24 @@
 - **"MCP server URL is required"**
   - Set `MCP_SERVER_URL` or `--mcp.server-url=...`.
 
+## DNS failures and Android / Termux
+
+The first DNS failure on a control-plane transport produces a
+`control-plane DNS resolution failed` warning with bounded failure, build,
+and resolver-configuration fields. It does not include the queried name,
+nameserver address, URLs, or credentials. Existing health categories and poll
+errors, such as `network_error`, remain unchanged; inspect the warning for
+additional context.
+
+On Android, a Linux binary with cgo disabled can attempt `[::1]:53` because
+`/etc/resolv.conf` is missing. Termux's `$PREFIX/etc/resolv.conf` is not read by
+that stock Linux binary, and `GODEBUG=netdns=cgo` cannot add native resolver
+support to it. Use the experimental
+[Android ARM64 runtime build](android-runtime.md) and follow its validation
+steps. Other DNS failures can involve a proxy hostname, network connectivity,
+VPN policy, or the system resolver; the warning's cgo field describes the
+build, not the active resolver.
+
 ## macOS Gatekeeper blocks a downloaded archive
 
 Directly downloaded macOS release ZIPs are not currently notarized and can be

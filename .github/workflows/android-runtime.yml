@@ -1,0 +1,61 @@
+name: Experimental Android runtime
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-arm64:
+    name: Android arm64 / Bionic DNS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: "4"
+      NDK_ARCHIVE_SHA256: 753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.27.3"
+          cache: true
+      - name: Test DNS diagnostics and Android build tooling
+        run: |
+          go test -race ./pkg/controlplane/internal
+          bash scripts/build_android_runtime_test.sh
+          bash scripts/package_android_runtime_test.sh
+          python3 scripts/android_license_report_test.py
+          python3 scripts/release_evidence_test.py
+          python3 scripts/android_release_workflow_test.py
+      - name: Install pinned Android NDK r30
+        run: |
+          archive="$RUNNER_TEMP/android-ndk-r30-linux.zip"
+          curl --fail --location --retry 3 \
+            https://dl.google.com/android/repository/android-ndk-r30-linux.zip \
+            --output "$archive"
+          printf '%s  %s\n' "$NDK_ARCHIVE_SHA256" "$archive" | sha256sum --check
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+      - name: Build and verify Android release payload
+        run: |
+          ANDROID_NDK_HOME="$RUNNER_TEMP/android-ndk-r30" \
+            ./scripts/package_android_runtime.sh \
+              --version "v$(cat pkg/version/VERSION)" \
+              --source-commit "$GITHUB_SHA" \
+              --output-dir dist/public \
+              --metadata-dir dist/release-metadata
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tunnel-client-runtime-android-arm64-experimental
+          path: |
+            dist/public/**
+            dist/release-metadata/**
+          if-no-files-found: error
+          retention-days: 14

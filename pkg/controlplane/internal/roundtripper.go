@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openai/tunnel-client/pkg/clientcapabilities"
@@ -80,6 +81,7 @@ type controlPlaneRoundTripper struct {
 	extraHeaders        map[string]string
 	logger              *slog.Logger
 	traceContextEnabled bool
+	dnsDiagnosticOnce   sync.Once
 }
 
 func newControlPlaneRoundTripper(base http.RoundTripper, bearerToken func(context.Context) (string, error), userAgent, organizationID string, mcpServerInfo func() (string, error), extraHeaders map[string]string, logger *slog.Logger, tracingEnabled ...bool) http.RoundTripper {
@@ -131,7 +133,9 @@ func (c *controlPlaneRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 		req.Header.Set(headerOpenAIOrganization, c.organizationID)
 	}
 
-	return c.base.RoundTrip(req)
+	resp, err := c.base.RoundTrip(req)
+	c.logDNSFailure(req.Context(), err)
+	return resp, err
 }
 
 func (c *controlPlaneRoundTripper) applyExtraHeaders(ctx context.Context, headers http.Header) {

@@ -74,6 +74,12 @@ jobs:
         run: ./scripts/check_runtime_binary_markers.sh --flavor runtime-cloudflared
       - name: Test release tag tooling
         run: bash ./scripts/release_tag_test.sh
+      - name: Test Android release tooling
+        run: |
+          bash ./scripts/build_android_runtime_test.sh
+          bash ./scripts/package_android_runtime_test.sh
+          python3 ./scripts/android_license_report_test.py
+          python3 ./scripts/android_release_workflow_test.py
       - name: Test Homebrew formula tooling
         run: bash ./scripts/generate_homebrew_formula_test.sh
       - name: Test Homebrew publishing tooling
@@ -515,6 +521,49 @@ jobs:
             dist/package-input/client/**
           if-no-files-found: error
 
+  build-android:
+    name: Build experimental Android runtime (arm64)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NDK_ARCHIVE_SHA256: 753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install pinned Android NDK r30
+        run: |
+          archive="$RUNNER_TEMP/android-ndk-r30-linux.zip"
+          curl --fail --location --retry 3 \
+            https://dl.google.com/android/repository/android-ndk-r30-linux.zip \
+            --output "$archive"
+          printf '%s  %s\n' "$NDK_ARCHIVE_SHA256" "$archive" | sha256sum --check
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+      - name: Build and verify Android release payload
+        run: |
+          asset_version="v$(cat pkg/version/VERSION)"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            eval "$(./scripts/release_tag.sh parse "$GITHUB_REF_NAME")"
+            asset_version="$release_tag"
+          fi
+          ANDROID_NDK_HOME="$RUNNER_TEMP/android-ndk-r30" \
+            ./scripts/package_android_runtime.sh \
+              --version "$asset_version" \
+              --source-commit "$GITHUB_SHA" \
+              --output-dir dist/public \
+              --metadata-dir dist/release-metadata
+      - name: Upload Android release payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets-android-arm64
+          path: |
+            dist/public/**
+            dist/release-metadata/**
+          if-no-files-found: error
+
   source-export:
     name: Build runtime source exports
     needs: test
@@ -620,6 +669,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - build
+      - build-android
       - source-export
       - container
       - runtime-container
@@ -732,10 +782,24 @@ jobs:
                           raise SystemExit(f"payload metadata {field} digest mismatch: {metadata_file}")
                       evidence["url"] = artifact["url"]
                   records.append(record)
-              if len(records) != 6:
-                  raise SystemExit(
-                      f"expected six payload metadata files for {flavor}, got {len(records)}"
-                  )
+              expected_platforms = {
+                  (goos, goarch)
+                  for goos in ("linux", "darwin", "windows")
+                  for goarch in ("amd64", "arm64")
+              }
+              if flavor == "runtime":
+                  expected_platforms.add(("android", "arm64"))
+              actual_platforms = [(record["goos"], record["goarch"]) for record in records]
+              if len(actual_platforms) != len(expected_platforms) or set(actual_platforms) != expected_platforms:
+                  raise SystemExit(f"payload metadata platform set differs for {flavor}")
+              for record in records:
+                  if record["goos"] == "android":
+                      record["sourceBuild"] = {
+                          "repository": "https://github.com/openai/tunnel-client",
+                          "commitSHA": record["commitSHA"],
+                          "command": "make runtime-android",
+                          "source": "full-repository-checkout",
+                      }
               return sorted(records, key=lambda record: (record["goos"], record["goarch"]))
 
           def container_metadata(flavor: str) -> dict:
@@ -896,6 +960,11 @@ jobs:
                   "artifacts": artifacts(patterns),
                   "releaseSidecars": release_sidecars,
                   "platformArtifacts": platform_artifacts,
+                  "sourceArchivePlatforms": [
+                      f"{goos}/{goarch}"
+                      for goos in ("linux", "darwin", "windows")
+                      for goarch in ("amd64", "arm64")
+                  ],
                   "ociImage": image,
                   "cloudflaredManifestSHA256": cloudflared_digests[0] if cloudflared_digests else None,
                   "includedPackages": included,
@@ -904,7 +973,7 @@ jobs:
                   "requiredScanInputs": [
                       "exact platform ZIP or OCI image digest",
                       "matching release-specific SPDX and license report",
-                      "matching first-party runtime source archive",
+                      "matching first-party runtime source archive for sourceArchivePlatforms; exact public sourceBuild checkout for Android",
                   ] + (
                       ["verified pinned upstream cloudflared source archive"]
                       if flavor == "runtime-cloudflared"
@@ -935,6 +1004,7 @@ jobs:
             --release "${GITHUB_REF_NAME}" \
             --source-digest "${GITHUB_SHA}" \
             --artifact-dir dist/public \
+            --require-android-runtime \
             --grype "${{ steps.grype.outputs.path }}"
 
       - name: Generate SHA256 checksums
@@ -986,6 +1056,12 @@ jobs:
                 --checksums SHA256SUMS.txt
             done
           done
+          android_stem="tunnel-client-runtime-${GITHUB_REF_NAME}-android-arm64"
+          "${GITHUB_WORKSPACE}/scripts/verify_release_archive.sh" \
+            --flavor runtime \
+            --archive "${android_stem}.zip" \
+            --sbom "${android_stem}.spdx.json" \
+            --checksums SHA256SUMS.txt
 
       - name: Generate public URLs
         working-directory: dist/public
@@ -1015,6 +1091,7 @@ jobs:
           ./scripts/verify_release_evidence.sh \
             --artifact-dir dist/public \
             --release "${GITHUB_REF_NAME}" \
+            --require-android-runtime \
             --source-digest "${GITHUB_SHA}"
 
       - name: Verify release artifact contract
@@ -1033,7 +1110,11 @@ jobs:
             windows-arm64
           )
           for flavor in tunnel-client tunnel-client-runtime tunnel-client-runtime-cloudflared; do
-            for platform in "${platforms[@]}"; do
+            flavor_platforms=("${platforms[@]}")
+            if [[ "$flavor" == tunnel-client-runtime ]]; then
+              flavor_platforms+=(android-arm64)
+            fi
+            for platform in "${flavor_platforms[@]}"; do
               stem="${flavor}-${GITHUB_REF_NAME}-${platform}"
               test -f "${stem}.zip"
               test -f "${stem}.spdx.json"
@@ -1070,9 +1151,9 @@ jobs:
               .schemaVersion == 1 and
               (.artifacts | length > 0) and
               (.releaseSidecars.client | length == 6) and
-              (.releaseSidecars.runtime | length == 6) and
+              (.releaseSidecars.runtime | length == 7) and
               (.releaseSidecars["runtime-cloudflared"] | length == 6) and
-              (.platformArtifacts | length == 6) and
+              ((.platformArtifacts | length) == (if .flavor == "runtime" then 7 else 6 end)) and
               (.ociImage.digest | test("^sha256:[0-9a-f]{64}$")) and
               (.ociImage.buildkitSbomAttestation == true) and
               (.ociImage.provenanceAttestation == true)
@@ -1151,6 +1232,16 @@ jobs:
                 "tunnel-client-runtime-cloudflared-${GITHUB_REF_NAME}-${platform}.spdx.json"
             done
           done
+          for suffix in .zip .spdx.json -licenses.txt; do
+            assert_manifest_artifact \
+              "${runtime_manifest}" \
+              "tunnel-client-runtime-${GITHUB_REF_NAME}-android-arm64${suffix}"
+          done
+          for manifest in "${runtime_manifest}" "${runtime_cloudflared_manifest}"; do
+            assert_release_sidecar \
+              "${manifest}" runtime \
+              "tunnel-client-runtime-${GITHUB_REF_NAME}-android-arm64.spdx.json"
+          done
           assert_platform_metadata() {
             local manifest="$1"
             local prefix="$2"
@@ -1173,7 +1264,8 @@ jobs:
                   .licenseReport.name == $license and
                   (.preSbomPayload.sha256 | test("^[0-9a-f]{64}$")) and
                   (.commitSHA | test("^[0-9a-f]{40}$")) and
-                  .buildFlags == ["-trimpath", "-buildvcs=false"]
+                  .buildFlags == (if $goos == "android" then ["-trimpath", "-buildvcs=false", "-buildmode=pie"] else ["-trimpath", "-buildvcs=false"] end) and
+                  .cgoEnabled == (if $goos == "android" then "1" else "0" end)
                 )
             ' "${manifest}" >/dev/null
           }
@@ -1181,6 +1273,16 @@ jobs:
             assert_platform_metadata "${runtime_manifest}" tunnel-client-runtime "${platform}"
             assert_platform_metadata "${runtime_cloudflared_manifest}" tunnel-client-runtime-cloudflared "${platform}"
           done
+          assert_platform_metadata "${runtime_manifest}" tunnel-client-runtime android-arm64
+          jq -e '
+            .platformArtifacts | any(
+              .goos == "android" and .goarch == "arm64" and
+              .supportStatus == "experimental" and
+              .androidToolchain == {"ndkRevision":"30.0.16248370","minimumAPI":28} and
+              .sourceBuild.source == "full-repository-checkout" and
+              .sourceBuild.commitSHA == .commitSHA
+            )
+          ' "${runtime_manifest}" >/dev/null
           assert_manifest_artifact "${runtime_manifest}" "${runtime_source}"
           assert_manifest_artifact "${runtime_cloudflared_manifest}" "${runtime_cloudflared_source}"
           assert_manifest_artifact "${runtime_cloudflared_manifest}" "${cloudflared_sources[0]}"

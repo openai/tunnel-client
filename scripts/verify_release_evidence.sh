@@ -7,11 +7,14 @@ Usage:
   verify_release_evidence.sh \
     --artifact-dir <release-artifact-directory> \
     --release <vX.Y.Z> \
-    --source-digest <40-character-commit-sha>
+    --source-digest <40-character-commit-sha> \
+    [--require-android-runtime]
 
 Fails closed unless the release vulnerability report, conditional OpenVEX
 document, enterprise evidence manifest, checksums, and public URL inventory
-describe the same regular release artifacts and exact bytes.
+describe the same regular release artifacts and exact bytes. Android runtime
+artifacts are verified when present; --require-android-runtime also rejects
+older release layouts that omit them entirely.
 EOF
 }
 
@@ -23,6 +26,7 @@ die() {
 artifact_dir=""
 release=""
 source_digest=""
+require_android_runtime=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --artifact-dir)
@@ -39,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n "${2:-}" ]] || die "--source-digest requires a value"
       source_digest="${2:-}"
       shift 2
+      ;;
+    --require-android-runtime)
+      require_android_runtime=1
+      shift
       ;;
     -h|--help)
       usage
@@ -61,7 +69,7 @@ done
 command -v python3 >/dev/null 2>&1 || die "python3 is required"
 
 artifact_dir="$(cd "${artifact_dir}" && pwd)"
-python3 - "${artifact_dir}" "${release}" "${source_digest}" <<'PY'
+python3 - "${artifact_dir}" "${release}" "${source_digest}" "${require_android_runtime}" <<'PY'
 from __future__ import annotations
 
 import fnmatch
@@ -78,6 +86,7 @@ from typing import Any
 artifact_dir = pathlib.Path(sys.argv[1])
 release = sys.argv[2]
 source_digest = sys.argv[3]
+require_android_runtime = sys.argv[4] == "1"
 sha256_re = re.compile(r"^[0-9a-f]{64}$")
 name_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 platforms = (
@@ -172,9 +181,33 @@ for required in (report_name, manifest_name, "SHA256SUMS.txt", "PUBLIC_URLS.txt"
 
 
 def expected_inputs() -> list[dict[str, Any]]:
+    android_stem = f"tunnel-client-runtime-{release}-android-arm64"
+    android_files = {
+        f"{android_stem}.zip",
+        f"{android_stem}.spdx.json",
+        f"{android_stem}-licenses.txt",
+    }
+    present_android_files = {
+        name
+        for name in root_files
+        if any(name.startswith(f"{prefix}-{release}-android-") for _, prefix in flavors)
+    }
+    unexpected = present_android_files - android_files
+    if unexpected:
+        fail(f"unsupported Android release artifacts: {sorted(unexpected)}")
+    include_android = require_android_runtime or bool(present_android_files)
+    if include_android and present_android_files != android_files:
+        fail(
+            "Android runtime release artifacts are incomplete: "
+            f"missing={sorted(android_files - present_android_files)}"
+        )
+
     records: list[dict[str, Any]] = []
     for flavor, prefix in flavors:
-        for platform in platforms:
+        flavor_platforms = platforms + (
+            ("android-arm64",) if include_android and flavor == "runtime" else ()
+        )
+        for platform in flavor_platforms:
             stem = f"{prefix}-{release}-{platform}"
             records.append(
                 {

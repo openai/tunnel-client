@@ -114,11 +114,14 @@ print(json.dumps(payload))
     path.chmod(0o755)
 
 
-def create_inputs(artifact_dir: pathlib.Path) -> None:
+def create_inputs(artifact_dir: pathlib.Path, *, android: bool = False) -> None:
     shutil.rmtree(artifact_dir, ignore_errors=True)
     artifact_dir.mkdir(parents=True)
     for flavor, prefix in FLAVORS:
-        for platform in PLATFORMS:
+        platforms = PLATFORMS + (
+            ("android-arm64",) if android and flavor == "runtime" else ()
+        )
+        for platform in platforms:
             stem = f"{prefix}-{RELEASE}-{platform}"
             (artifact_dir / f"{stem}.zip").write_text(
                 f"zip {flavor} {platform}\n", encoding="utf-8"
@@ -132,10 +135,16 @@ def create_inputs(artifact_dir: pathlib.Path) -> None:
             )
 
 
-def generate(artifact_dir: pathlib.Path, grype: pathlib.Path, mode: str = "findings") -> None:
+def generator_result(
+    artifact_dir: pathlib.Path,
+    grype: pathlib.Path,
+    mode: str = "findings",
+    *,
+    require_android: bool = False,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["FAKE_GRYPE_MODE"] = mode
-    must_run(
+    return run(
         [
             sys.executable,
             str(GENERATOR),
@@ -149,9 +158,22 @@ def generate(artifact_dir: pathlib.Path, grype: pathlib.Path, mode: str = "findi
             str(grype),
             "--generated-at",
             GENERATED_AT,
+            *(["--require-android-runtime"] if require_android else []),
         ],
         env=env,
     )
+
+
+def generate(
+    artifact_dir: pathlib.Path,
+    grype: pathlib.Path,
+    mode: str = "findings",
+    *,
+    require_android: bool = False,
+) -> None:
+    result = generator_result(artifact_dir, grype, mode, require_android=require_android)
+    if result.returncode != 0:
+        fail(f"generation failed:\n{result.stdout}\n{result.stderr}")
 
 
 def write_inventories(artifact_dir: pathlib.Path) -> None:
@@ -189,7 +211,9 @@ def refresh_manifest_vex_digest(artifact_dir: pathlib.Path) -> None:
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
-def verifier_result(artifact_dir: pathlib.Path) -> subprocess.CompletedProcess[str]:
+def verifier_result(
+    artifact_dir: pathlib.Path, *, require_android: bool = False
+) -> subprocess.CompletedProcess[str]:
     return run(
         [
             "bash",
@@ -200,17 +224,126 @@ def verifier_result(artifact_dir: pathlib.Path) -> subprocess.CompletedProcess[s
             RELEASE,
             "--source-digest",
             SOURCE_DIGEST,
+            *(["--require-android-runtime"] if require_android else []),
         ]
     )
 
 
-def assert_rejected(artifact_dir: pathlib.Path, expected: str) -> None:
-    result = verifier_result(artifact_dir)
+def assert_failure(result: subprocess.CompletedProcess[str], expected: str) -> None:
     if result.returncode == 0:
         fail("expected invalid release evidence fixture to fail")
     output = result.stdout + result.stderr
     if expected not in output:
         fail(f"expected failure containing {expected!r}, got:\n{output}")
+
+
+def assert_rejected(artifact_dir: pathlib.Path, expected: str) -> None:
+    assert_failure(verifier_result(artifact_dir), expected)
+
+
+def test_android_releases(artifact_dir: pathlib.Path, grype: pathlib.Path) -> None:
+    android_stem = f"tunnel-client-runtime-{RELEASE}-android-arm64"
+    report_path = artifact_dir / f"tunnel-client-{RELEASE}-vulnerability-report.json"
+
+    # New workflows require Android, while old 18-payload releases remain valid.
+    create_inputs(artifact_dir)
+    assert_failure(
+        generator_result(artifact_dir, grype, require_android=True),
+        "Android runtime release artifacts are incomplete",
+    )
+    generate(artifact_dir, grype)
+    write_inventories(artifact_dir)
+    assert_failure(
+        verifier_result(artifact_dir, require_android=True),
+        "Android runtime release artifacts are incomplete",
+    )
+
+    # Presence detection and the explicit requirement must scan the same 19
+    # artifacts, including exact Android archive/SPDX/license bytes.
+    for required in (False, True):
+        create_inputs(artifact_dir, android=True)
+        generate(artifact_dir, grype, require_android=required)
+        write_inventories(artifact_dir)
+        result = verifier_result(artifact_dir, require_android=required)
+        if result.returncode != 0:
+            fail(f"Android evidence rejected:\n{result.stdout}\n{result.stderr}")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        android_scans = [
+            scan["input"]
+            for scan in report["scans"]
+            if scan["input"]["platform"] == "android-arm64"
+        ]
+        if report["scope"]["scannedSbomCount"] != 19 or len(android_scans) != 1:
+            fail("Android must add exactly one scan to the legacy 18")
+        record = android_scans[0]
+        if record["flavor"] != "runtime":
+            fail("only the plain runtime has an Android release")
+        for key, suffix in (
+            ("zip", ".zip"),
+            ("sbom", ".spdx.json"),
+            ("licenseReport", "-licenses.txt"),
+        ):
+            path = artifact_dir / f"{android_stem}{suffix}"
+            if record[key] != {"name": path.name, "sha256": sha256(path)}:
+                fail(f"Android scan input {key} does not bind the actual bytes")
+        vex_path = artifact_dir / f"tunnel-client-{RELEASE}.openvex.json"
+        vex = json.loads(vex_path.read_text(encoding="utf-8"))
+        android_url = (
+            "https://github.com/openai/tunnel-client/releases/download/"
+            f"{RELEASE}/{android_stem}.zip"
+        )
+        if {"@id": android_url} not in vex["statements"][0]["products"]:
+            fail("Android findings must be included in OpenVEX")
+
+    # A partial triplet cannot silently be treated as a legacy release, even
+    # without --require-android-runtime. Check each artifact independently.
+    for suffix in (".zip", ".spdx.json", "-licenses.txt"):
+        create_inputs(artifact_dir, android=True)
+        generate(artifact_dir, grype)
+        write_inventories(artifact_dir)
+        (artifact_dir / f"{android_stem}{suffix}").unlink()
+        assert_failure(
+            generator_result(artifact_dir, grype),
+            "Android runtime release artifacts are incomplete",
+        )
+        assert_rejected(artifact_dir, "Android runtime release artifacts are incomplete")
+
+    for name in (
+        f"tunnel-client-{RELEASE}-android-arm64.zip",
+        f"tunnel-client-runtime-cloudflared-{RELEASE}-android-arm64.spdx.json",
+        f"tunnel-client-runtime-{RELEASE}-android-amd64-licenses.txt",
+    ):
+        create_inputs(artifact_dir)
+        generate(artifact_dir, grype)
+        write_inventories(artifact_dir)
+        (artifact_dir / name).write_text("unsupported Android artifact\n", encoding="utf-8")
+        assert_failure(
+            generator_result(artifact_dir, grype), "unsupported Android release artifacts"
+        )
+        assert_rejected(artifact_dir, "unsupported Android release artifacts")
+
+    create_inputs(artifact_dir, android=True)
+    generate(artifact_dir, grype)
+    write_inventories(artifact_dir)
+    (artifact_dir / f"{android_stem}.zip").write_text(
+        "changed Android bytes\n", encoding="utf-8"
+    )
+    write_inventories(artifact_dir)
+    assert_rejected(
+        artifact_dir, "vulnerability report scan scope does not match release sidecars"
+    )
+
+    create_inputs(artifact_dir, android=True)
+    generate(artifact_dir, grype)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["scans"] = [
+        scan for scan in report["scans"] if scan["input"]["platform"] != "android-arm64"
+    ]
+    report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+    write_inventories(artifact_dir)
+    assert_rejected(
+        artifact_dir, "vulnerability report must contain one scan per release sidecar"
+    )
 
 
 def main() -> None:
@@ -305,6 +438,8 @@ def main() -> None:
         assert_rejected(
             artifact_dir, "enterprise evidence manifest release metadata does not match"
         )
+
+        test_android_releases(artifact_dir, grype)
 
     print("release evidence tooling tests: passed")
 
