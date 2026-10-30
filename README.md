@@ -144,7 +144,8 @@ tool and connects it to the OpenAI Tunnel control plane.
 - **Deployment guides**: [`docs/deployment/overview.md`](docs/deployment/overview.md)
 - **Bundled Cloudflare companion**:
   [`docs/deployment/cloudflared.md`](docs/deployment/cloudflared.md)
-- **Troubleshooting**: [`docs/troubleshooting.md`](docs/troubleshooting.md)
+- **Troubleshooting**: [`docs/troubleshooting.md`](docs/troubleshooting.md), including
+  [DNS diagnostic logs for Android / Termux](docs/troubleshooting.md#dns-failures-and-android--termux).
 - **Development & testing**: [`docs/development.md`](docs/development.md)
 - **In-memory Go SDK example**:
   [`examples/go-sdk-inmemory`](examples/go-sdk-inmemory)
