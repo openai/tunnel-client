@@ -764,28 +764,18 @@ func TestResolveBackendRejectsUnknownBackend(t *testing.T) {
 	require.ErrorContains(t, err, `unknown local proxy backend "python"`)
 }
 
-func TestResolveRedisQueueRequiresRust(t *testing.T) {
+func TestResolveRemovedRedisQueueNeverFallsBackToMemory(t *testing.T) {
 	t.Parallel()
-
-	_, err := resolveBackendFactory(BackendAuto, QueueBackendRedis, nil)
-	require.ErrorContains(t, err, "redis engine queue backend requires the rust local proxy backend")
-}
-
-func TestResolveRedisQueueRejectsGo(t *testing.T) {
-	t.Parallel()
-
-	_, err := resolveBackendFactory(BackendGo, QueueBackendRedis, nil)
-	require.ErrorContains(t, err, "go local proxy backend does not support redis engine queue backend")
-}
-
-func TestResolveRedisQueueUsesRegisteredRust(t *testing.T) {
-	t.Parallel()
-
-	factory, err := resolveBackendFactory(BackendAuto, QueueBackendRedis, []BackendFactory{
-		fakeBackendFactory{name: BackendRust},
-	})
-	require.NoError(t, err)
-	require.Equal(t, BackendRust, factory.Name())
+	for _, backend := range []BackendName{BackendAuto, BackendRust, BackendGo} {
+		t.Run(string(backend), func(t *testing.T) {
+			t.Parallel()
+			factory, err := resolveBackendFactory(backend, QueueBackendName("redis"), []BackendFactory{
+				fakeBackendFactory{name: BackendRust},
+			})
+			require.Nil(t, factory)
+			require.ErrorContains(t, err, `unknown engine queue backend "redis"`)
+		})
+	}
 }
 
 func TestLocalServerStopClosesActivePollCombinedTCP(t *testing.T) {

@@ -47,7 +47,6 @@ func newDevProxyCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
 		urlFile               string
 		backend               localproxy.BackendName
 		engineQueueBackend    localproxy.QueueBackendName
-		engineRedisURL        string
 		printJSON             bool
 		duration              time.Duration
 		readinessTimeout      time.Duration
@@ -66,14 +65,14 @@ hosted tunnel control plane or a separate control-plane process.`,
 			if len(args) != 0 {
 				return fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))
 			}
+			if cmd.Flags().Changed("engine-redis-url") || os.Getenv("TUNNEL_ENGINE_REDIS_URL") != "" || engineQueueBackend == "redis" {
+				return errors.New("Redis-backed dev proxy queues are no longer supported; remove --engine-redis-url and TUNNEL_ENGINE_REDIS_URL, then choose --engine-queue-backend inmem only for ephemeral local work, or keep the prior tunnel-client version")
+			}
 			if listenUnixSocket != "" {
 				if cmd.Flags().Changed("listen") {
 					return errors.New("--listen and --listen-unix-socket are mutually exclusive")
 				}
 				listenAddr = ""
-			}
-			if engineRedisURL == "" {
-				engineRedisURL = os.Getenv("TUNNEL_ENGINE_REDIS_URL")
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -91,7 +90,6 @@ hosted tunnel control plane or a separate control-plane process.`,
 				URLFile:               urlFile,
 				Backend:               backend,
 				EngineQueueBackend:    engineQueueBackend,
-				EngineRedisURL:        engineRedisURL,
 				ResponseTimeout:       responseTimeout,
 				ClientLastSeenTimeout: clientLastSeenTimeout,
 				ReadinessTimeout:      readinessTimeout,
@@ -146,8 +144,10 @@ hosted tunnel control plane or a separate control-plane process.`,
 	cmd.Flags().StringVar(&healthURLFile, "health-url-file", "", "Write the tunnel-client health base URL to this file; enables an ephemeral health/admin listener when --health-listen-addr is omitted")
 	cmd.Flags().StringVar(&urlFile, "url-file", "", "Write the local proxy connection JSON to this file")
 	cmd.Flags().StringVar((*string)(&backend), "backend", string(localproxy.DefaultBackend), "Local proxy backend: auto, go, or rust")
-	cmd.Flags().StringVar((*string)(&engineQueueBackend), "engine-queue-backend", string(localproxy.DefaultQueueBackend), "Local proxy queue backend: inmem or redis")
-	cmd.Flags().StringVar(&engineRedisURL, "engine-redis-url", "", "Redis URL for --engine-queue-backend redis; defaults to TUNNEL_ENGINE_REDIS_URL")
+	cmd.Flags().StringVar((*string)(&engineQueueBackend), "engine-queue-backend", string(localproxy.DefaultQueueBackend), "Local proxy queue backend: inmem")
+	// Recognize legacy invocations only to reject them before any server starts.
+	cmd.Flags().String("engine-redis-url", "", "Retired Redis connection option")
+	_ = cmd.Flags().MarkDeprecated("engine-redis-url", "Redis-backed dev proxy queues are no longer supported")
 	cmd.Flags().BoolVar(&printJSON, "print-json", false, "Print local proxy connection JSON after readiness")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "Run for a bounded duration, then exit")
 	cmd.Flags().DurationVar(&readinessTimeout, "readiness-timeout", localproxy.DefaultReadinessTimeout, "Maximum time to wait for tunnel-client and MCP readiness")

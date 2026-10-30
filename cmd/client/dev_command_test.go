@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,8 @@ func TestDevProxyFlagsExposeQueueBackendAndUnixIngress(t *testing.T) {
 	require.Equal(t, "127.0.0.1:0", cmd.Flags().Lookup("listen").DefValue)
 	require.Equal(t, "", cmd.Flags().Lookup("listen-unix-socket").DefValue)
 	require.Equal(t, "inmem", cmd.Flags().Lookup("engine-queue-backend").DefValue)
-	require.NotNil(t, cmd.Flags().Lookup("engine-redis-url"))
+	require.True(t, cmd.Flags().Lookup("engine-redis-url").Hidden)
+	require.NotEmpty(t, cmd.Flags().Lookup("engine-redis-url").Deprecated)
 }
 
 func TestDevProxyRejectsMutuallyExclusiveIngressFlags(t *testing.T) {
@@ -46,6 +48,39 @@ func TestDevProxyRejectsUnknownQueueBackend(t *testing.T) {
 	})
 	err := cmd.Execute()
 	require.ErrorContains(t, err, `unknown engine queue backend "disk"`)
+}
+
+func TestDevProxyRejectsRetiredRedisConfigurationBeforeStartup(t *testing.T) {
+	const legacyURL = "redis://:private-redis-password@127.0.0.1:1"
+	for _, backend := range []string{"auto", "go", "rust"} {
+		for _, test := range []struct {
+			name string
+			args []string
+			env  string
+		}{
+			{name: "Backend", args: []string{"--engine-queue-backend", "redis"}},
+			{name: "URLFlag", args: []string{"--engine-redis-url", legacyURL}},
+			{name: "EmptyURLFlag", args: []string{"--engine-redis-url="}},
+			{name: "URLEnvironment", env: legacyURL},
+			{name: "LegacyCombination", args: []string{"--engine-queue-backend", "redis", "--engine-redis-url", legacyURL}, env: legacyURL},
+			{name: "InMemoryWithLegacyURL", args: []string{"--engine-queue-backend", "inmem"}, env: legacyURL},
+		} {
+			t.Run(backend+"/"+test.name, func(t *testing.T) {
+				t.Setenv("TUNNEL_ENGINE_REDIS_URL", test.env)
+				var stdout, stderr bytes.Buffer
+				cmd := newDevProxyCommand(&stdout, &stderr)
+				urlFile := filepath.Join(t.TempDir(), "connection.json")
+				cmd.SetArgs(append([]string{"--backend", backend, "--url-file", urlFile}, test.args...))
+				err := cmd.Execute()
+				require.ErrorContains(t, err, "Redis-backed dev proxy queues are no longer supported")
+				require.ErrorContains(t, err, "--engine-queue-backend inmem only for ephemeral local work")
+				require.ErrorContains(t, err, "keep the prior tunnel-client version")
+				require.NotContains(t, err.Error()+stdout.String()+stderr.String(), "private-redis-password")
+				require.NotContains(t, stdout.String(), "MCP URL:")
+				require.NoFileExists(t, urlFile)
+			})
+		}
+	}
 }
 
 func TestDevMCPStubMetadataEndpoints(t *testing.T) {

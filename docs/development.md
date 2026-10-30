@@ -247,11 +247,18 @@ supports it and falls back to TCP otherwise. It starts no health/admin listener
 by default; pass `--health-listen-addr 127.0.0.1:0` or
 `--health-url-file <path>` only when a test needs `/healthz`, `/readyz`,
 `/metrics`, or `/ui`. The `--backend auto|go|rust` flag defaults to `auto`, and
-`--engine-queue-backend inmem|redis` defaults to `inmem`. Public builds use the
-Go backend unless an optional Rust backend adapter is linked into the binary;
-explicit `--backend rust` fails clearly when unavailable. Redis selects the
-linked Rust backend for `auto`, rejects `go`, and requires
-`--engine-redis-url <url>` or `TUNNEL_ENGINE_REDIS_URL`.
+`--engine-queue-backend inmem` is the supported queue setting. Public builds use
+the Go backend unless an optional Rust backend adapter is linked into the binary;
+explicit `--backend rust` fails clearly when unavailable. The Rust adapter now
+uses the same bounded in-memory queue as its standalone HTTP server. Rust Redis
+support has been removed. The deprecated `--engine-redis-url` flag remains
+recognized only to report a targeted removal error. An explicit
+`--engine-queue-backend redis` or a nonempty `TUNNEL_ENGINE_REDIS_URL` also fails
+before startup, without starting an in-memory replacement. Existing Redis-backed
+local-proxy setups must remove the retired flag/environment setting and explicitly
+choose ephemeral `inmem` storage, or keep their prior version.
+The Rust backend accepts `--response-timeout` up to 300 seconds and rejects
+longer budgets during startup; its default remains 30 seconds.
 
 External MCP ingress is TCP by default: `--listen` defaults to `127.0.0.1:0`,
 `mcp_transport` is `tcp`, and `mcp_url` remains populated. Pass

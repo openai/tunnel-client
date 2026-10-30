@@ -44,7 +44,6 @@ type QueueBackendName string
 
 const (
 	QueueBackendInMemory QueueBackendName = "inmem"
-	QueueBackendRedis    QueueBackendName = "redis"
 )
 
 const (
@@ -130,11 +129,8 @@ type Options struct {
 	// Backend selects the local proxy backend. Empty defaults to auto.
 	Backend BackendName
 	// EngineQueueBackend selects the queue implementation used by the backend.
-	// Empty defaults to inmem. Redis is supported only by linked Rust backends.
+	// Empty defaults to inmem. No other queue backend is supported.
 	EngineQueueBackend QueueBackendName
-	// EngineRedisURL configures the Rust Redis queue backend. The CLI fills this
-	// from --engine-redis-url or TUNNEL_ENGINE_REDIS_URL.
-	EngineRedisURL string
 	// BackendFactories registers optional per-call backends linked into this
 	// binary. Process-wide linked backends can also be registered with
 	// RegisterBackendFactory.
@@ -185,7 +181,6 @@ type BackendOptions struct {
 	TunnelID               types.TunnelID
 	APIKey                 string
 	EngineQueueBackend     QueueBackendName
-	EngineRedisURL         string
 	ResponseTimeout        time.Duration
 	ClientLastSeenTimeout  time.Duration
 	ReadinessTimeout       time.Duration
@@ -250,7 +245,6 @@ func Start(ctx context.Context, opts Options) (*Proxy, error) {
 		TunnelID:               opts.TunnelID,
 		APIKey:                 localControlPlaneAPIKey,
 		EngineQueueBackend:     opts.EngineQueueBackend,
-		EngineRedisURL:         opts.EngineRedisURL,
 		ResponseTimeout:        opts.ResponseTimeout,
 		ClientLastSeenTimeout:  opts.ClientLastSeenTimeout,
 		ReadinessTimeout:       opts.ReadinessTimeout,
@@ -268,7 +262,6 @@ func Start(ctx context.Context, opts Options) (*Proxy, error) {
 			TunnelID:              opts.TunnelID,
 			APIKey:                localControlPlaneAPIKey,
 			EngineQueueBackend:    opts.EngineQueueBackend,
-			EngineRedisURL:        opts.EngineRedisURL,
 			ResponseTimeout:       opts.ResponseTimeout,
 			ClientLastSeenTimeout: opts.ClientLastSeenTimeout,
 			ReadinessTimeout:      opts.ReadinessTimeout,
@@ -490,27 +483,17 @@ func validateOptions(opts Options) error {
 		return errors.New("readiness timeout must be positive")
 	}
 	switch opts.EngineQueueBackend {
-	case QueueBackendInMemory, QueueBackendRedis:
+	case QueueBackendInMemory:
 	default:
-		return fmt.Errorf("unknown engine queue backend %q (supported: inmem, redis)", opts.EngineQueueBackend)
+		return fmt.Errorf("unknown engine queue backend %q (supported: inmem)", opts.EngineQueueBackend)
 	}
 	return nil
 }
 
 func resolveBackendFactory(backend BackendName, queueBackend QueueBackendName, factories []BackendFactory) (BackendFactory, error) {
 	allFactories := append([]BackendFactory{goBackendFactory{}}, factories...)
-	if queueBackend == QueueBackendRedis {
-		switch backend {
-		case BackendAuto, BackendRust:
-			if factory := findBackendFactory(allFactories, BackendRust); factory != nil {
-				return factory, nil
-			}
-			return nil, errors.New("redis engine queue backend requires the rust local proxy backend, but rust is unavailable in this build")
-		case BackendGo:
-			return nil, errors.New("go local proxy backend does not support redis engine queue backend")
-		default:
-			return nil, fmt.Errorf("unknown local proxy backend %q (supported: auto, rust, go)", backend)
-		}
+	if queueBackend != QueueBackendInMemory {
+		return nil, fmt.Errorf("unknown engine queue backend %q (supported: inmem)", queueBackend)
 	}
 	switch backend {
 	case BackendAuto:
