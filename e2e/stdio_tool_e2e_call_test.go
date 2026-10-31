@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/controlplane/wiretypes"
 	harnesspkg "github.com/openai/tunnel-client/testsupport/e2e"
@@ -23,6 +25,120 @@ func TestHarnessExecuteScenarioWithStdioCommand(t *testing.T) {
 
 	commandArgs := mockmcpserver.StdioServerCommand(t)
 	runSimpleToolScenarioWithCommand(t, commandArgs)
+}
+
+func TestHarnessStdioLegacyDiscoveryFallbackAcrossReconnects(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{-32601, -32602} {
+		t.Run(fmt.Sprintf("error_%d", code), func(t *testing.T) {
+			t.Parallel()
+
+			var commands []mocktunnelservice.CommandResponse
+			var wantMessages []json.RawMessage
+			addCommand := func(method string, rpcID any, params any, wantMessage string) {
+				request := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
+				if rpcID != nil {
+					request["id"] = rpcID
+				}
+				payload, err := json.Marshal(request)
+				require.NoError(t, err)
+				wantMessages = append(wantMessages, payload)
+				requestID := fmt.Sprintf("legacy-discovery-%d", len(commands))
+				commands = append(commands, mocktunnelservice.CommandResponse{
+					Command: mocktunnelservice.NewCommand(requestID, payload, nil),
+					ExpectedResponses: []mocktunnelservice.ExpectedResponse{{
+						RequestID: requestID,
+						Assert: func(tb testing.TB, response mocktunnelservice.ReceivedResponse) {
+							require.Equal(tb, http.StatusOK, response.ResponseCode, "%s: %s", method, response.JSONResponse)
+							if rpcID == nil {
+								require.Equal(tb, string(wiretypes.ResponsePayloadNotifyAck), response.ResponseType)
+								return
+							}
+							require.Equal(tb, string(wiretypes.ResponsePayloadJSONRPC), response.ResponseType)
+							if method == "server/discover" {
+								want, err := json.Marshal(map[string]any{
+									"jsonrpc": "2.0", "id": rpcID,
+									"error": map[string]any{"code": code, "message": "legacy discovery unsupported", "data": map[string]any{"transport": "stdio"}},
+								})
+								require.NoError(tb, err)
+								require.JSONEq(tb, string(want), string(response.JSONResponse))
+								return
+							}
+							var envelope struct {
+								ID     json.RawMessage `json:"id"`
+								Error  json.RawMessage `json:"error"`
+								Result struct {
+									ProtocolVersion string `json:"protocolVersion"`
+									Tools           []struct {
+										Name string `json:"name"`
+									} `json:"tools"`
+									StructuredContent struct {
+										Message string `json:"message"`
+									} `json:"structuredContent"`
+								} `json:"result"`
+							}
+							require.NoError(tb, json.Unmarshal(response.JSONResponse, &envelope))
+							wantID, err := json.Marshal(rpcID)
+							require.NoError(tb, err)
+							require.JSONEq(tb, string(wantID), string(envelope.ID))
+							require.Empty(tb, envelope.Error)
+							switch method {
+							case "initialize":
+								require.NotEmpty(tb, envelope.Result.ProtocolVersion)
+							case "tools/list":
+								require.Len(tb, envelope.Result.Tools, 1)
+								require.Equal(tb, "hello", envelope.Result.Tools[0].Name)
+							case "tools/call":
+								require.Equal(tb, wantMessage, envelope.Result.StructuredContent.Message)
+							}
+						},
+					}},
+				})
+			}
+			// The caller owns fallback and may initialize twice before using a
+			// shared stdio child. Reconnects reuse RPC IDs, but never queue IDs.
+			for cycle := range 3 {
+				addCommand("server/discover", "openai-mcp-discover", map[string]any{"_meta": map[string]any{
+					"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+					"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+				}}, "")
+				for _, id := range []int{1, 0} {
+					addCommand("initialize", id, map[string]any{
+						"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
+						"clientInfo": map[string]any{"name": "legacy-discovery-test", "version": "1"},
+					}, "")
+				}
+				addCommand("notifications/initialized", nil, map[string]any{}, "")
+				addCommand("tools/list", 2, map[string]any{}, "")
+				name := fmt.Sprintf("cycle-%d", cycle)
+				addCommand("tools/call", 3, map[string]any{"name": "hello", "arguments": map[string]any{"name": name}}, "hello "+name)
+			}
+
+			messageLog, pidLog := t.TempDir()+"/messages.jsonl", t.TempDir()+"/pids.log"
+			commandArgs := append([]string{"env",
+				fmt.Sprintf("MOCK_MCP_DISCOVER_ERROR_CODE=%d", code),
+				"MOCK_MCP_REQUIRE_INITIALIZED=1", "MOCK_MCP_RAW_MESSAGE_LOG=" + messageLog, "MOCK_MCP_PID_LOG=" + pidLog,
+			}, mockmcpserver.StdioServerCommand(t)...)
+			h := harnesspkg.NewHarness(t,
+				harnesspkg.WithMCPCommand(commandArgs),
+				harnesspkg.WithControlPlaneOptions(mocktunnelservice.WithCommandResponses(commands...)),
+			)
+			h.ExecuteScenarious(t)
+			require.Len(t, h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched), len(commands))
+			require.Empty(t, h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchUnexpected))
+			messages, err := os.ReadFile(messageLog)
+			require.NoError(t, err)
+			lines := strings.Split(strings.TrimSpace(string(messages)), "\n")
+			require.Len(t, lines, len(wantMessages), "no synthesized or replayed MCP requests")
+			for i, want := range wantMessages {
+				require.JSONEq(t, string(want), lines[i])
+			}
+			pids, err := os.ReadFile(pidLog)
+			require.NoError(t, err)
+			require.Len(t, strings.Fields(string(pids)), 1, "fallback and reconnects must retain the same child")
+		})
+	}
 }
 
 func TestHarnessStdioOptInInitializesBeforeToolCallWhenControlPlaneOmitsNotification(t *testing.T) {

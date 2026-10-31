@@ -198,6 +198,20 @@ func TestStdioCommandTransportRestartsExitedChild(t *testing.T) {
 	require.NotEqual(t, first.pid, second.pid)
 	require.Equal(t, second.pid, transport.StdioRuntimeInfo().PID)
 	require.Equal(t, "running", observationDetails(transport.observation).ChildState)
+	// Read the helper handshake before Connect starts the SDK's stdout reader.
+	ready := make([]byte, len("ready\n"))
+	readyErr := make(chan error, 1)
+	go func() {
+		_, err := io.ReadFull(transport.transport.Reader, ready)
+		readyErr <- err
+	}()
+	select {
+	case err := <-readyErr:
+		require.NoError(t, err)
+		require.Equal(t, "ready\n", string(ready))
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected replacement helper signal handler to be ready")
+	}
 	connection, err := transport.Connect(context.Background())
 	require.NoError(t, err)
 	versioned, ok := connection.(interface{ physicalGeneration() (uint64, bool) })
@@ -545,6 +559,16 @@ func TestHelperProcess(t *testing.T) {
 				_ = file.Close()
 				os.Exit(0)
 			}
+			// Bazel test binaries install a SIGTERM handler that consumes the
+			// signal. Register our own before announcing readiness so the test
+			// does not depend on signaling the child before that handler starts.
+			signals := make(chan os.Signal, 1)
+			signal.Notify(signals, syscall.SIGTERM)
+			go func() {
+				<-signals
+				os.Exit(0)
+			}()
+			_, _ = io.WriteString(os.Stdout, "ready\n")
 		}
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
