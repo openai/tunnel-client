@@ -483,7 +483,11 @@ func recordStartupProbeResult(
 			probeState.Set(res.err)
 		}
 		if logger != nil {
-			logger.ErrorContext(ctx, "failed to connect to mcp", slog.String("error", res.err.Error()))
+			if IsAuthRequiredProbeError(res.err) {
+				logger.InfoContext(ctx, "MCP server requires authentication; startup probe reached server")
+			} else {
+				logger.ErrorContext(ctx, "failed to connect to mcp", slog.String("error", res.err.Error()))
+			}
 		}
 		return
 	}

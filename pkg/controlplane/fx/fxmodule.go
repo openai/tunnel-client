@@ -480,9 +480,13 @@ func waitForMCPStartupBeforePolling(
 		return false
 	}
 	if _, probeErr, ok := probeState.Wait(0); ok && probeErr != nil && logger != nil {
-		logger.WarnContext(ctx, "MCP startup probe completed with failure; starting control-plane poller for compatibility",
-			slog.String("error", tclog.ErrorForLog(probeErr)),
-		)
+		if mcpclient.IsAuthRequiredProbeError(probeErr) {
+			logger.InfoContext(ctx, "MCP server requires authentication; starting control-plane poller")
+		} else {
+			logger.WarnContext(ctx, "MCP startup probe completed with failure; starting control-plane poller for compatibility",
+				slog.String("error", tclog.ErrorForLog(probeErr)),
+			)
+		}
 	}
 	return true
 }

@@ -509,6 +509,69 @@ func TestRunPollerWaitsForMCPStartupProbeBeforeFirstPoll(t *testing.T) {
 	app.RequireStop()
 }
 
+func TestRunPollerStartsAfterHTTPStartupProbeFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Parallel()
+
+			var logs bytes.Buffer
+			state := mcpclient.NewProbeState()
+			probeErr := mcpclient.NewProbeHTTPStatusError(status, errors.New("probe rejected"))
+			state.Set(probeErr)
+			checkedAt, _, _ := state.Wait(0)
+			poller := &recordingPoller{started: make(chan struct{})}
+			app := fxtest.New(t,
+				fx.Supply(slog.New(slog.NewJSONHandler(&logs, nil)), &config.MCPConfig{StartupWaitTimeout: time.Second}, state),
+				fx.Supply(fx.Annotate(poller, fx.As(new(internal.Poller)))),
+				fx.Invoke(runPoller),
+			)
+			app.RequireStart()
+			t.Cleanup(app.RequireStop)
+			select {
+			case <-poller.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("completed HTTP startup probe failure prevented polling")
+			}
+			app.RequireStop()
+
+			gotCheckedAt, gotErr, done := state.Wait(0)
+			if !done || gotCheckedAt != checkedAt || gotErr != probeErr {
+				t.Fatalf("poller changed probe result: checkedAt=%v err=%v done=%t", gotCheckedAt, gotErr, done)
+			}
+
+			wantLevel, wantMessage, wantError := "WARN", "MCP startup probe completed with failure; starting control-plane poller for compatibility", probeErr.Error()
+			if status == http.StatusUnauthorized {
+				wantLevel, wantMessage, wantError = "INFO", "MCP server requires authentication; starting control-plane poller", ""
+			}
+			matched := 0
+			for line := range bytes.SplitSeq(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+				var entry struct {
+					Level   string `json:"level"`
+					Message string `json:"msg"`
+					Error   string `json:"error"`
+				}
+				if err := json.Unmarshal(line, &entry); err != nil {
+					t.Fatalf("decode poller log: %v", err)
+				}
+				if status == http.StatusUnauthorized && (entry.Level == "WARN" || entry.Level == "ERROR") {
+					t.Errorf("authentication-required probe logged an unexpected failure: %+v", entry)
+				}
+				if entry.Message == wantMessage {
+					matched++
+					if entry.Level != wantLevel || entry.Error != wantError {
+						t.Errorf("poller log = %+v, want level=%q error=%q", entry, wantLevel, wantError)
+					}
+				}
+			}
+			if matched != 1 {
+				t.Fatalf("got %d logs for %q, want one; logs:\n%s", matched, wantMessage, &logs)
+			}
+		})
+	}
+}
+
 func TestRunPollerWaitsForStartupCatalog(t *testing.T) {
 	t.Parallel()
 

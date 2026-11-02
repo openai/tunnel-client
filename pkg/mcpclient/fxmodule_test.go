@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -514,6 +515,42 @@ func TestRunStartupProbeMarksFailure(t *testing.T) {
 	}
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("expected probe error boom, got %v", err)
+	}
+}
+
+func TestRecordStartupProbeHTTPFailureLogging(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Parallel()
+
+			var logs bytes.Buffer
+			state := NewProbeState()
+			probeErr := NewProbeHTTPStatusError(status, errors.New("probe rejected"))
+			recordStartupProbeResult(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)), state, startupProbeResult{err: probeErr})
+
+			checkedAt, gotErr, done := state.Wait(0)
+			if !done || checkedAt.IsZero() || gotErr != probeErr {
+				t.Fatalf("probe result changed: checkedAt=%v err=%v done=%t", checkedAt, gotErr, done)
+			}
+
+			var entry struct {
+				Level   string `json:"level"`
+				Message string `json:"msg"`
+				Error   string `json:"error"`
+			}
+			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+				t.Fatalf("decode probe log: %v", err)
+			}
+			wantLevel, wantMessage, wantError := "ERROR", "failed to connect to mcp", probeErr.Error()
+			if status == http.StatusUnauthorized {
+				wantLevel, wantMessage, wantError = "INFO", "MCP server requires authentication; startup probe reached server", ""
+			}
+			if entry.Level != wantLevel || entry.Message != wantMessage || entry.Error != wantError {
+				t.Fatalf("probe log = %+v, want level=%q message=%q error=%q", entry, wantLevel, wantMessage, wantError)
+			}
+		})
 	}
 }
 
