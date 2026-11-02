@@ -19,6 +19,21 @@ func TestBridgeSupportsLoginThreadAndTurn(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	events := bridge.Subscribe(ctx)
+	waitForEvent := func(method string) {
+		t.Helper()
+		for {
+			select {
+			case event, ok := <-events:
+				require.True(t, ok, "event subscription closed before %s", method)
+				if event.Method == method {
+					return
+				}
+			case <-ctx.Done():
+				t.Fatalf("waiting for %s: %v", method, ctx.Err())
+			}
+		}
+	}
 
 	require.NoError(t, bridge.EnsureStarted(ctx))
 	snapshot := bridge.Snapshot()
@@ -30,10 +45,10 @@ func TestBridgeSupportsLoginThreadAndTurn(t *testing.T) {
 	require.Equal(t, "login_123", login.LoginID)
 
 	require.NoError(t, bridge.CancelLogin(ctx, login.LoginID))
-	require.Eventually(t, func() bool {
-		current := bridge.Snapshot()
-		return current.Login != nil && !current.Login.Pending
-	}, 2*time.Second, 50*time.Millisecond)
+	waitForEvent("account/login/completed")
+	snapshot = bridge.Snapshot()
+	require.NotNil(t, snapshot.Login)
+	require.False(t, snapshot.Login.Pending)
 
 	thread, err := bridge.StartThread(ctx, ThreadStartParams{
 		CWD:                   "/workspace/openai",
@@ -65,11 +80,13 @@ func TestBridgeSupportsLoginThreadAndTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "turn_456", turn.TurnID)
 
-	require.Eventually(t, func() bool {
-		current := bridge.Snapshot()
-		return current.Turn != nil && current.Turn.Status == "completed"
-	}, 2*time.Second, 50*time.Millisecond)
-	require.Contains(t, bridge.RecentEvents(20)[len(bridge.RecentEvents(20))-1].Method, "turn/completed")
+	waitForEvent("turn/completed")
+	snapshot = bridge.Snapshot()
+	require.NotNil(t, snapshot.Turn)
+	require.Equal(t, "completed", snapshot.Turn.Status)
+	recentEvents := bridge.RecentEvents(20)
+	require.NotEmpty(t, recentEvents)
+	require.Equal(t, "turn/completed", recentEvents[len(recentEvents)-1].Method)
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer stopCancel()

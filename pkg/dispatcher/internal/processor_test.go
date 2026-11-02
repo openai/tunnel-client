@@ -1454,7 +1454,9 @@ func TestProcessorRecordsEndToEndLatency(t *testing.T) {
 		shardToken: "shard-latency",
 	}
 
+	processingStartedAt := time.Now()
 	require.NoError(t, processor.Process(context.Background(), cmd))
+	processingFinishedAt := time.Now()
 	_ = responder.waitForResponse(t)
 
 	var rm metricdata.ResourceMetrics
@@ -1468,7 +1470,8 @@ func TestProcessorRecordsEndToEndLatency(t *testing.T) {
 
 	enqueuedDP := dpByType["enqueue_to_response"]
 	require.EqualValues(t, 1, enqueuedDP.Count)
-	require.InDelta(t, float64(time.Since(enqueuedAt)/time.Millisecond), enqueuedDP.Sum, 250)
+	require.GreaterOrEqual(t, enqueuedDP.Sum, float64(processingStartedAt.Sub(enqueuedAt)/time.Millisecond))
+	require.LessOrEqual(t, enqueuedDP.Sum, float64(processingFinishedAt.Sub(enqueuedAt)/time.Millisecond))
 
 	pollDP := dpByType["poll_to_response"]
 	require.EqualValues(t, 1, pollDP.Count)
@@ -1529,7 +1532,9 @@ func TestProcessorRecordsNotificationLatency(t *testing.T) {
 		shardToken: "shard-notification-latency",
 	}
 
+	processingStartedAt := time.Now()
 	require.NoError(t, processor.Process(context.Background(), cmd))
+	processingFinishedAt := time.Now()
 	_ = responder.waitForResponse(t)
 
 	var rm metricdata.ResourceMetrics
@@ -1542,7 +1547,8 @@ func TestProcessorRecordsNotificationLatency(t *testing.T) {
 
 	enqueuedDP := dpByType["enqueue_to_response"]
 	require.EqualValues(t, 1, enqueuedDP.Count)
-	require.InDelta(t, float64(time.Since(enqueuedAt)/time.Millisecond), enqueuedDP.Sum, 250)
+	require.GreaterOrEqual(t, enqueuedDP.Sum, float64(processingStartedAt.Sub(enqueuedAt)/time.Millisecond))
+	require.LessOrEqual(t, enqueuedDP.Sum, float64(processingFinishedAt.Sub(enqueuedAt)/time.Millisecond))
 
 	pollDP := dpByType["poll_to_response"]
 	require.EqualValues(t, 1, pollDP.Count)
@@ -1599,10 +1605,11 @@ func TestProcessorConnectFailureReturnsTerminalErrorResponseAndRecordsLatency(t 
 		shardToken: "shard-connect-failure",
 	}
 
+	processingStartedAt := time.Now()
 	require.NoError(t, processor.Process(context.Background(), cmd))
+	processingFinishedAt := time.Now()
 
 	resp := responder.waitForResponse(t)
-	elapsedAtResponseMS := float64(time.Since(enqueuedAt) / time.Millisecond)
 	require.Equal(t, cmd.id, resp.requestID)
 	require.Equal(t, types.ResponseTypeJSONRPCResponse, resp.response.Type())
 	require.Equal(t, http.StatusBadGateway, resp.response.ResponseCode())
@@ -1626,7 +1633,8 @@ func TestProcessorConnectFailureReturnsTerminalErrorResponseAndRecordsLatency(t 
 
 	enqueuedDP := dpByType["enqueue_to_response"]
 	require.EqualValues(t, 1, enqueuedDP.Count)
-	require.InDelta(t, elapsedAtResponseMS, enqueuedDP.Sum, 250)
+	require.GreaterOrEqual(t, enqueuedDP.Sum, float64(processingStartedAt.Sub(enqueuedAt)/time.Millisecond))
+	require.LessOrEqual(t, enqueuedDP.Sum, float64(processingFinishedAt.Sub(enqueuedAt)/time.Millisecond))
 
 	pollDP := dpByType["poll_to_response"]
 	require.EqualValues(t, 1, pollDP.Count)
@@ -1684,10 +1692,11 @@ func TestProcessorNotificationConnectFailureReturnsTerminalAckAndRecordsLatency(
 		shardToken: "shard-notification-connect-failure",
 	}
 
+	processingStartedAt := time.Now()
 	require.NoError(t, processor.Process(context.Background(), cmd))
+	processingFinishedAt := time.Now()
 
 	resp := responder.waitForResponse(t)
-	elapsedAtResponseMS := float64(time.Since(enqueuedAt) / time.Millisecond)
 	require.Equal(t, cmd.id, resp.requestID)
 	require.Equal(t, types.ResponseTypeNotificationAcknowledgment, resp.response.Type())
 	require.Equal(t, http.StatusBadGateway, resp.response.ResponseCode())
@@ -1706,7 +1715,8 @@ func TestProcessorNotificationConnectFailureReturnsTerminalAckAndRecordsLatency(
 
 	enqueuedDP := dpByType["enqueue_to_response"]
 	require.EqualValues(t, 1, enqueuedDP.Count)
-	require.InDelta(t, elapsedAtResponseMS, enqueuedDP.Sum, 250)
+	require.GreaterOrEqual(t, enqueuedDP.Sum, float64(processingStartedAt.Sub(enqueuedAt)/time.Millisecond))
+	require.LessOrEqual(t, enqueuedDP.Sum, float64(processingFinishedAt.Sub(enqueuedAt)/time.Millisecond))
 
 	pollDP := dpByType["poll_to_response"]
 	require.EqualValues(t, 1, pollDP.Count)
