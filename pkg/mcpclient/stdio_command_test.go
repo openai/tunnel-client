@@ -547,10 +547,12 @@ func TestHelperProcess(t *testing.T) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
 	case "stdin_closed":
-		_ = os.Stdin.Close()
-		_, _ = io.WriteString(os.Stdout, "ready\n")
+		// Arm shutdown before publishing readiness: the parent can immediately
+		// detect the broken pipe and terminate this helper.
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGTERM)
+		_ = os.Stdin.Close()
+		_, _ = io.WriteString(os.Stdout, "ready\n")
 		<-signals
 		os.Exit(0)
 	default:
