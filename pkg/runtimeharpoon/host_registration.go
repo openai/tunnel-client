@@ -23,10 +23,11 @@ import (
 const autoRegistrationPrefix = "oauth"
 
 const (
-	oauthSource       = "oauth"
-	rolePRMDResource  = "prmd-resource"
-	rolePRMDSource    = "prmd-source"
-	registrationScope = "oauth-protected-resource-host"
+	oauthSource                 = "oauth"
+	rolePRMDResource            = "prmd-resource"
+	rolePRMDSource              = "prmd-source"
+	registrationScope           = "oauth-protected-resource-host"
+	forwardingRegistrationScope = "oauth-forwarding-origin"
 
 	loopbackPlaintextRemediation = "use HTTPS, or for trusted local HTTP MCP servers set --harpoon.allow-plaintext-http or HARPOON_ALLOW_PLAINTEXT_HTTP=true"
 )
@@ -85,6 +86,10 @@ func StartHostRegistration(p HostRegistrationParams) error {
 	}
 	logger := p.Logger.With(tclog.FieldComponent, tclog.ComponentHarpoon)
 	classifier := hostclassifier.NewHostClassifier(p.Config.HostClassifier)
+	forwardingOrigins, err := newOAuthForwardingOriginPolicy(p.Config.OAuthForwardOrigins)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p.Lifecycle.Append(fx.Hook{
@@ -110,7 +115,7 @@ func StartHostRegistration(p HostRegistrationParams) error {
 						bundle.Acknowledge(ctx.Err())
 						return
 					}
-					err := registerHostBundle(bundle, classifier, p.Registry, logger)
+					err := registerHostBundleWithForwardingOrigins(bundle, classifier, p.Registry, logger, forwardingOrigins)
 					if ctx.Err() != nil {
 						bundle.Acknowledge(ctx.Err())
 						return
@@ -202,6 +207,10 @@ func RegisterHostBundleForConfig(bundle hostbus.URLBundle, cfg runtimeconfig.Har
 }
 
 func registerHostBundle(bundle hostbus.URLBundle, classifier *hostclassifier.HostClassifier, registry *Registry, logger *slog.Logger) error {
+	return registerHostBundleWithForwardingOrigins(bundle, classifier, registry, logger, nil)
+}
+
+func registerHostBundleWithForwardingOrigins(bundle hostbus.URLBundle, classifier *hostclassifier.HostClassifier, registry *Registry, logger *slog.Logger, forwardingOrigins oauthForwardingOriginPolicy) error {
 	if registry == nil || classifier == nil {
 		return nil
 	}
@@ -217,7 +226,7 @@ func registerHostBundle(bundle hostbus.URLBundle, classifier *hostclassifier.Hos
 		role := tagValue(record.Tags, hostbus.TagKeyRole)
 		source := tagValue(record.Tags, hostbus.TagKeySource)
 		group := tagValue(record.Tags, hostbus.TagKeyGroup)
-		allowed, reason := shouldRegisterURLRecord(record, classifier, oauthPolicy)
+		allowed, reason := shouldRegisterURLRecord(record, classifier, oauthPolicy, forwardingOrigins)
 		if !allowed {
 			logger.Info("harpoon host auto-registration skipped: not allowed",
 				slog.String("url", tclog.RedactURL(record.URL)),
@@ -392,9 +401,82 @@ func newOAuthProtectedResourceOrigin(raw *url.URL) (oauthProtectedResourceOrigin
 	return oauthProtectedResourceOrigin{scheme: scheme, host: host, port: port}, true
 }
 
-func shouldRegisterURLRecord(record hostbus.URLRecord, classifier *hostclassifier.HostClassifier, oauthPolicy oauthProtectedResourceHostPolicy) (bool, string) {
+// oauthForwardingOriginPolicy admits discovered OAuth URLs at independently
+// configured HTTPS origins. It never seeds the protected-resource host policy
+// or changes a record's private-host registration eligibility.
+type oauthForwardingOriginPolicy map[oauthForwardingOrigin]struct{}
+
+type oauthForwardingOrigin struct {
+	host string
+	port string
+}
+
+func newOAuthForwardingOriginPolicy(origins []*url.URL) (oauthForwardingOriginPolicy, error) {
+	policy := make(oauthForwardingOriginPolicy, len(origins))
+	for i, raw := range origins {
+		origin, ok := oauthForwardingOriginForURL(raw)
+		if !ok || (raw.Path != "" && raw.Path != "/") || raw.RawPath != "" || raw.RawQuery != "" || raw.ForceQuery {
+			return nil, fmt.Errorf("harpoon oauth forwarding origin %d: expected an HTTPS origin without credentials, path, query, fragment, or IPv6 zone identifier", i)
+		}
+		policy[origin] = struct{}{}
+	}
+	return policy, nil
+}
+
+func (p oauthForwardingOriginPolicy) allows(record hostbus.URLRecord) bool {
+	if len(p) == 0 || !isOAuthURLRecord(record) {
+		return false
+	}
+	origin, ok := oauthForwardingOriginForURL(record.URL)
+	if !ok {
+		return false
+	}
+	_, ok = p[origin]
+	return ok
+}
+
+func oauthForwardingOriginForURL(raw *url.URL) (oauthForwardingOrigin, bool) {
+	if raw == nil || !strings.EqualFold(raw.Scheme, "https") || raw.Hostname() == "" ||
+		raw.Opaque != "" || raw.User != nil || raw.Fragment != "" || raw.RawFragment != "" {
+		return oauthForwardingOrigin{}, false
+	}
+	// Also validate programmatically constructed URLs, including malformed ports
+	// that URL.Port reports as empty rather than numeric.
+	if _, err := url.Parse(raw.String()); err != nil || strings.HasSuffix(raw.Host, ":") {
+		return oauthForwardingOrigin{}, false
+	}
+	host := raw.Hostname()
+	if strings.Contains(host, ":") || strings.HasPrefix(raw.Host, "[") {
+		addr, err := netip.ParseAddr(host)
+		if err != nil || !addr.Is6() || addr.Zone() != "" || !strings.HasPrefix(raw.Host, "[") {
+			return oauthForwardingOrigin{}, false
+		}
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		host = addr.String()
+	} else {
+		// A DNS trailing dot can select a different destination and must not
+		// broaden an operator's approval. Zone-bearing IPv6 is rejected above
+		// because the legacy registry lowercases the entire authority.
+		host = strings.ToLower(host)
+	}
+	port := "443"
+	if rawPort := raw.Port(); rawPort != "" {
+		parsedPort, err := strconv.Atoi(rawPort)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return oauthForwardingOrigin{}, false
+		}
+		port = strconv.Itoa(parsedPort)
+	}
+	return oauthForwardingOrigin{host: host, port: port}, true
+}
+
+func shouldRegisterURLRecord(record hostbus.URLRecord, classifier *hostclassifier.HostClassifier, oauthPolicy oauthProtectedResourceHostPolicy, forwardingOrigins oauthForwardingOriginPolicy) (bool, string) {
 	if record.URL == nil {
 		return false, ""
+	}
+	if forwardingOrigins.allows(record) {
+		return true, forwardingRegistrationScope
 	}
 	private, reason := classifier.IsPrivateHost(record.URL.Hostname())
 	if record.DisallowPrivateHostRegistration {

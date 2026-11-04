@@ -234,6 +234,10 @@ mcp:
   connection_max_ttl: 10m
   max_concurrent_requests: 10
 harpoon:
+  # Optional. Authorize discovered OAuth endpoints on a separate HTTPS origin.
+  # Discovery still requires mcp.oauth_trusted_origins above.
+  oauth_forward_origins:
+    - https://auth.example.com
   targets:
     - label: auth
       url: https://auth.example.com
@@ -772,6 +776,8 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   a query, or a fragment. Explicitly trusted private origins are supported.
   This setting authorizes discovery requests only; it does not add forwarding
   targets or expand the scope of configured credentials.
+  To authorize discovered endpoints on a separate origin for forwarding, use
+  the independent [OAuth forwarding allowlist](#oauth-forwarding-origins).
 - When upgrading a configuration that discovers metadata or an authorization
   server on a separate origin, add each expected origin to this list before
   starting the client. For example, an MCP server at
@@ -1007,6 +1013,52 @@ later OAuth discovery commands or registry mutations.
   - Env: `HARPOON_HOSTS_INCLUDE_PRIVATE`
   - Default: `true`
   - Behavior: includes RFC1918 IPv4 plus IPv6 ULA (fc00::/7).
+
+### OAuth forwarding origins
+
+Use this independent opt-in when discovered OAuth endpoints on a separate HTTPS
+origin need to be reachable through the tunnel:
+
+```yaml
+mcp:
+  oauth_trusted_origins:
+    - https://auth.example.com
+harpoon:
+  oauth_forward_origins:
+    - https://auth.example.com
+```
+
+- Flag (repeatable): `--harpoon.oauth-forward-origin https://auth.example.com`
+- Env: `HARPOON_OAUTH_FORWARD_ORIGINS` (newline-separated origins)
+- YAML: `harpoon.oauth_forward_origins`
+- Default: empty; existing discovery and registration behavior is unchanged.
+
+Flags replace the environment or YAML list; the environment replaces YAML.
+An explicit empty flag or environment value clears lower-precedence entries.
+Each entry must be an absolute HTTPS origin without credentials, a path
+(except an optional `/`), query, fragment, or IPv6 zone identifier. Matching uses the exact scheme,
+hostname, and effective port. It does not include subdomains or other ports.
+
+The list authorizes registration of discovered OAuth endpoint URLs on those
+origins, preserving their OAuth source, endpoint roles, and group associations.
+It does not register arbitrary URLs, grant discovery trust, widen configured
+credential scope, or relax existing redirect and exact-target checks. The
+discovery-only `mcp.oauth_trusted_origins` setting is still required for separate
+metadata origins. An advertised endpoint on a third origin needs its own
+forwarding approval if the existing registration policy does not admit it.
+
+Include the protected-resource metadata source's origin as well as the required
+authorization-server endpoint origins. Generic `harpoon.targets` have the
+`config` category and do not replace these discovery-generated OAuth records.
+Successful explicit admissions log `inclusion_reason=oauth-forwarding-origin`.
+
+Upgrade every active poller for the tunnel and apply equivalent configuration
+before relying on the new forwarding path. Commands may be consumed by any
+poller; an older client does not gain this capability from the new environment
+variable. Compare startup target counts and catalog digests using the same
+tunnel ID and runtime key, then validate discovery, sign-in, and an authenticated
+MCP call. Older binaries reject the new YAML key and flag; remove those settings
+before downgrading. Downgrading removes the explicit forwarding capability.
 
 ## Local tracing
 

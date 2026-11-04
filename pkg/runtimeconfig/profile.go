@@ -384,6 +384,9 @@ func validateFileConfigSyntax(c fileConfig) error {
 	if err := validateFileOAuthTrustedOrigins(c.MCP.OAuthTrustedOrigins); err != nil {
 		return err
 	}
+	if err := validateFileOAuthForwardOrigins(c.Harpoon.OAuthForwardOrigins); err != nil {
+		return err
+	}
 	for _, entry := range c.MCP.ServerURLs {
 		if err := validateConfigValueReferenceSyntax("mcp.server_urls.url", new(entry.URL)); err != nil {
 			return err

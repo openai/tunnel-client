@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -113,6 +114,7 @@ func runtimeConfig(cfg *config.HarpoonConfig) *runtimeconfig.HarpoonConfig {
 		MaxRedirects:         cfg.MaxRedirects,
 		AdditionalTransports: append([]runtimeconfig.HarpoonTransportKind(nil), cfg.AdditionalTransports...),
 		Targets:              append([]runtimeconfig.HarpoonTarget(nil), cfg.Targets...),
+		OAuthForwardOrigins:  append([]*url.URL(nil), cfg.OAuthForwardOrigins...),
 		HostClassifier:       cfg.HostClassifier,
 		HTTPProxy:            cfg.HTTPProxy,
 		HTTPProxySource:      cfg.HTTPProxySource,

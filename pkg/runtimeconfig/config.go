@@ -506,6 +506,7 @@ type HarpoonConfig struct {
 	MaxRedirects         int
 	AdditionalTransports []HarpoonTransportKind
 	Targets              []HarpoonTarget
+	OAuthForwardOrigins  []*url.URL
 	HostClassifier       HarpoonHostClassifierConfig
 	HTTPProxy            *url.URL
 	HTTPProxySource      ProxySource
@@ -699,6 +700,7 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.Duration("mcp.connection-max-ttl", defaultMCPConnectionMaxTTL, "Maximum lifetime of MCP transport connections (env.MCP_CONNECTION_MAX_TTL)")
 	fs.Int("mcp.max-concurrent-requests", defaultMCPMaxConcurrentRequests, "Maximum number of requests actively dispatched to the MCP server (env.MCP_MAX_CONCURRENT_REQUESTS)")
 	fs.StringArray("harpoon.target", nil, "Harpoon target mapping (format 'label=...,url=...,unix-socket=...,desc=...') (env.HARPOON_TARGETS)")
+	fs.StringArray("harpoon.oauth-forward-origin", nil, "HTTPS origin approved for forwarding to discovered OAuth endpoints (repeatable; origin only, without a path; does not authorize discovery) (env.HARPOON_OAUTH_FORWARD_ORIGINS)")
 	fs.Bool("harpoon.allow-plaintext-http", false, "Allow http:// harpoon targets and redirects (env.HARPOON_ALLOW_PLAINTEXT_HTTP)")
 	fs.Int("harpoon.max-response-bytes", DefaultHarpoonMaxResponseBytes, "Maximum harpoon response size in bytes (env.HARPOON_MAX_RESPONSE_BYTES)")
 	fs.Int("harpoon.max-redirects", DefaultHarpoonMaxRedirects, "Maximum number of harpoon redirects (env.HARPOON_MAX_REDIRECTS)")
@@ -2547,6 +2549,10 @@ func buildHarpoonConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 	if err != nil {
 		return HarpoonConfig{}, err
 	}
+	oauthForwardOrigins, err := buildOAuthForwardOrigins(fs, lookupEnv)
+	if err != nil {
+		return HarpoonConfig{}, err
+	}
 	additional, err := buildHarpoonAdditionalTransports(fs, lookupEnv)
 	if err != nil {
 		return HarpoonConfig{}, err
@@ -2579,6 +2585,7 @@ func buildHarpoonConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 		MaxResponseBytes:     maxResponseBytes,
 		MaxRedirects:         maxRedirects,
 		Targets:              targets,
+		OAuthForwardOrigins:  oauthForwardOrigins,
 		AdditionalTransports: additional,
 		HostClassifier: HarpoonHostClassifierConfig{
 			IncludeSuffix:   hostsIncludeSuffix,

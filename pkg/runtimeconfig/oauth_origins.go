@@ -29,6 +29,39 @@ func buildOAuthTrustedOrigins(fs *pflag.FlagSet, lookupEnv func(string) (string,
 	return origins, nil
 }
 
+func buildOAuthForwardOrigins(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) ([]*url.URL, error) {
+	entries, err := resolveMCPEntries(fs, lookupEnv, "harpoon.oauth-forward-origin", "HARPOON_OAUTH_FORWARD_ORIGINS")
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	origins := make([]*url.URL, 0, len(entries))
+	for _, raw := range entries {
+		origin, err := parseOAuthForwardOrigin(raw)
+		if err != nil {
+			return nil, fmt.Errorf("harpoon.oauth-forward-origin: %w", err)
+		}
+		origins = append(origins, origin)
+	}
+	return origins, nil
+}
+
+func parseOAuthForwardOrigin(raw string) (*url.URL, error) {
+	origin, err := parseOAuthTrustedOrigin(raw)
+	if err != nil {
+		return nil, err
+	}
+	if origin.Scheme != "https" {
+		return nil, fmt.Errorf("OAuth forwarding origin must use HTTPS")
+	}
+	if addr, err := netip.ParseAddr(origin.Hostname()); err == nil && addr.Zone() != "" {
+		return nil, fmt.Errorf("OAuth forwarding origin must not contain an IPv6 zone identifier")
+	}
+	return origin, nil
+}
+
 func parseOAuthTrustedOrigin(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {

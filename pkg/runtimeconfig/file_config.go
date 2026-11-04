@@ -133,6 +133,7 @@ type fileMCPCommand struct {
 
 type fileHarpoonConfig struct {
 	Targets              []fileHarpoonTarget `yaml:"targets"`
+	OAuthForwardOrigins  []string            `yaml:"oauth_forward_origins"`
 	AllowPlaintextHTTP   *bool               `yaml:"allow_plaintext_http"`
 	MaxResponseBytes     *int                `yaml:"max_response_bytes"`
 	MaxRedirects         *int                `yaml:"max_redirects"`
@@ -212,6 +213,9 @@ func loadFileConfigValues(fs *pflag.FlagSet, lookupEnv func(string) (string, boo
 	}
 	if configValueOverridden(fs, lookupEnv, "mcp.oauth-trusted-origin", "MCP_OAUTH_TRUSTED_ORIGINS") {
 		selectedCfg.MCP.OAuthTrustedOrigins = nil
+	}
+	if configValueOverridden(fs, lookupEnv, "harpoon.oauth-forward-origin", "HARPOON_OAUTH_FORWARD_ORIGINS") {
+		selectedCfg.Harpoon.OAuthForwardOrigins = nil
 	}
 
 	env, err := selectedCfg.toEnv(lookupEnv)
@@ -446,6 +450,14 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 	setInt(env, "MCP_MAX_CONCURRENT_REQUESTS", c.MCP.MaxConcurrentRequests)
 
 	setBool(env, "HARPOON_ALLOW_PLAINTEXT_HTTP", c.Harpoon.AllowPlaintextHTTP)
+	if c.Harpoon.OAuthForwardOrigins != nil {
+		// Validate before joining: one YAML element must never approve multiple
+		// origins through the environment list's newline separator.
+		if err := validateFileOAuthForwardOrigins(c.Harpoon.OAuthForwardOrigins); err != nil {
+			return nil, err
+		}
+		env["HARPOON_OAUTH_FORWARD_ORIGINS"] = strings.Join(c.Harpoon.OAuthForwardOrigins, "\n")
+	}
 	setInt(env, "HARPOON_MAX_RESPONSE_BYTES", c.Harpoon.MaxResponseBytes)
 	setInt(env, "HARPOON_MAX_REDIRECTS", c.Harpoon.MaxRedirects)
 	setString(env, "HARPOON_HTTP_PROXY", c.Harpoon.HTTPProxy)
@@ -471,6 +483,15 @@ func validateFileOAuthTrustedOrigins(origins []string) error {
 	for _, raw := range origins {
 		if _, err := parseOAuthTrustedOrigin(raw); err != nil {
 			return fmt.Errorf("mcp.oauth_trusted_origins: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateFileOAuthForwardOrigins(origins []string) error {
+	for _, raw := range origins {
+		if _, err := parseOAuthForwardOrigin(raw); err != nil {
+			return fmt.Errorf("harpoon.oauth_forward_origins: %w", err)
 		}
 	}
 	return nil

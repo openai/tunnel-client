@@ -805,6 +805,13 @@ plugin installed by `tunnel-client codex plugin install`.
   `mcp.oauth_trusted_origins`. See the [configuration reference](docs/configuration.md#mcp-server)
   for trust boundaries and staged upgrade guidance. Full-client profile editing
   also requires a [supported editor command](docs/profile-editor.md).
+- Forwarding OAuth requests to a separate HTTPS origin requires an independent
+  opt-in: `--harpoon.oauth-forward-origin`, `HARPOON_OAUTH_FORWARD_ORIGINS`, or
+  `harpoon.oauth_forward_origins`. Discovery trust alone remains insufficient.
+  Approved discovered endpoints retain their OAuth roles and groups; other
+  origins remain subject to the existing registration policy. See
+  [OAuth forwarding origins](docs/configuration.md#oauth-forwarding-origins)
+  for exact-origin matching and deployment guidance.
 - Metadata is accepted even when `issuer` differs from
   `authorization_servers[0]` (external IdP issuer URLs are supported), with
   mismatch diagnostics preserved in logs/state.

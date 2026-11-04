@@ -94,6 +94,7 @@ type HarpoonConfig struct {
 	MaxRedirects         int
 	AdditionalTransports []HarpoonTransportKind
 	Targets              []HarpoonTarget
+	OAuthForwardOrigins  []*url.URL
 	CapturePayloads      bool
 	HostClassifier       HarpoonHostClassifierConfig
 	HTTPProxy            *url.URL
@@ -196,6 +197,7 @@ func fullHarpoonConfig(shared runtimeconfig.HarpoonConfig, capturePayloads bool)
 		MaxRedirects:         shared.MaxRedirects,
 		AdditionalTransports: shared.AdditionalTransports,
 		Targets:              shared.Targets,
+		OAuthForwardOrigins:  shared.OAuthForwardOrigins,
 		CapturePayloads:      capturePayloads,
 		HostClassifier:       shared.HostClassifier,
 		HTTPProxy:            shared.HTTPProxy,
