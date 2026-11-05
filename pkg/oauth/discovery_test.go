@@ -616,6 +616,69 @@ func TestFetchOAuthMetadataTimeoutRetriesPreserveDiscoveryContext(t *testing.T) 
 	}
 }
 
+func TestFetchOAuthMetadataClassifiesMixedCandidateFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		failures     [2]string
+		wantRetry    bool
+		wantOptional bool
+	}{
+		{name: "missing path then timeout", failures: [2]string{"not found", "timeout"}, wantRetry: true},
+		{name: "empty missing path then timeout", failures: [2]string{"empty not found", "timeout"}, wantRetry: true},
+		{name: "timeout then missing root", failures: [2]string{"timeout", "not found"}, wantRetry: true},
+		{name: "timeout then empty missing root", failures: [2]string{"timeout", "empty not found"}, wantRetry: true},
+		{name: "missing path then body timeout", failures: [2]string{"not found", "body timeout"}, wantRetry: true},
+		{name: "all missing", failures: [2]string{"not found", "empty not found"}, wantOptional: true},
+		{name: "permanent then timeout", failures: [2]string{"permanent", "timeout"}},
+		{name: "timeout then permanent", failures: [2]string{"timeout", "permanent"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			resourceURL, err := url.Parse("https://mcp.example.test/mcp")
+			require.NoError(t, err)
+			client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				failure := tc.failures[0]
+				if req.URL.Path == "/.well-known/oauth-protected-resource" {
+					failure = tc.failures[1]
+				}
+				status := http.StatusNotFound
+				body := io.NopCloser(strings.NewReader("not found"))
+				switch failure {
+				case "timeout":
+					return nil, context.DeadlineExceeded
+				case "permanent":
+					return nil, errors.New("permanent transport failure")
+				case "empty not found":
+					body = io.NopCloser(strings.NewReader(""))
+				case "body timeout":
+					status = http.StatusOK
+					body = io.NopCloser(&errorReader{err: context.DeadlineExceeded})
+				}
+				return &http.Response{
+					StatusCode: status,
+					Header:     make(http.Header),
+					Body:       body,
+					Request:    req,
+				}, nil
+			})}
+			resp, sourceURL, attempts, fetchErr := FetchOAuthMetadata(context.Background(), client, buildWellKnownCandidates(resourceURL), nil)
+			require.Error(t, fetchErr)
+			require.Nil(t, resp)
+			require.Nil(t, sourceURL)
+			require.Len(t, attempts, 2)
+			require.True(t, attempts[0].Tried)
+			require.True(t, attempts[1].Tried)
+			failureType := classifyDiscoveryFailure(fetchErr)
+			retryable := failureType == discoveryFailureTypeTimeoutOnly || failureType == discoveryFailureTypeRetryableResponse
+			require.Equal(t, tc.wantRetry, retryable, "failure type = %v, error = %v", failureType, fetchErr)
+			result := BuildDiscoveryResult(resp, sourceURL, time.Now(), attempts)
+			require.Equal(t, tc.wantOptional, IsOptionalDiscoveryFailure(result, nil, fetchErr))
+		})
+	}
+}
+
 func TestValidateProtectedResourceMetadataUsesAuthorizationServerIndexZero(t *testing.T) {
 	t.Parallel()
 

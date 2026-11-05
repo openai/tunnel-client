@@ -1,14 +1,17 @@
 package e2e_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -149,6 +152,98 @@ func TestRuntimeOAuthOriginCompatibility(t *testing.T) {
 			for _, name := range []string{"runtime", "runtime-cloudflared"} {
 				assertRuntimeParity(t, map[string]runtimeObservation{"full": observations["full"], name: observations[name]}, name)
 			}
+		})
+	}
+}
+
+func TestRuntimeOAuthDiscoveryRecoversAfterMissingPathAndRootTimeout(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name        string
+		bodyTimeout bool
+	}{
+		{name: "request_timeout"},
+		{name: "body_timeout", bodyTimeout: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				firstTimeout := make(chan struct{})
+				recoverMetadata := make(chan struct{})
+				var pathHits, rootHits atomic.Int32
+				return runtimeScenario{
+					name: tc.name, profilePath: profilePath, healthURLFile: healthURLFile, pidFile: pidFile,
+					options: runtimeRunOptions{
+						configure: func(t *testing.T, run *runtimeSubjectRun) {
+							backend := httputil.NewSingleHostReverseProxy(run.fixture.mcpServer.BaseURL())
+							mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+								switch r.URL.Path {
+								case "/.well-known/oauth-protected-resource/services/mcp":
+									pathHits.Add(1)
+									http.NotFound(w, r)
+								case "/.well-known/oauth-protected-resource":
+									if rootHits.Add(1) == 1 {
+										if tc.bodyTimeout {
+											w.Header().Set("Content-Type", "application/json")
+											w.WriteHeader(http.StatusOK)
+											w.(http.Flusher).Flush()
+										}
+										// Exercise the runtime's real discovery deadline. The
+										// handler waits for cancellation instead of a timer.
+										<-r.Context().Done()
+										close(firstTimeout)
+										return
+									}
+									select {
+									case <-recoverMetadata:
+										w.Header().Set("Content-Type", "application/json")
+										_ = json.NewEncoder(w).Encode(map[string]string{"resource": "http://" + r.Host + "/services/mcp"})
+									case <-r.Context().Done():
+									}
+								default:
+									backend.ServeHTTP(w, r)
+								}
+							}))
+							t.Cleanup(mcp.Close)
+							run.args = append(run.args, "--mcp.server-url", mcp.URL+"/services/mcp")
+						},
+						afterStart: func(t *testing.T, run *runtimeSubjectRun) {
+							waitForRuntimeArtifactOutput(t, run.proc, "successful MCP initialization", runtimeArtifactMCPReadySignal)
+							ctx, cancel := context.WithTimeout(t.Context(), runtimeArtifactSignalTimeout)
+							defer cancel()
+							select {
+							case <-firstTimeout:
+							case <-ctx.Done():
+								t.Fatalf("root metadata request did not time out: %s", run.proc.output.String())
+							}
+							require.Positive(t, pathHits.Load(), "discovery must try the path-specific metadata URL before the root fallback")
+							healthURL := waitForRuntimeArtifactHealthURL(t, run.proc, run.healthURLFile)
+							client := &http.Client{Timeout: 2 * time.Second}
+							defer client.CloseIdleConnections()
+							status, body := runtimeArtifactResponse(t, client, healthURL+"/readyz")
+							require.Equal(t, http.StatusServiceUnavailable, status)
+							require.Equal(t, "startup catalog pending", strings.TrimSpace(body))
+							for _, request := range run.fixture.controlPlane.ReceivedHTTPRequests() {
+								require.False(t, strings.HasSuffix(request.Path, "/poll"), "polling must wait for OAuth discovery to recover")
+							}
+							require.Empty(t, run.fixture.controlPlane.DeliveredCommands())
+							close(recoverMetadata)
+						},
+						afterReady: func(t *testing.T, run *runtimeSubjectRun) {
+							// The shared harness drains initialize, initialized, and
+							// tools/call through this same process, then checks /readyz.
+							require.Contains(t, run.proc.output.String(), "OAuth discovery failed; retrying")
+							require.GreaterOrEqual(t, pathHits.Load(), int32(2))
+							require.GreaterOrEqual(t, rootHits.Load(), int32(2))
+						},
+					},
+				}
+			})
 		})
 	}
 }

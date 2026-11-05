@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -497,6 +498,35 @@ func TestFetchAuthServerMetadataRetriesOnlyAfterAllTimeouts(t *testing.T) {
 				t.Fatalf("attempt error contains sensitive issuer value %q: %q", sensitive, attempt.Error)
 			}
 		}
+	}
+}
+
+func TestFetchAuthServerMetadataRetriesTimeoutWithMissingFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, timeoutPath := range []string{"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"} {
+		t.Run(timeoutPath, func(t *testing.T) {
+			t.Parallel()
+			issuer, err := url.Parse("https://issuer.example.test")
+			require.NoError(t, err)
+			client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path == timeoutPath {
+					return nil, context.DeadlineExceeded
+				}
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("not found")),
+					Request:    req,
+				}, nil
+			})}
+			meta, result, fetchErr := FetchAuthServerMetadataWithResult(context.Background(), client, issuer.String(), issuer)
+			require.ErrorIs(t, fetchErr, context.DeadlineExceeded)
+			require.Nil(t, meta)
+			require.NotNil(t, result)
+			require.Equal(t, discoveryFailureTypeTimeoutOnly, result.failureType)
+			require.Len(t, result.Attempts, 2)
+		})
 	}
 }
 

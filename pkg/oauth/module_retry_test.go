@@ -144,6 +144,84 @@ func TestOAuthDiscoveryRetriesAfterTransientMetadataBodyTimeout(t *testing.T) {
 	}
 }
 
+func TestOAuthDiscoveryRecoversAfterMissingPathAndRootTimeout(t *testing.T) {
+	t.Parallel()
+
+	for _, bodyTimeout := range []bool{false, true} {
+		name := "request timeout"
+		if bodyTimeout {
+			name = "body timeout"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var recovered atomic.Bool
+			enteredRetry := make(chan time.Duration, 1)
+			allowRetry := make(chan struct{})
+			client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				status := http.StatusNotFound
+				body := io.NopCloser(strings.NewReader("not found"))
+				if req.URL.Path == "/.well-known/oauth-protected-resource" {
+					status = http.StatusOK
+					body = io.NopCloser(strings.NewReader(`{"resource":"https://mcp.example.test/mcp"}`))
+					if !recovered.Load() {
+						if !bodyTimeout {
+							return nil, context.DeadlineExceeded
+						}
+						body = io.NopCloser(&errorReader{err: context.DeadlineExceeded})
+					}
+				}
+				return &http.Response{
+					StatusCode: status,
+					Header:     make(http.Header),
+					Body:       body,
+					Request:    req,
+				}, nil
+			})}
+			state, catalog, bus := startOAuthDiscoveryCatalogTestApp(t, client, deterministicOAuthDiscoveryRetryPolicy(enteredRetry, allowRetry))
+			select {
+			case <-enteredRetry:
+			case <-state.done:
+				_, _, _, err, _ := state.Wait(0)
+				t.Fatalf("404 followed by timeout permanently settled discovery: %v", err)
+			case <-time.After(time.Second):
+				t.Fatal("404 followed by timeout did not enter recovery retry")
+			}
+			if state.IsDone() {
+				t.Fatal("discovery must remain pending while the root metadata endpoint is unavailable")
+			}
+			if done, _, err := catalog.Snapshot(); done {
+				t.Fatalf("startup catalog settled before endpoint recovery: %v", err)
+			}
+			bus.mu.Lock()
+			published := len(bus.bundles)
+			bus.mu.Unlock()
+			if published != 0 {
+				t.Fatal("failed discovery published a partial startup catalog")
+			}
+
+			recovered.Store(true)
+			close(allowRetry)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := catalog.Wait(ctx); err != nil {
+				t.Fatalf("startup catalog did not recover without restarting: %v", err)
+			}
+			result, _, _, err, done := state.Wait(time.Second)
+			if !done || err != nil {
+				t.Fatalf("discovery did not recover: done=%v, err=%v", done, err)
+			}
+			if result == nil || result.URL != "https://mcp.example.test/.well-known/oauth-protected-resource" {
+				t.Fatalf("unexpected recovered discovery result: %#v", result)
+			}
+			bus.mu.Lock()
+			defer bus.mu.Unlock()
+			if len(bus.bundles) != 1 || len(bus.bundles[0].URLs) == 0 {
+				t.Fatalf("recovered startup bundles = %#v, want one non-empty bundle", bus.bundles)
+			}
+		})
+	}
+}
+
 func TestOAuthDiscoveryRecoversFromInvalidStartupMetadata(t *testing.T) {
 	t.Parallel()
 

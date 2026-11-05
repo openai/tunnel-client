@@ -33,14 +33,17 @@ const (
 
 // discoveryResponseFailures distinguishes a temporarily unusable metadata
 // response from permanent request/configuration failures. Missing fallback URLs
-// do not veto recovery of another endpoint, but trust or transport failures do.
+// do not veto recovery of another endpoint, but trust or non-timeout transport
+// failures do.
 type discoveryResponseFailures struct {
 	retryable bool
 	permanent bool
+	timeout   bool
 }
 
 func (f *discoveryResponseFailures) record(status int, err error, invalidBody bool) {
 	if classifyDiscoveryFailure(err) == discoveryFailureTypeTimeoutOnly {
+		f.timeout = true
 		return
 	}
 	if status == http.StatusNotFound {
@@ -64,6 +67,9 @@ func (f discoveryResponseFailures) classify(fallback discoveryFailureType) disco
 	}
 	if f.retryable {
 		return discoveryFailureTypeRetryableResponse
+	}
+	if f.timeout {
+		return discoveryFailureTypeTimeoutOnly
 	}
 	return fallback
 }

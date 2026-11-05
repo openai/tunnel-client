@@ -70,7 +70,7 @@ func FetchOAuthMetadata(
 
 	if failureType == discoveryFailureTypeTimeoutOnly {
 		if logger != nil {
-			logger.WarnContext(ctx, "oauth discovery timed out for all candidates; retrying with timeout backoff")
+			logger.WarnContext(ctx, "oauth discovery encountered timeouts; retrying with timeout backoff")
 		}
 		response, sourceURL, failureType, lastErr = runOAuthMetadataDiscoveryPass(
 			ctx,
