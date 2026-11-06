@@ -22,8 +22,8 @@ func TestBuildVersion(t *testing.T) {
 func TestEmbeddedSourceVersionIsReleaseVersion(t *testing.T) {
 	t.Parallel()
 
-	if got := strings.TrimSpace(sourceSemanticVersion); got != "0.0.19" {
-		t.Fatalf("expected source VERSION to be 0.0.19, got %q", got)
+	if got := strings.TrimSpace(sourceSemanticVersion); got != "0.0.20" {
+		t.Fatalf("expected source VERSION to be 0.0.20, got %q", got)
 	}
 }
 
