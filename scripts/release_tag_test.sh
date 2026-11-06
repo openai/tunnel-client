@@ -46,14 +46,30 @@ prerelease_metadata="$("$RELEASE_TAG_SCRIPT" parse v0.0.10-rc.1)"
 assert_contains "$prerelease_metadata" "release_version=0.0.10-rc.1"
 assert_contains "$prerelease_metadata" "prerelease=true"
 
-"$RELEASE_TAG_SCRIPT" check-source-version v0.0.19
-"$RELEASE_TAG_SCRIPT" check-source-version 0.0.19
+# Release stamps must not change the source-version test cases.
+source_fixture="$(mktemp -d)"
+trap 'rm -rf "$source_fixture"' EXIT
+mkdir -p "$source_fixture/scripts" "$source_fixture/pkg/version"
+cp "$RELEASE_TAG_SCRIPT" "$source_fixture/scripts/release_tag.sh"
+source_version_script="$source_fixture/scripts/release_tag.sh"
+printf '0.0.10\n' > "$source_fixture/pkg/version/VERSION"
+
+assert_eq "0.0.10" "$("$source_version_script" source-version)"
+"$source_version_script" check-source-version v0.0.10
+"$source_version_script" check-source-version 0.0.10
+assert_fails_with "source version 0.0.10 in pkg/version/VERSION does not match release version 0.0.10-dev" \
+  "$source_version_script" check-source-version v0.0.10-dev
+
+"$source_version_script" set-source-version 0.0.11-dev
+assert_eq "0.0.11-dev" "$(cat "$source_fixture/pkg/version/VERSION")"
+"$source_version_script" check-source-version v0.0.11-dev
+"$source_version_script" check-source-version 0.0.11-dev
+assert_fails_with "source version 0.0.11-dev in pkg/version/VERSION does not match release version 0.0.10" \
+  "$source_version_script" check-source-version v0.0.10
 
 assert_fails_with "version must not include a release-word suffix" \
   "$RELEASE_TAG_SCRIPT" parse v0.0.10--context-conduit-topaz
 assert_fails_with "tag must look like v<semver>" \
   "$RELEASE_TAG_SCRIPT" parse 0.0.10
-assert_fails_with "source version 0.0.19 in pkg/version/VERSION does not match release version 0.0.19-dev" \
-  "$RELEASE_TAG_SCRIPT" check-source-version v0.0.19-dev
 assert_fails_with "Usage:" \
   "$RELEASE_TAG_SCRIPT" make 0.0.10 context-conduit-topaz
