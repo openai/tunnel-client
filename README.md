@@ -270,7 +270,8 @@ after the MCP server is available; the process can remain alive with its
 startup probe failed. After a server restart, check readiness and logs;
 existing MCP sessions may need to be initialized again. For a stdio target,
 the runtime owns the MCP child. Do not assume interrupted tool calls are
-replayed.
+replayed. See [Supervising startup](docs/health.md#supervising-startup) for
+interpreting process liveness, OAuth discovery, readiness, and polling state.
 
 ## For Codex / Copilot
 

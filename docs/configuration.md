@@ -538,6 +538,8 @@ endpoints must still match the selected residency.
     this catalog. This gate requires the standard runtime's acknowledged
     registration bus; custom embedded graphs using a legacy publication-only
     bus retain their existing behavior.
+  - See [Supervising startup](health.md#supervising-startup) for the combined
+    listener wait, catalog, readiness, and polling rules.
 - **Polled-command buffer capacity**
   - Flag: `--control-plane.max-inflight`
   - Env: `CONTROL_PLANE_MAX_INFLIGHT_REQUESTS`
@@ -771,8 +773,10 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
     Readiness stays pending until the probe settles; other default probe
     failure handling is unchanged.
   - If the configured wait expires, `/readyz` remains non-ready. Polling still
-    requires successful startup catalog completion when Harpoon is included.
-    Initialization retries never replay tunneled MCP commands.
+    requires successful startup catalog completion when it is unscoped or its
+    scope includes `harpoon`. Initialization retries never replay tunneled MCP
+    commands. See [Supervising startup](health.md#supervising-startup) for the
+    relationship between this wait, readiness, and polling.
 - **Max concurrent requests**
   - Flag: `--mcp.max-concurrent-requests`
   - Env: `MCP_MAX_CONCURRENT_REQUESTS`
@@ -828,6 +832,14 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
   - Conflict behavior: these discovery/probe headers override
     `MCP_EXTRA_HEADERS` for discovery/probe requests. If connector-forwarded
     headers are present on a request, they are still applied last.
+  - For log grouping, an operator-defined header such as
+    `--mcp.discovery-extra-headers "X-Operator-Discovery: 1"` can label this
+    traffic in MCP server logs. The same label can appear on startup OAuth,
+    queued OAuth discovery, and the separate MCP startup initialization probe.
+    It is static: it does not identify an individual probe or indicate whether
+    a response allows discovery to continue. See
+    [Supervising startup](health.md#supervising-startup) for interpreting the
+    corresponding health states.
 
 **OAuth-protected MCP notes:**
 

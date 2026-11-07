@@ -165,14 +165,46 @@ If you are debugging why `/readyz` is failing or why the client never becomes
   `tunnel-client` starts, set `MCP_STARTUP_WAIT_TIMEOUT` to a positive
   duration. During that window, pre-connect `connection refused` and missing
   Unix-socket failures keep readiness pending and delay the first control-plane
-  poll; if the wait expires, polling resumes with the legacy behavior while
-  `/readyz` remains non-ready for the startup failure.
+  poll. If the wait expires, the client stops waiting for the MCP probe and
+  keeps `/readyz` non-ready. In standard runtimes, unscoped pollers and scopes
+  including Harpoon still require successful startup catalog completion
+  before polling.
 - If the process is live but `/readyz` stays non-`200`, check logs for:
   - OAuth discovery failures
   - control-plane connectivity errors
   - MCP server connectivity errors
 - `tunnel-client health --port 8080` is the quickest loopback check when the
   daemon is bound to the default port.
+
+## OAuth challenge probes return 415 or 405
+
+For a Streamable HTTP main MCP binding, startup OAuth discovery first sends an
+empty `POST` to the configured MCP URL. It looks for a `401` response with a
+`WWW-Authenticate` Bearer challenge whose `resource_metadata` value is an
+absolute URL. If the POST does not yield that challenge, it attempts `GET` at
+the same MCP URL within the same bounded probe window. It then builds a list of
+metadata candidates: the advertised URL when one was found, followed by
+well-known protected-resource metadata URLs derived from the MCP path and
+origin root.
+
+The challenge POST sets `Accept: application/json` but does not itself set
+`Content-Type`. A server that requires JSON Content-Type for POST can return
+`415 Unsupported Media Type`; a server that does not support GET at its MCP URL
+can return `405 Method Not Allowed`. If both challenge attempts fail this way,
+discovery can continue with the well-known metadata candidates. The fallback
+can still fail. Apply this interpretation only to challenge probes at the MCP
+URL; metadata requests and forwarded MCP commands have their own failure
+handling.
+
+Keep these responses as diagnostic evidence. Do not use an individual
+challenge response alone to decide that the MCP server process has failed. See
+[Supervising startup](health.md#supervising-startup) for the liveness, readiness,
+and polling decisions.
+
+[Static discovery/probe headers](configuration.md#mcp-server) can group these
+requests in server logs, but also cover other discovery and startup traffic.
+Correlate live requests with client and server logs before attributing a 415 or
+405 to tunnel-client startup discovery.
 
 ## Export recent logs
 
