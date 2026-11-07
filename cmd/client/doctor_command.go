@@ -154,6 +154,12 @@ func runDoctor(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) doctorR
 		Status:  doctorStatusPass,
 		Summary: cfg.ControlPlane.TunnelID.String(),
 	})
+	if cfg.ControlPlane.Residency != "" {
+		checks = append(checks, doctorCheck{
+			ID: "control_plane_endpoint", Status: doctorStatusPass,
+			Summary: fmt.Sprintf("residency=%s endpoint=%s mTLS=%t; regional service availability is not verified", cfg.ControlPlane.Residency, cfg.ControlPlane.BaseURL.Host, cfg.ControlPlane.ClientCertificate != nil),
+		})
+	}
 	checks = append(checks, doctorCheck{
 		ID:      "control_plane_api_key",
 		Status:  doctorStatusPass,

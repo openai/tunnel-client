@@ -14,11 +14,12 @@ import (
 )
 
 type runtimesCommonFlags struct {
-	adminProfileName    string
-	adminKeyRef         string
-	controlPlaneBaseURL string
-	controlPlaneURLPath string
-	jsonOutput          bool
+	adminProfileName      string
+	adminKeyRef           string
+	controlPlaneBaseURL   string
+	controlPlaneResidency string
+	controlPlaneURLPath   string
+	jsonOutput            bool
 }
 
 func newRuntimesCommand(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer) *cobra.Command {
@@ -26,7 +27,6 @@ func newRuntimesCommand(lookupEnv func(string) (string, bool), stdout io.Writer,
 }
 
 func newRuntimesCommandWithRuntime(lookupEnv func(string) (string, bool), stdout io.Writer, stderr io.Writer, runtime session.Runtime) *cobra.Command {
-	manager := codexplugin.NewManager(lookupEnv, runtime)
 	common := &runtimesCommonFlags{}
 
 	cmd := &cobra.Command{
@@ -38,8 +38,18 @@ func newRuntimesCommandWithRuntime(lookupEnv func(string) (string, bool), stdout
 	cmd.PersistentFlags().StringVar(&common.adminProfileName, "admin-profile", "", "Admin profile name to use")
 	cmd.PersistentFlags().StringVar(&common.adminKeyRef, "admin-key", "", "Admin key reference to store/use, using env:NAME or file:/path")
 	cmd.PersistentFlags().StringVar(&common.controlPlaneBaseURL, "control-plane-base-url", "", "Control-plane base URL")
+	cmd.PersistentFlags().StringVar(&common.controlPlaneResidency, "control-plane-residency", "", "Control-plane residency endpoint (env.CONTROL_PLANE_RESIDENCY)")
 	cmd.PersistentFlags().StringVar(&common.controlPlaneURLPath, "control-plane-url-path", "", "Optional URL path appended to the control-plane base URL")
 	cmd.PersistentFlags().BoolVar(&common.jsonOutput, "json", false, "Emit JSON output")
+	manager := codexplugin.NewManager(func(key string) (string, bool) {
+		if key == "CONTROL_PLANE_RESIDENCY" && cmd.PersistentFlags().Changed("control-plane-residency") {
+			return common.controlPlaneResidency, true
+		}
+		if lookupEnv == nil {
+			return os.LookupEnv(key)
+		}
+		return lookupEnv(key)
+	}, runtime)
 
 	var createName string
 	var createDescription string

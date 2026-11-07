@@ -293,6 +293,7 @@ type RuntimeConfig struct {
 // ControlPlaneConfig defines how the client reaches the tunnel control plane.
 type ControlPlaneConfig struct {
 	TraceContextEnabled   bool
+	Residency             Residency
 	BaseURL               *url.URL
 	UnixSocketPath        string
 	URLPath               string
@@ -657,15 +658,13 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.String("profile", "", "Profile name to load from the profile directory (env.TUNNEL_CLIENT_PROFILE)")
 	fs.String("profile-file", "", "Path to a specific profile YAML file (env.TUNNEL_CLIENT_PROFILE_FILE)")
 	fs.String("profile-dir", "", "Directory containing profile YAML files (env.TUNNEL_CLIENT_PROFILE_DIR; default $XDG_CONFIG_HOME/tunnel-client or ~/.config/tunnel-client)")
-	fs.String("control-plane.base-url", defaultControlPlaneBaseURL, "Tunnel control-plane base URL (env.CONTROL_PLANE_BASE_URL)")
+	RegisterControlPlaneEndpointFlags(fs)
 	fs.String("control-plane.url-path", "", "Optional URL path appended to the control-plane base URL before tunnel-client adds its /v1/... routes (env.CONTROL_PLANE_URL_PATH)")
 	fs.String("control-plane.tunnel-id", "", "Identifier for this client/tunnel (env.CONTROL_PLANE_TUNNEL_ID)")
 	fs.String("control-plane.organization-id", "", "Organization ID to send as OpenAI-Organization on tunnel control-plane requests (env.CONTROL_PLANE_ORGANIZATION_ID)")
 	fs.String("control-plane.api-key", "", "Reference to environment variable or file containing the control-plane API key (format env:VARNAME or file:/path/to/secret)")
 	fs.String("control-plane.aws-identity-provider-id", "", "OpenAI identity provider ID for AWS workload identity")
 	fs.String("control-plane.aws-service-account-id", "", "OpenAI service account ID for AWS workload identity")
-	fs.String("control-plane.client-cert", "", "Path to PEM client certificate for control-plane mTLS (format <path|env:VAR|file:/path>) (env.CONTROL_PLANE_CLIENT_CERT)")
-	fs.String("control-plane.client-key", "", "Path to PEM client private key for control-plane mTLS (format <path|env:VAR|file:/path>) (env.CONTROL_PLANE_CLIENT_KEY)")
 	fs.String("control-plane.http-proxy", "", "Outbound HTTP proxy for the control plane (format <url|env:VAR>)")
 	fs.Int("control-plane.max-inflight", defaultControlPlaneMaxInFlight, "Capacity of the local polled-command buffer; polling pauses while the buffer is full (env.CONTROL_PLANE_MAX_INFLIGHT_REQUESTS, max 10000)")
 	fs.Duration("control-plane.poll-timeout", defaultControlPlanePollTimeout, "Long-poll timeout when fetching commands from the control plane (env.CONTROL_PLANE_POLL_TIMEOUT)")
@@ -1254,15 +1253,11 @@ func getControlPlaneAPIKey(flagValue string, lookupEnv func(string) (string, boo
 }
 
 func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), globalProxy *url.URL, globalProxySource ProxySource) (ControlPlaneConfig, error) {
-	clientCertificate, err := buildControlPlaneClientCertificate(fs, lookupEnv)
+	endpoint, err := BuildControlPlaneEndpoint(fs, lookupEnv)
 	if err != nil {
 		return ControlPlaneConfig{}, err
 	}
-	baseURLRaw := controlPlaneBaseURLRaw(fs, lookupEnv, clientCertificate)
-	baseURL, err := parseURL(baseURLRaw)
-	if err != nil {
-		return ControlPlaneConfig{}, fmt.Errorf("invalid control-plane.base-url: %w", err)
-	}
+	baseURL := endpoint.BaseURL
 	controlPlaneURLPath, err := NormalizeControlPlaneURLPath(controlPlaneURLPathRaw(fs, lookupEnv))
 	if err != nil {
 		return ControlPlaneConfig{}, err
@@ -1422,6 +1417,7 @@ func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, 
 	}
 
 	return ControlPlaneConfig{
+		Residency:              endpoint.Residency,
 		BaseURL:                baseURL,
 		URLPath:                controlPlaneURLPath,
 		TunnelID:               types.TunnelID(tunnelID),
@@ -1434,7 +1430,7 @@ func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, 
 		PollDeadlineGuardrail:  pollDeadlineGuardrail,
 		PollChannels:           pollChannels,
 		PollChannelsConfigured: pollChannelsConfigured,
-		ClientCertificate:      clientCertificate,
+		ClientCertificate:      endpoint.ClientCertificate,
 		ExtraHeaders:           extraHeaders,
 		HTTPProxy:              httpProxy,
 		HTTPProxySource:        httpProxySource,
@@ -1520,20 +1516,6 @@ func validateControlPlanePollTiming(pollTimeout, pollDeadlineGuardrail time.Dura
 		return fmt.Errorf("control-plane.poll-timeout plus control-plane.poll-deadline-guardrail must be less than or equal to %s", maxControlPlanePollDeadline)
 	}
 	return nil
-}
-
-func controlPlaneBaseURLRaw(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), clientCertificate *tlsconfig.ClientCertificate) string {
-	baseURLRaw := firstSet(
-		getValue(fs, "control-plane.base-url"),
-		envOrDefault(lookupEnv, "CONTROL_PLANE_BASE_URL", defaultControlPlaneBaseURL),
-	)
-	if clientCertificate == nil {
-		return baseURLRaw
-	}
-	if strings.TrimRight(strings.TrimSpace(baseURLRaw), "/") == defaultControlPlaneBaseURL {
-		return defaultControlPlaneMTLSBaseURL
-	}
-	return baseURLRaw
 }
 
 func controlPlaneURLPathRaw(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) string {

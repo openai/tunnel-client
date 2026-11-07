@@ -342,6 +342,11 @@ func expandHome(path string, lookupEnv func(string) (string, bool)) (string, err
 }
 
 func validateFileConfigSyntax(c fileConfig) error {
+	if c.ControlPlane.Residency != nil {
+		if _, err := ParseResidency(*c.ControlPlane.Residency); err != nil {
+			return err
+		}
+	}
 	if err := validateConfigValueReferenceSyntax("control_plane.base_url", c.ControlPlane.BaseURL); err != nil {
 		return err
 	}

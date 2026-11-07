@@ -174,7 +174,7 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 		newManagedCloudflareBackoff:    newControlPlaneBackoff,
 		retrySleep:                     sleepWithContext,
 	}
-	if cfg.TokenProvider != nil {
+	if cfg.TokenProvider != nil || cfg.Residency != "" {
 		// Do not attach a fresh bearer token to an HTTP redirect. Wrong-cluster
 		// responses use the tunnel routing protocol rather than HTTP redirects.
 		stopRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

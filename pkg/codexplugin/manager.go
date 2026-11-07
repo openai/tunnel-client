@@ -12,18 +12,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"github.com/openai/tunnel-client/pkg/codexplugin/session"
 	pluginstate "github.com/openai/tunnel-client/pkg/codexplugin/state"
 	"github.com/openai/tunnel-client/pkg/config"
 	adminapi "github.com/openai/tunnel-client/pkg/controlplane/admin"
 	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 )
 
 const (
-	defaultAdminProfileName    = "default"
-	defaultAdminKeyRef         = "env:OPENAI_ADMIN_KEY"
-	defaultRuntimeAPIKeyRef    = "env:CONTROL_PLANE_API_KEY"
-	defaultControlPlaneBaseURL = "https://api.openai.com"
+	defaultAdminProfileName = "default"
+	defaultAdminKeyRef      = "env:OPENAI_ADMIN_KEY"
+	defaultRuntimeAPIKeyRef = "env:CONTROL_PLANE_API_KEY"
 )
 
 type Manager struct {
@@ -165,7 +167,11 @@ func (m *Manager) SetAdminProfile(name, baseURL, urlPath, adminKey string, activ
 		return nil, err
 	}
 	existing := file.Profiles[normalizedName]
-	resolvedBaseURL := firstNonEmpty(strings.TrimSpace(baseURL), existing.ControlPlaneBaseURL, envValue(m.lookupEnv, "CONTROL_PLANE_BASE_URL"), defaultControlPlaneBaseURL)
+	endpoint, err := m.controlPlaneProfileEndpoint(baseURL, existing.ControlPlaneBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	resolvedBaseURL := endpoint.BaseURL.String()
 	resolvedURLPath := firstNonEmpty(strings.TrimSpace(urlPath), existing.ControlPlaneURLPath, envValue(m.lookupEnv, "CONTROL_PLANE_URL_PATH"))
 	resolvedAdminKey := firstNonEmpty(strings.TrimSpace(adminKey), existing.AdminKey, defaultAdminKeyRef)
 	if err := pluginstate.ValidateSecretReference(resolvedAdminKey, "admin profile "+normalizedName+" admin_key"); err != nil {
@@ -870,7 +876,11 @@ func (m *Manager) resolveAdminProfile(root pluginstate.Root, requestedName, admi
 		return effectiveAdminProfile{}, err
 	}
 	existing := file.Profiles[normalizedName]
-	resolvedBaseURL := firstNonEmpty(strings.TrimSpace(baseURL), existing.ControlPlaneBaseURL, envValue(m.lookupEnv, "CONTROL_PLANE_BASE_URL"), defaultControlPlaneBaseURL)
+	endpoint, err := m.controlPlaneProfileEndpoint(baseURL, existing.ControlPlaneBaseURL)
+	if err != nil {
+		return effectiveAdminProfile{}, err
+	}
+	resolvedBaseURL := endpoint.BaseURL.String()
 	resolvedURLPath := firstNonEmpty(strings.TrimSpace(urlPath), existing.ControlPlaneURLPath, envValue(m.lookupEnv, "CONTROL_PLANE_URL_PATH"))
 	resolvedAdminKey := firstNonEmpty(strings.TrimSpace(adminKeyRef), existing.AdminKey, defaultAdminKeyRef)
 	if err := pluginstate.ValidateSecretReference(resolvedAdminKey, "admin profile "+normalizedName+" admin_key"); err != nil {
@@ -1003,19 +1013,43 @@ func (m *Manager) newAdminClient(adminProfile effectiveAdminProfile, keyRef stri
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := url.Parse(adminProfile.ControlPlaneBaseURL)
+	endpoint, err := m.controlPlaneEndpoint(adminProfile.ControlPlaneBaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse control-plane base URL %s: %w", adminProfile.ControlPlaneBaseURL, err)
+		return nil, err
 	}
 	controlPlaneURLPath, err := config.NormalizeControlPlaneURLPath(adminProfile.ControlPlaneURLPath)
 	if err != nil {
 		return nil, err
 	}
 	return adminapi.NewAdminTunnelClient(&config.AdminConfig{
-		BaseURL:  parsed,
-		URLPath:  controlPlaneURLPath,
-		AdminKey: key,
+		BaseURL:           endpoint.BaseURL,
+		Residency:         endpoint.Residency,
+		ClientCertificate: endpoint.ClientCertificate,
+		URLPath:           controlPlaneURLPath,
+		AdminKey:          key,
 	})
+}
+
+func (m *Manager) controlPlaneProfileEndpoint(baseURL, storedBaseURL string) (runtimeconfig.ControlPlaneEndpoint, error) {
+	// Older profiles persist the resolved global default without recording
+	// whether it was explicit. Let a new selector replace that legacy default;
+	// explicit overrides and custom profile endpoints still fail on conflicts.
+	if _, configured := m.lookupEnv("CONTROL_PLANE_RESIDENCY"); configured && strings.TrimSpace(baseURL) == "" &&
+		strings.TrimRight(strings.TrimSpace(storedBaseURL), "/") == runtimeconfig.DefaultControlPlaneBaseURL {
+		storedBaseURL = ""
+	}
+	return m.controlPlaneEndpoint(firstNonEmpty(strings.TrimSpace(baseURL), storedBaseURL))
+}
+
+func (m *Manager) controlPlaneEndpoint(baseURL string) (runtimeconfig.ControlPlaneEndpoint, error) {
+	fs := pflag.NewFlagSet("control-plane", pflag.ContinueOnError)
+	runtimeconfig.RegisterControlPlaneEndpointFlags(fs)
+	if baseURL != "" {
+		if err := fs.Set("control-plane.base-url", baseURL); err != nil {
+			return runtimeconfig.ControlPlaneEndpoint{}, err
+		}
+	}
+	return runtimeconfig.BuildControlPlaneEndpoint(fs, m.lookupEnv)
 }
 
 func runtimeProcessRecord(
@@ -1329,15 +1363,22 @@ func targetFromOptions(serverURL, command string) (session.Target, error) {
 }
 
 func runtimeLaunchEnvOverrides(secretRef string, lookupEnv func(string) (string, bool)) map[string]string {
+	overrides := map[string]string{}
+	// Preserve the effective selector, including a CLI override, when the child
+	// inherits the parent's environment over its generated YAML profile.
+	if residency, ok := lookupEnv("CONTROL_PLANE_RESIDENCY"); ok {
+		overrides["CONTROL_PLANE_RESIDENCY"] = residency
+	}
 	if !strings.HasPrefix(secretRef, "env:") {
-		return map[string]string{}
+		return overrides
 	}
 	envName := strings.TrimPrefix(secretRef, "env:")
 	value, err := resolveSecretReference(secretRef, lookupEnv)
 	if err != nil {
-		return map[string]string{}
+		return overrides
 	}
-	return map[string]string{envName: value}
+	overrides[envName] = value
+	return overrides
 }
 
 func resolveSecretReference(secretRef string, lookupEnv func(string) (string, bool)) (string, error) {

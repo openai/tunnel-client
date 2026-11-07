@@ -22,6 +22,7 @@ const ALLOWED_CONTROL_PLANE_ORIGINS = new Set([
   "https://mtls.api.openai.com",
 ]);
 const CONTROL_PLANE_BASE_URL_ENV = "CONTROL_PLANE_BASE_URL";
+const CONTROL_PLANE_RESIDENCIES = ["global", "us", "eu", "au", "ca", "gb", "in", "jp", "kr", "sg", "ae"];
 const OPENAI_STYLE_SECRET_PATTERN = "\\bsk-[A-Za-z0-9][A-Za-z0-9_-]{11,}\\b";
 const PRIVATE_KEY_PEM_PATTERN =
   "-----BEGIN (?:OPENSSH |RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----[\\s\\S]*?" +
@@ -198,6 +199,11 @@ function aliasSchema() {
 
 function runtimeLifecycleSchema({ includeMcpCommand, includeTunnelId, requireRemoteScope }) {
   const properties = {
+    control_plane_residency: {
+      type: "string",
+      enum: CONTROL_PLANE_RESIDENCIES,
+      description: "Select a regional control-plane endpoint; service availability is independent.",
+    },
     alias: {
       type: "string",
       description: "Local tunnel-client runtime alias.",
@@ -391,6 +397,11 @@ function listRuntimeAliasesSchema() {
   return {
     type: "object",
     properties: {
+      control_plane_residency: {
+        type: "string",
+        enum: CONTROL_PLANE_RESIDENCIES,
+        description: "Select a regional control-plane endpoint; service availability is independent.",
+      },
       organization_id: {
         type: "string",
         description: "Optional organization scope for remote listing.",
@@ -428,6 +439,7 @@ function buildCreateArgs(args) {
   validateRemoteScope(args, { allowTunnelId: false, required: true, command: "create_tunnel_runtime" });
   validateControlPlaneOverride(args.control_plane_base_url);
   const out = ["runtimes", "create", "--alias", args.alias];
+  appendResidency(out, args.control_plane_residency);
   appendRemoteScope(out, args);
   appendOptional(out, "--admin-profile", args.admin_profile);
   appendOptional(out, "--control-plane-base-url", args.control_plane_base_url);
@@ -444,6 +456,7 @@ function buildConnectArgs(args) {
   validateRuntimeAPIKey(args.runtime_api_key);
   validateControlPlaneOverride(args.control_plane_base_url);
   const out = ["runtimes", "connect", "--alias", args.alias, "--mcp-command", args.mcp_command];
+  appendResidency(out, args.control_plane_residency);
   appendRemoteScope(out, args);
   appendOptional(out, "--tunnel-id", args.tunnel_id);
   appendOptional(out, "--runtime-api-key", args.runtime_api_key);
@@ -460,6 +473,7 @@ function buildListArgs(args) {
   validateListScope(args);
   validateControlPlaneOverride(args.control_plane_base_url);
   const out = ["runtimes", "list"];
+  appendResidency(out, args.control_plane_residency);
   appendRemoteScope(out, args);
   appendOptional(out, "--tenant-id", args.tenant_id);
   appendOptional(out, "--admin-profile", args.admin_profile);
@@ -471,6 +485,14 @@ function buildListArgs(args) {
 
 function buildStatusArgs(args) {
   return ["runtimes", "status", args.alias, "--json"];
+}
+
+function appendResidency(out, value) {
+  if (value === undefined) return;
+  if (!CONTROL_PLANE_RESIDENCIES.includes(value)) {
+    throw new Error("control_plane_residency must be one of " + CONTROL_PLANE_RESIDENCIES.join(", "));
+  }
+  out.push("--control-plane-residency", value);
 }
 
 function buildStopArgs(args) {

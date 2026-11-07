@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,6 +44,38 @@ func TestLoadAdminConfig_FlagsOverrideEnv(t *testing.T) {
 	require.Equal(t, "flag-key", cfg.AdminKey)
 	require.Equal(t, []string{"org-1", "org-2"}, cfg.OrganizationIDs)
 	require.Equal(t, []string{"ws-1"}, cfg.WorkspaceIDs)
+}
+
+func TestLoadAdminConfigResidency(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name          string
+		args          []string
+		env           map[string]string
+		want, wantErr string
+	}{
+		{name: "environment", env: map[string]string{"CONTROL_PLANE_RESIDENCY": "eu"}, want: "https://eu.api.openai.com"},
+		{name: "flag", args: []string{"--control-plane.residency=us"}, env: map[string]string{"CONTROL_PLANE_RESIDENCY": "eu"}, want: "https://us.api.openai.com"},
+		{name: "future backend", args: []string{"--control-plane.residency=jp"}, want: "https://jp.api.openai.com"},
+		{name: "unknown", args: []string{"--control-plane.residency=unknown"}, wantErr: "control-plane.residency"},
+		{name: "conflict", args: []string{"--control-plane.residency=eu", "--control-plane.base-url=https://api.openai.com"}, wantErr: "conflicts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fs := pflag.NewFlagSet("admin", pflag.ContinueOnError)
+			RegisterAdminFlags(fs)
+			require.NoError(t, fs.Parse(tc.args))
+			env := map[string]string{"OPENAI_ADMIN_KEY": "test-admin-key"}
+			maps.Copy(env, tc.env)
+			cfg, err := LoadAdminConfig(fs, lookupEnvMap(env))
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.BaseURL.String())
+		})
+	}
 }
 
 func TestLoadAdminConfig_UsesEnvWhenFlagsUnset(t *testing.T) {

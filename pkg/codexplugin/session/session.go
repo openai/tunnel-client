@@ -25,6 +25,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/codexplugin/state"
 	"github.com/openai/tunnel-client/pkg/healthurl"
 	"github.com/openai/tunnel-client/pkg/localfiles"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 )
 
 const (
@@ -292,6 +293,9 @@ func WriteRuntimeProfile(
 	root state.Root,
 	lookupEnv func(string) (string, bool),
 ) (string, error) {
+	if lookupEnv == nil {
+		lookupEnv = os.LookupEnv
+	}
 	normalizedAlias, err := state.NormalizeAlias(alias)
 	if err != nil {
 		return "", err
@@ -335,6 +339,19 @@ func WriteRuntimeProfile(
 	}
 	if strings.TrimSpace(urlPath) != "" {
 		payload["control_plane"].(map[string]any)["url_path"] = strings.TrimSpace(urlPath)
+	}
+	if raw, configured := lookupEnv("CONTROL_PLANE_RESIDENCY"); configured {
+		residency, err := runtimeconfig.ParseResidency(raw)
+		if err != nil {
+			return "", err
+		}
+		if _, err := runtimeconfig.ResolveControlPlaneBaseURL(baseURL, residency, false); err != nil {
+			// The manager may already have selected the matching mTLS origin.
+			if _, mtlsErr := runtimeconfig.ResolveControlPlaneBaseURL(baseURL, residency, true); mtlsErr != nil {
+				return "", err
+			}
+		}
+		payload["control_plane"].(map[string]any)["residency"] = string(residency)
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return "", fmt.Errorf("create profile directory %s: %w", filepath.Dir(configPath), err)

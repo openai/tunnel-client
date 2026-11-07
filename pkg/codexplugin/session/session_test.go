@@ -15,6 +15,13 @@ import (
 	"github.com/openai/tunnel-client/pkg/codexplugin/state"
 )
 
+func TestChildEnvResidencyOverride(t *testing.T) {
+	t.Setenv("CONTROL_PLANE_RESIDENCY", "eu")
+	child := childEnv(map[string]string{"CONTROL_PLANE_RESIDENCY": "us"})
+	require.Equal(t, "us", child["CONTROL_PLANE_RESIDENCY"])
+	require.Equal(t, "eu", os.Getenv("CONTROL_PLANE_RESIDENCY"))
+}
+
 type fakeProcess struct {
 	pid      int
 	exitCode *int
@@ -81,6 +88,22 @@ func TestWriteRuntimeProfileUsesExistingJSONCompatibleShape(t *testing.T) {
 	require.Contains(t, string(data), `"url_path": "/chatgpttunnelgateway/dev/us"`)
 	require.Contains(t, string(data), `"server_urls": [`)
 	require.Contains(t, string(data), `"file": "`+LogPath("docs-mcp", root)+`"`)
+}
+
+func TestWriteRuntimeProfilePreservesResidency(t *testing.T) {
+	t.Parallel()
+	root := state.Root{Path: t.TempDir()}
+	profile, err := WriteRuntimeProfile("regional", "regional", "tunnel_123", "https://eu.api.openai.com", "", "env:CONTROL_PLANE_API_KEY", Target{Kind: "server_url", Value: "https://mcp.example/mcp"}, t.TempDir(), root, func(key string) (string, bool) {
+		if key == "CONTROL_PLANE_RESIDENCY" {
+			return "eu", true
+		}
+		return "", false
+	})
+	require.NoError(t, err)
+	data, err := os.ReadFile(profile)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"residency": "eu"`)
+	require.Contains(t, string(data), `"base_url": "https://eu.api.openai.com"`)
 }
 
 func TestTmuxSessionNameIsScopedByStateRoot(t *testing.T) {

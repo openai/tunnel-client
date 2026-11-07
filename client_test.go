@@ -57,6 +57,18 @@ func TestNewValidatesRequiredInputs(t *testing.T) {
 			wantErr:   "invalid control-plane base URL",
 		},
 		{
+			name:      "unknown residency",
+			cfg:       tunnelclient.Config{TunnelID: testTunnelID, APIKey: testAPIKey, ControlPlaneResidency: tunnelclient.Residency("unknown")},
+			transport: clientTransport,
+			wantErr:   "control-plane.residency",
+		},
+		{
+			name:      "conflicting residency and base URL",
+			cfg:       tunnelclient.Config{TunnelID: testTunnelID, APIKey: testAPIKey, ControlPlaneResidency: tunnelclient.ResidencyEU, ControlPlaneBaseURL: "https://api.openai.com"},
+			transport: clientTransport,
+			wantErr:   "conflicts",
+		},
+		{
 			name: "reserved control plane header",
 			cfg: tunnelclient.Config{
 				TunnelID:                 testTunnelID,

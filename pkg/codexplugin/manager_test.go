@@ -85,6 +85,94 @@ func TestStatusReconcilesStaleAliasHealthURLWithLiveRuntimeAndPollHealth(t *test
 	requireRepairAction(t, payload["repair_actions"], "repair_control_plane_proxy")
 }
 
+func TestManagerResidencyEndpoint(t *testing.T) {
+	t.Parallel()
+	manager := NewManager(testLookupEnv(map[string]string{"CONTROL_PLANE_RESIDENCY": "eu"}), session.Runtime{})
+	endpoint, err := manager.controlPlaneEndpoint("")
+	require.NoError(t, err)
+	require.Equal(t, "https://eu.api.openai.com", endpoint.BaseURL.String())
+	_, err = manager.controlPlaneEndpoint("https://api.openai.com")
+	require.ErrorContains(t, err, "conflicts")
+}
+
+func TestRuntimeLaunchEnvOverridesPreservesResidency(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, keyRef string
+		env, want    map[string]string
+	}{
+		{
+			name: "environment key", keyRef: "env:RUNTIME_KEY",
+			env:  map[string]string{"CONTROL_PLANE_RESIDENCY": "us", "RUNTIME_KEY": "runtime-key"},
+			want: map[string]string{"CONTROL_PLANE_RESIDENCY": "us", "RUNTIME_KEY": "runtime-key"},
+		},
+		{
+			name: "file key", keyRef: "file:/runtime-key",
+			env:  map[string]string{"CONTROL_PLANE_RESIDENCY": "us"},
+			want: map[string]string{"CONTROL_PLANE_RESIDENCY": "us"},
+		},
+		{
+			name: "missing key retains selector", keyRef: "env:MISSING_RUNTIME_KEY",
+			env:  map[string]string{"CONTROL_PLANE_RESIDENCY": "us"},
+			want: map[string]string{"CONTROL_PLANE_RESIDENCY": "us"},
+		},
+		{
+			name: "legacy key without selector", keyRef: "env:RUNTIME_KEY",
+			env:  map[string]string{"RUNTIME_KEY": "runtime-key"},
+			want: map[string]string{"RUNTIME_KEY": "runtime-key"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, runtimeLaunchEnvOverrides(tc.keyRef, testLookupEnv(tc.env)))
+		})
+	}
+}
+
+func TestManagerLegacyProfileResidencyUpgrade(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"resolve", "set"} {
+		for _, tc := range []struct {
+			name, stored, explicit, residency, want string
+			conflict                                bool
+		}{
+			{name: "legacy default", stored: "https://api.openai.com", residency: "eu", want: "https://eu.api.openai.com"},
+			{name: "legacy trailing slash", stored: "https://api.openai.com/", residency: "eu", want: "https://eu.api.openai.com"},
+			{name: "explicit conflicting override", stored: "https://api.openai.com", explicit: "https://api.openai.com", residency: "eu", conflict: true},
+			{name: "custom profile", stored: "https://private.example", residency: "eu", conflict: true},
+			{name: "selector omitted", stored: "https://api.openai.com", want: "https://api.openai.com"},
+		} {
+			t.Run(operation+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				root := pluginstate.Root{Path: t.TempDir()}
+				env := map[string]string{"TUNNEL_CLIENT_STATE_DIR": root.Path}
+				legacy := NewManager(testLookupEnv(env), session.Runtime{})
+				_, err := legacy.SetAdminProfile("default", tc.stored, "/gateway", "env:ADMIN_KEY", true)
+				require.NoError(t, err)
+				if tc.residency != "" {
+					env["CONTROL_PLANE_RESIDENCY"] = tc.residency
+				}
+				manager := NewManager(testLookupEnv(env), session.Runtime{})
+				if operation == "set" {
+					_, err = manager.SetAdminProfile("default", tc.explicit, "", "", true)
+				} else {
+					_, err = manager.resolveAdminProfile(root, "default", "", tc.explicit, "", "")
+				}
+				if tc.conflict {
+					require.ErrorContains(t, err, "conflicts")
+					return
+				}
+				require.NoError(t, err)
+				profiles, err := pluginstate.LoadAdminProfiles(root)
+				require.NoError(t, err)
+				require.Equal(t, tc.want, profiles.Profiles["default"].ControlPlaneBaseURL)
+				require.Equal(t, "/gateway", profiles.Profiles["default"].ControlPlaneURLPath)
+				require.Equal(t, "env:ADMIN_KEY", profiles.Profiles["default"].AdminKey)
+			})
+		}
+	}
+}
+
 func TestCleanupInventoryClassifiesAndAppliesOnlyStaleAliases(t *testing.T) {
 	t.Parallel()
 

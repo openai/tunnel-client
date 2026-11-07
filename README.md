@@ -28,6 +28,10 @@ then read the onboarding guide below.
 
 ## Start Here
 
+- **Selecting a regional control-plane endpoint?** Use
+  `--control-plane.residency`, `CONTROL_PLANE_RESIDENCY`, or YAML
+  `control_plane.residency`. See the [endpoint catalog and mTLS settings](docs/configuration.md#residency-endpoint-selection).
+  Endpoint selection is independent of regional Tunnel service availability.
 - **Need the shortest working path from localhost or a private MCP server to
   ChatGPT or Codex?** Start with [`docs/onboarding.md`](docs/onboarding.md).
 - **Need the customer-shareable network and trust-boundary story?** Read

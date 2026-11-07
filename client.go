@@ -8,11 +8,11 @@ package tunnelclient
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -25,6 +25,8 @@ import (
 	"github.com/openai/tunnel-client/pkg/app"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/controlplane"
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
+	"github.com/openai/tunnel-client/pkg/tlsconfig"
 	"github.com/openai/tunnel-client/pkg/types"
 	"github.com/openai/tunnel-client/pkg/version"
 )
@@ -48,6 +50,24 @@ var (
 
 type TracingConfig = config.TracingConfig
 
+// Residency selects a public control-plane endpoint, independently of regional
+// service availability and the tunnel's service-owned residency assignment.
+type Residency = runtimeconfig.Residency
+
+const (
+	ResidencyGlobal = runtimeconfig.ResidencyGlobal
+	ResidencyUS     = runtimeconfig.ResidencyUS
+	ResidencyEU     = runtimeconfig.ResidencyEU
+	ResidencyAU     = runtimeconfig.ResidencyAU
+	ResidencyCA     = runtimeconfig.ResidencyCA
+	ResidencyGB     = runtimeconfig.ResidencyGB
+	ResidencyIN     = runtimeconfig.ResidencyIN
+	ResidencyJP     = runtimeconfig.ResidencyJP
+	ResidencyKR     = runtimeconfig.ResidencyKR
+	ResidencySG     = runtimeconfig.ResidencySG
+	ResidencyAE     = runtimeconfig.ResidencyAE
+)
+
 // Config contains the settings needed by an embedded Tunnel client.
 //
 // TunnelID and APIKey are required. ControlPlaneBaseURL defaults to
@@ -60,8 +80,14 @@ type Config struct {
 	TunnelID            string
 	APIKey              string
 	ControlPlaneBaseURL string
-	ControlPlaneURLPath string
-	OrganizationID      string
+	// ControlPlaneResidency selects a known regional endpoint. Empty retains
+	// the existing base URL behavior. Conflicting explicit base URLs are rejected.
+	ControlPlaneResidency Residency
+	// ControlPlaneClientCertificate is an optional customer-owned TLS identity.
+	// It selects the mTLS endpoint within ControlPlaneResidency when set.
+	ControlPlaneClientCertificate *tls.Certificate
+	ControlPlaneURLPath           string
+	OrganizationID                string
 	// ControlPlaneExtraHeaders adds non-authentication headers to poll,
 	// response, and metadata requests. Names and values must be valid for HTTP;
 	// names are case-insensitive, and conflicting case variants are rejected.
@@ -274,16 +300,19 @@ func buildConfig(cfg Config) (*config.Config, error) {
 		return nil, errors.New("tunnel-client: API key is required")
 	}
 
-	baseURLRaw := strings.TrimSpace(cfg.ControlPlaneBaseURL)
-	if baseURLRaw == "" {
-		baseURLRaw = DefaultControlPlaneBaseURL
-	}
-	baseURL, err := url.Parse(baseURLRaw)
-	if err != nil || baseURL.Scheme == "" || baseURL.Host == "" {
-		if err == nil {
-			err = errors.New("URL must include scheme and host")
+	baseURL, err := runtimeconfig.ResolveControlPlaneBaseURL(strings.TrimSpace(cfg.ControlPlaneBaseURL), cfg.ControlPlaneResidency, cfg.ControlPlaneClientCertificate != nil)
+	if err != nil {
+		if cfg.ControlPlaneResidency == "" {
+			return nil, fmt.Errorf("tunnel-client: invalid control-plane base URL: %w", err)
 		}
-		return nil, fmt.Errorf("tunnel-client: invalid control-plane base URL: %w", err)
+		return nil, fmt.Errorf("tunnel-client: %w", err)
+	}
+	var clientCertificate *tlsconfig.ClientCertificate
+	if cfg.ControlPlaneClientCertificate != nil {
+		if len(cfg.ControlPlaneClientCertificate.Certificate) == 0 || cfg.ControlPlaneClientCertificate.PrivateKey == nil {
+			return nil, errors.New("tunnel-client: control-plane client certificate and private key are required together")
+		}
+		clientCertificate = &tlsconfig.ClientCertificate{Certificate: *cfg.ControlPlaneClientCertificate}
 	}
 
 	urlPath, err := config.NormalizeControlPlaneURLPath(cfg.ControlPlaneURLPath)
@@ -319,6 +348,8 @@ func buildConfig(cfg Config) (*config.Config, error) {
 
 	return &config.Config{
 		ControlPlane: config.ControlPlaneConfig{
+			Residency:             cfg.ControlPlaneResidency,
+			ClientCertificate:     clientCertificate,
 			TraceContextEnabled:   cfg.Tracing.Enabled,
 			BaseURL:               baseURL,
 			URLPath:               urlPath,

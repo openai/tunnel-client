@@ -14,6 +14,24 @@ const {
   validateControlPlaneOverride,
 } = require("./server.cjs");
 
+test("regional endpoint selectors reach every lifecycle command", () => {
+  for (const residency of ["global", "us", "eu", "au", "ca", "gb", "in", "jp", "kr", "sg", "ae"]) {
+    for (const builder of [buildCreateArgs, buildConnectArgs, buildListArgs]) {
+      const args = builder({alias: "regional", organization_id: "org_123", mcp_command: "node server.js", control_plane_residency: residency});
+      const index = args.indexOf("--control-plane-residency");
+      assert.notEqual(index, -1);
+      assert.equal(args[index + 1], residency);
+      assert.equal(args.includes("--control-plane-base-url"), false);
+    }
+  }
+});
+
+test("invalid and empty residency selectors are rejected before spawning", () => {
+  for (const value of ["", "unknown", "eu,us", "--admin-key=inline"]) {
+    assert.throws(() => buildListArgs({control_plane_residency: value}), /control_plane_residency/);
+  }
+});
+
 test("allows the supported OpenAI control-plane origins", () => {
   assert.doesNotThrow(() => validateControlPlaneOverride("https://api.openai.com"));
   assert.doesNotThrow(() => validateControlPlaneOverride("https://mtls.api.openai.com"));

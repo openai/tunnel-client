@@ -369,6 +369,76 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
 
 ## Control plane
 
+### Residency endpoint selection
+
+Select a public control-plane endpoint with `--control-plane.residency`,
+`CONTROL_PLANE_RESIDENCY`, or YAML `control_plane.residency`. Precedence remains
+flags > environment > YAML/profile > defaults. Values are case-insensitive;
+an explicitly empty or unknown value is rejected. Omit the setting to preserve
+existing default and custom base-URL behavior. `global` means no geographic
+constraint and is separate from `us`.
+
+| Value | HTTPS base URL | mTLS base URL |
+| --- | --- | --- |
+| `global` | `https://api.openai.com` | `https://mtls.api.openai.com` |
+| `us` | `https://us.api.openai.com` | `https://mtls-us.api.openai.com` |
+| `eu` | `https://eu.api.openai.com` | `https://mtls-eu.api.openai.com` |
+| `au` | `https://au.api.openai.com` | Unconfigured |
+| `ca` | `https://ca.api.openai.com` | Unconfigured |
+| `gb` | `https://gb.api.openai.com` | Unconfigured |
+| `in` | `https://in.api.openai.com` | Unconfigured |
+| `jp` | `https://jp.api.openai.com` | Unconfigured |
+| `kr` | `https://kr.api.openai.com` | Unconfigured |
+| `sg` | `https://sg.api.openai.com` | Unconfigured |
+| `ae` | `https://ae.api.openai.com` | Unconfigured |
+
+The catalog contains no regional enable flag. Customers can install this client
+before a backend adds support. Selecting an endpoint does not enable regional
+Tunnel service, move an existing tunnel, change workspace access, or guarantee
+where requests, responses, metadata, logs, or inference are processed or stored.
+EU Tunnel residency is not currently available as a supported customer deployment.
+Service failures stay on the selected endpoint and retain the usual error and
+retry behavior; there is no fallback to global or another residency.
+
+Configure both existing `control_plane.client_cert` and `client_key` settings to
+select the same residency's mTLS endpoint. Requesting mTLS where the catalog has
+no mTLS endpoint fails configuration validation. MCP certificates remain separate.
+Certificate files load at startup; restart after rotation. The runtime API key
+remains required. AWS workload identity currently supports only the global
+ordinary-TLS endpoint.
+
+When residency is explicit, a supplied `base_url` must match its ordinary TLS
+endpoint or selected mTLS endpoint; a matching ordinary endpoint upgrades to
+mTLS when certificates are configured. Conflicting origins, credentials, paths,
+query strings, fragments, and nonstandard ports are rejected. Control-plane
+redirects are not followed. Outbound proxy selection and CA bundles retain their
+existing settings; HTTP CONNECT proxies retain TLS to the selected endpoint.
+
+For example, this configuration selects the EU mTLS endpoint once service support
+is available; it does not make EU Tunnel service available today:
+
+```yaml
+control_plane:
+  residency: eu
+  tunnel_id: tunnel_0123456789abcdef0123456789abcdef
+  api_key: env:CONTROL_PLANE_API_KEY
+  client_cert: file:/run/secrets/client.crt
+  client_key: file:/run/secrets/client.key
+```
+
+The same selector is accepted by `doctor` and `admin tunnels` commands. Native
+`runtimes` commands use `--control-plane-residency`; generated runtime profiles
+preserve the selection. Tunnel MCP lifecycle tools accept
+`control_plane_residency`. The Go SDK accepts `Config.ControlPlaneResidency`
+and an optional `Config.ControlPlaneClientCertificate` loaded with Go's
+`tls.LoadX509KeyPair`.
+
+For existing native admin profiles, the selector replaces a stored legacy
+`https://api.openai.com` default. Explicit base URL overrides and custom profile
+endpoints must still match the selected residency.
+
+### Other control-plane settings
+
 - **Base URL**
   - Flag: `--control-plane.base-url`
   - Env: `CONTROL_PLANE_BASE_URL`

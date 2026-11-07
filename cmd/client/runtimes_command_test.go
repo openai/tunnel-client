@@ -246,6 +246,18 @@ func TestRuntimesListRejectsMixedRemoteScopeFamilies(t *testing.T) {
 	require.EqualError(t, err, "runtimes list accepts exactly one remote scope family: --organization-id, --workspace-id, or --tenant-id")
 }
 
+func TestRuntimesResidencyFlagOverridesEnvironment(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	cmd := newRuntimesCommandWithRuntime(lookupEnvMap(map[string]string{
+		"CONTROL_PLANE_RESIDENCY": "eu", "TUNNEL_CLIENT_STATE_DIR": t.TempDir(),
+	}), &stdout, &stderr, session.DefaultRuntime())
+	cmd.SetArgs([]string{"create", "--alias", "regional", "--organization-id", "org_123", "--control-plane-residency=unknown"})
+	err := cmd.Execute()
+	require.ErrorContains(t, err, "control-plane.residency")
+	require.ErrorContains(t, err, "unknown")
+}
+
 func TestRuntimesCreateRejectsMixedRemoteScopeFamilies(t *testing.T) {
 	t.Parallel()
 

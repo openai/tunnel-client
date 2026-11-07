@@ -78,7 +78,14 @@ func NewAdminTunnelClient(cfg *config.AdminConfig) (*AdminTunnelClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	transport, err = tctransport.ApplyClientCertificate(transport, cfg.ClientCertificate)
+	if err != nil {
+		return nil, err
+	}
 	client := &http.Client{Timeout: defaultTimeout, Transport: transport}
+	if cfg.Residency != "" {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 
 	return &AdminTunnelClient{
 		httpClient: client,

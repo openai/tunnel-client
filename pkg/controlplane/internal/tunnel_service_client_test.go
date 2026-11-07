@@ -1151,6 +1151,40 @@ func TestTunnelServiceClientControlPlaneMTLS(t *testing.T) {
 	require.Equal(t, 1, seenPath["/v1/tunnels/"+url.PathEscape(tunnelID)+"/response"])
 }
 
+func TestResidencyControlPlaneOperationsRejectRedirects(t *testing.T) {
+	t.Parallel()
+	forwarded := make(chan string, 10)
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forwarded <- r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(destination.Close)
+	observed := make(chan string, 4)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		observed <- r.URL.Path
+		http.Redirect(w, r, destination.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(origin.Close)
+	client, err := NewTunnelServiceClient(t.Context(), &config.ControlPlaneConfig{
+		Residency: "eu", BaseURL: mustParseURL(t, origin.URL),
+		TunnelID: types.TunnelID("tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), APIKey: "fixture-key",
+	}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+	require.NoError(t, err)
+	client.responseRetryAttempts = 1
+	client.managedCloudflareRetryAttempts = 1
+	_, err = client.FetchTunnelMetadata(t.Context())
+	require.Error(t, err)
+	_, _, err = client.Poll(t.Context(), 1)
+	require.Error(t, err)
+	ctx := tunnelctx.ContextWithShardToken(t.Context(), "fixture-shard")
+	_, err = client.PostResponse(ctx, types.RequestID("fixture-command"), types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{}))
+	require.Error(t, err)
+	_, err = client.FetchManagedCloudflareTunnel(t.Context())
+	require.Error(t, err)
+	require.Len(t, observed, 4, "every operation must reach the original endpoint before redirect rejection")
+	require.Empty(t, forwarded, "a redirect must never receive a request, credential, or command token")
+}
+
 func TestTunnelServiceClientPostResponseSuccess(t *testing.T) {
 	t.Parallel()
 

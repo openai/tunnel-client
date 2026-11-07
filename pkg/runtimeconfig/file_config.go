@@ -44,6 +44,7 @@ type fileConfig struct {
 }
 
 type fileControlPlaneConfig struct {
+	Residency             *string           `yaml:"residency"`
 	BaseURL               *string           `yaml:"base_url"`
 	URLPath               *string           `yaml:"url_path"`
 	TunnelID              *string           `yaml:"tunnel_id"`
@@ -346,6 +347,7 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 		env["FORWARD_REQUEST_ID"] = raw
 	}
 
+	setString(env, "CONTROL_PLANE_RESIDENCY", c.ControlPlane.Residency)
 	if err := setResolvedString(env, "CONTROL_PLANE_BASE_URL", "control_plane.base_url", c.ControlPlane.BaseURL, lookupEnv); err != nil {
 		return nil, err
 	}

@@ -16,21 +16,23 @@ import (
 // AdminConfig captures the options required for tunnel management API calls.
 //
 // The admin CLI surface is intentionally narrower than the runtime client
-// configuration: it only needs a base URL, an admin API key, and the scoped
-// organization/workspace headers required by the control plane.
+// configuration: it needs an endpoint, optional TLS identity, an admin API key,
+// and the scoped organization/workspace headers required by the control plane.
 type AdminConfig struct {
-	BaseURL         *url.URL
-	URLPath         string
-	AdminKey        string
-	OrganizationIDs []string
-	WorkspaceIDs    []string
-	TLS             *tlsconfig.Bundle
+	Residency         runtimeconfig.Residency
+	ClientCertificate *tlsconfig.ClientCertificate
+	BaseURL           *url.URL
+	URLPath           string
+	AdminKey          string
+	OrganizationIDs   []string
+	WorkspaceIDs      []string
+	TLS               *tlsconfig.Bundle
 }
 
 // RegisterAdminFlags attaches admin/tunnel-management flags to the provided flag set.
 func RegisterAdminFlags(fs *pflag.FlagSet) {
 	runtimeconfig.RegisterTLSFlags(fs)
-	fs.String("control-plane.base-url", runtimeconfig.DefaultControlPlaneBaseURL, "Tunnel control-plane base URL (env.CONTROL_PLANE_BASE_URL)")
+	runtimeconfig.RegisterControlPlaneEndpointFlags(fs)
 	fs.String("control-plane.url-path", "", "Optional URL path appended to the control-plane base URL (env.CONTROL_PLANE_URL_PATH)")
 	fs.String("admin-key", "", "Admin API key for tunnel management (env.OPENAI_ADMIN_KEY)")
 	fs.Bool("json", false, "Output JSON instead of text")
@@ -45,13 +47,9 @@ func LoadAdminConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 		lookupEnv = os.LookupEnv
 	}
 
-	baseURLRaw := firstSet(
-		getValue(fs, "control-plane.base-url"),
-		envOrDefault(lookupEnv, "CONTROL_PLANE_BASE_URL", runtimeconfig.DefaultControlPlaneBaseURL),
-	)
-	baseURL, err := runtimeconfig.ParseURL(baseURLRaw)
+	endpoint, err := runtimeconfig.BuildControlPlaneEndpoint(fs, lookupEnv)
 	if err != nil {
-		return nil, fmt.Errorf("invalid control-plane.base-url: %w", err)
+		return nil, err
 	}
 	controlPlaneURLPath, err := NormalizeControlPlaneURLPath(runtimeconfig.ControlPlaneURLPathRaw(fs, lookupEnv))
 	if err != nil {
@@ -85,12 +83,14 @@ func LoadAdminConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (
 	}
 
 	return &AdminConfig{
-		BaseURL:         baseURL,
-		URLPath:         controlPlaneURLPath,
-		AdminKey:        adminKey,
-		OrganizationIDs: orgIDs,
-		WorkspaceIDs:    workspaceIDs,
-		TLS:             tlsBundle,
+		Residency:         endpoint.Residency,
+		ClientCertificate: endpoint.ClientCertificate,
+		BaseURL:           endpoint.BaseURL,
+		URLPath:           controlPlaneURLPath,
+		AdminKey:          adminKey,
+		OrganizationIDs:   orgIDs,
+		WorkspaceIDs:      workspaceIDs,
+		TLS:               tlsBundle,
 	}, nil
 }
 
