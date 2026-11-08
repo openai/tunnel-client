@@ -317,10 +317,107 @@ A final failure still has `discovery_complete: true`:
 }
 ```
 
-These fields describe the overall startup discovery outcome. They do not
-identify individual probe requests, HTTP methods, response statuses, or response
-correlation IDs. Preserve request evidence separately when investigating
-an individual server response.
+These fields describe the overall startup discovery outcome. Use the optional
+probe observations below to inspect the HTTP attempts that led to it.
+
+### Inspect OAuth startup probes
+
+For HTTP startup OAuth discovery, `details.active_probes` contains up to 16
+outstanding observations and `details.recent_probes` contains the last 16
+completed observations. They are available while the overall OAuth state is
+still `pending`. Active observations are ordered by registration; completed
+observations are ordered by completion, oldest retained first. Empty arrays are
+omitted.
+
+One observation represents one invocation of the configured HTTP transport.
+Each redirect or explicit retry that invokes the transport produces a separate
+observation. Request construction failures and rejected redirect destinations do
+not create synthetic observations. An attempt can fail before reaching the
+server, and a transport can perform internal retries that are not separately
+observable here. A missing response status means that no valid response status
+was observed; it does not prove that the server received or rejected the request.
+
+For example, this `details` value shows a rejected challenge followed by a
+metadata response whose body or disposition is still being processed. IDs and
+timestamps are illustrative:
+
+```json
+{
+  "discovery_complete": false,
+  "active_probes": [
+    {
+      "probe_id": "probe-example-2",
+      "origin": "startup",
+      "probe_type": "protected_resource_metadata",
+      "method": "GET",
+      "started_at": "2026-01-02T03:04:06Z",
+      "response_at": "2026-01-02T03:04:07Z",
+      "status_code": 200,
+      "disposition": "pending",
+      "response_request_id": "probe-prmd-200"
+    }
+  ],
+  "recent_probes": [
+    {
+      "probe_id": "probe-example-1",
+      "origin": "startup",
+      "probe_type": "www_authenticate",
+      "method": "POST",
+      "started_at": "2026-01-02T03:04:05Z",
+      "response_at": "2026-01-02T03:04:05Z",
+      "status_code": 415,
+      "completed_at": "2026-01-02T03:04:06Z",
+      "disposition": "fallback",
+      "response_request_id": "probe-post-415"
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `probe_id` | Opaque identifier for this observation within one tunnel-client process. It is not sent to the server. |
+| `origin` | `startup`; queued OAuth commands and the separate MCP initialization probe do not enter this history. |
+| `probe_type` | `www_authenticate`, `protected_resource_metadata`, or `authorization_server_metadata`. |
+| `method` | The transport request method, projected to `GET`, `POST`, or `OTHER`. |
+| `started_at` | Time the transport attempt began. |
+| `response_at` | Time response headers became available; omitted when no response was observed. |
+| `status_code` | Observed three-digit HTTP status; omitted when absent or invalid. |
+| `completed_at` | Time the discovery decision was recorded; omitted while pending. |
+| `disposition` | The decision described below. It is based on control flow, not an HTTP status lookup. |
+| `response_request_id` | Optional validated `X-Request-Id` from this exact response. |
+
+| Disposition | Meaning |
+| --- | --- |
+| `pending` | The request or its decision is still in progress. A response status may already be available. |
+| `accepted` | This discovery step accepted or retained the response. Later discovery, bundle, or catalog work can still fail. |
+| `fallback` | The client chose another method or candidate, a retained candidate, or continuation without optional enrichment. This describes the immediate action, not whether the response is used later. |
+| `retry` | The client scheduled another request, pass, or startup cycle. Shutdown can prevent that later attempt from running. |
+| `redirect` | The existing redirect policy allowed continuation. This does not prove that the next destination was reached. |
+| `not_advertised` | The complete discovery result settled as optional metadata absence. A single 404 does not establish this outcome. |
+| `terminal_failure` | The complete discovery result settled as a required failure at this observation. The decision can depend on earlier attempts; failures outside HTTP can settle discovery without this disposition. |
+| `cancelled` | The startup operation was cancelled by its owner before another decision was recorded. Request deadlines follow the normal fallback, retry, or failure decision instead. |
+
+The component's final OAuth state remains authoritative. A completed observation
+is not rewritten when later work fails. Probe observations are diagnostic
+snapshots, not a synchronization barrier for a supervisor that acts immediately
+on server logs. Continue using the supervision policy above.
+
+`probe_id` cannot be used directly to search server logs. `response_request_id`
+helps only when the server records the same value; its presence and uniqueness
+are not guaranteed. The client retains exactly one `X-Request-Id` value only
+when it contains 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`, and the
+response's `Connection` header does not name it. Invalid, ambiguous, or oversized values
+are omitted rather than shortened. Treat retained IDs as untrusted diagnostic
+data provided by the server.
+
+ID inspection omits the value when the parsed response exceeds 128 header
+entries, 32 `Connection` values, or 1,024 total `Connection` bytes. These limits
+bound diagnostic work even for a custom HTTP transport.
+
+The component sets `limited` when inspection or retention limits reduce the
+available evidence. That indication remains set for the startup lifetime.
+Older runtimes may omit both arrays. Treat missing arrays as unavailable evidence.
 
 ### Determine polling separately from readiness
 
@@ -345,7 +442,7 @@ eligibility. See [poll channels](configuration.md#control-plane) and
 ## Bounds and privacy
 
 Health state does not retain tool schemas, descriptions, arguments, outputs,
-raw errors, credentials, OAuth bodies/headers, pagination cursors, or target
+raw errors, credentials, raw OAuth bodies/headers, pagination cursors, or target
 inventories. The following diagnostic limits do not change forwarded traffic:
 
 | Item | Limit |
@@ -359,6 +456,7 @@ inventories. The following diagnostic limits do not change forwarded traffic:
 | Protocol and server identity fields | 256 UTF-8 bytes each; oversized values are omitted, not shortened into a different identity. |
 | Runtime version / flavor | 256 / 32 UTF-8 bytes. |
 | Component state / reason code | 32 / 64 bytes of fixed identifiers. |
+| OAuth startup probe observations | Up to 16 active and 16 completed observations; response request IDs are at most 128 ASCII bytes. |
 | Proxy route summaries | 16. |
 | Dispatcher start timestamps | 1,024 active timestamp slots; operation counts remain exact when age tracking is limited. |
 

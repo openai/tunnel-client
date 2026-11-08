@@ -189,10 +189,14 @@ func probeWWWAuthenticateResourceMetadata(
 	for _, method := range methods {
 		parsed, err := tryWWWAuthenticateProbe(ctx, client, serverURL, logger, method)
 		if err == nil {
+			finishStartupProbe(ctx, probeDispositionAccepted)
 			result.URL = parsed
 			result.Error = ""
 			return result
 		}
+		// A failed challenge probe always continues to the next method or the
+		// well-known metadata candidates. Its HTTP status alone is not fatal.
+		finishStartupProbe(ctx, probeDispositionFallback)
 		lastErr = err
 	}
 
@@ -221,7 +225,8 @@ func tryWWWAuthenticateProbe(
 	req.Header.Set("Accept", "application/json")
 	applyForwardedRequestID(req)
 
-	resp, err := withSameOriginRedirects(client, serverURL).Do(req)
+	discoveryClient := withStartupProbeHTTPClient(ctx, withSameOriginRedirects(client, serverURL), probeTypeWWWAuthenticate)
+	resp, err := discoveryClient.Do(req)
 	if err != nil {
 		if logger != nil {
 			logger.WarnContext(ctx, "oauth discovery WWW-Authenticate probe failed", slog.String("method", method), slog.String("error", tclog.ErrorForLog(err)))

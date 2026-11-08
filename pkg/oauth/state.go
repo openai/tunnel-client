@@ -36,11 +36,17 @@ type DiscoveryState struct {
 	once            sync.Once
 	completedAt     time.Time
 	optionalFailure bool
+	observations    probeObservationState
+	now             func() time.Time
 }
 
 // NewDiscoveryState constructs a DiscoveryState ready for updates.
 func NewDiscoveryState() *DiscoveryState {
-	return &DiscoveryState{done: make(chan struct{})}
+	return newDiscoveryStateWithClock(time.Now)
+}
+
+func newDiscoveryStateWithClock(now func() time.Time) *DiscoveryState {
+	return &DiscoveryState{done: make(chan struct{}), now: now}
 }
 
 // IsDone reports whether the discovery process has completed.
@@ -63,16 +69,45 @@ func (s *DiscoveryState) Set(
 	probe *WWWAuthenticateProbeStatus,
 	urls []string,
 ) {
+	s.setWithProbe(result, err, probe, urls, nil)
+}
+
+// setWithProbe settles an attributable final probe and the existing discovery
+// outcome atomically. A nil receipt preserves final outcomes that do not belong
+// to one HTTP exchange, such as configuration or bundle failures.
+func (s *DiscoveryState) setWithProbe(
+	result *DiscoveryResult,
+	err error,
+	probe *WWWAuthenticateProbeStatus,
+	urls []string,
+	final *probeReceipt,
+) {
 	if s == nil {
 		return
 	}
 	s.once.Do(func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		completedAt := s.observationTime()
+		optionalFailure := IsOptionalDiscoveryFailure(result, probe, err)
+		if final != nil {
+			if final.state != s {
+				s.observations.limited = true
+			} else {
+				disposition := probeDispositionAccepted
+				if optionalFailure {
+					disposition = probeDispositionNotAdvertised
+				} else if err != nil {
+					disposition = probeDispositionTerminalFailure
+				}
+				s.finishProbeLocked(final.sequence, disposition, completedAt)
+			}
+		}
+		s.observations.closed = true
 		s.result = result
 		s.err = err
-		s.completedAt = time.Now().UTC()
-		s.optionalFailure = IsOptionalDiscoveryFailure(result, probe, err)
+		s.completedAt = completedAt
+		s.optionalFailure = optionalFailure
 		if probe != nil {
 			probeCopy := *probe
 			s.probe = &probeCopy

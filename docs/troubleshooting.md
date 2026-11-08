@@ -199,7 +199,10 @@ handling.
 Keep these responses as diagnostic evidence. Do not use an individual
 challenge response alone to decide that the MCP server process has failed. See
 [Supervising startup](health.md#supervising-startup) for the liveness, readiness,
-and polling decisions.
+and polling decisions. Runtimes with
+[OAuth startup probe observations](health.md#inspect-oauth-startup-probes) expose
+the method, response status, and disposition while discovery is in progress.
+Match `response_request_id` to server logs when the server records that same ID.
 
 [Static discovery/probe headers](configuration.md#mcp-server) can group these
 requests in server logs, but also cover other discovery and startup traffic.

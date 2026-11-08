@@ -134,6 +134,7 @@ func FetchAuthServerMetadataWithResult(
 	}
 
 	if failureType == discoveryFailureTypeTimeoutOnly {
+		finishStartupProbe(ctx, probeDispositionRetry)
 		result.Attempts = result.Attempts[:0]
 		meta, errs, failureType = runFetchAuthServerMetadataPass(ctx, client, issuerURL, candidates, result, discoveryRetryModeTimeoutBackoff)
 		if meta != nil {
@@ -164,7 +165,10 @@ func runFetchAuthServerMetadataPass(
 	fallbackAttemptIndex := -1
 	fallbackSelectedURL := ""
 
-	for _, candidate := range candidates {
+	for i, candidate := range candidates {
+		if i > 0 {
+			finishStartupProbe(ctx, probeDispositionFallback)
+		}
 		attempt := AuthServerMetadataAttempt{
 			URL:       candidate.URL,
 			Document:  candidate.Document,
@@ -210,12 +214,21 @@ func runFetchAuthServerMetadataPass(
 		attempt.Selected = true
 		result.SelectedURL = candidate.URL
 		result.Attempts = append(result.Attempts, attempt)
+		finishStartupProbe(ctx, probeDispositionAccepted)
 		return meta, errs, discoveryFailureTypeNotApplicable
 	}
 
 	if fallbackMeta != nil && fallbackAttemptIndex >= 0 {
 		result.Attempts[fallbackAttemptIndex].Selected = true
 		result.SelectedURL = fallbackSelectedURL
+		if fallbackAttemptIndex == len(result.Attempts)-1 {
+			finishStartupProbe(ctx, probeDispositionAccepted)
+		} else {
+			// Earlier mismatch observations already describe the decision to
+			// continue searching. Selecting a retained fallback does not rewrite
+			// that completed history.
+			finishStartupProbe(ctx, probeDispositionFallback)
+		}
 		return fallbackMeta, errs, discoveryFailureTypeNotApplicable
 	}
 
@@ -291,7 +304,7 @@ func fetchAuthServerMetadataDocument(
 	if err != nil {
 		return nil, nil, err
 	}
-	discoveryClient := withSameOriginRedirects(client, redirectOrigin)
+	discoveryClient := withStartupProbeHTTPClient(ctx, withSameOriginRedirects(client, redirectOrigin), probeTypeAuthorizationServerMetadata)
 
 	var res *http.Response
 	if retryMode == discoveryRetryModeTimeoutBackoff {

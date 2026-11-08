@@ -119,9 +119,19 @@ func TestDiscoveryTransportCompatibilityTLSCookiesAndRedirects(t *testing.T) {
 				return nil
 			}
 
-			require.NoError(t, fetcher.fetch(t.Context(), client, origin, origin))
+			state := NewDiscoveryState()
+			ctx := withStartupProbeSession(t.Context(), state, t.Context())
+			require.NoError(t, fetcher.fetch(ctx, client, origin, origin))
+			finishStartupProbe(ctx, probeDispositionAccepted)
 			require.EqualValues(t, 1, redirects.Load())
 			require.Contains(t, jar.Cookies(origin), &http.Cookie{Name: "discovered", Value: "session", Quoted: false})
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			require.Len(t, details.RecentProbes, 2)
+			require.Equal(t, http.StatusFound, details.RecentProbes[0].StatusCode)
+			require.Equal(t, string(probeDispositionRedirect), details.RecentProbes[0].Disposition)
+			require.Equal(t, http.StatusOK, details.RecentProbes[1].StatusCode)
+			require.Equal(t, string(probeDispositionAccepted), details.RecentProbes[1].Disposition)
 
 			// The original client must retain its own cross-origin redirect policy.
 			resp, err := client.Get(server.URL + "/outside")
@@ -155,10 +165,54 @@ func TestDiscoveryTransportCompatibilityRedirectSentinel(t *testing.T) {
 				return sentinel
 			}
 			origin := mustParseURL(t, server.URL)
-			err := fetcher.fetch(t.Context(), client, origin, origin)
+			state := NewDiscoveryState()
+			ctx := withStartupProbeSession(t.Context(), state, t.Context())
+			err := fetcher.fetch(ctx, client, origin, origin)
 			require.ErrorIs(t, err, sentinel)
 			require.Positive(t, callbacks.Load())
 			require.Zero(t, redirectedRequests.Load())
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Len(t, details.ActiveProbes, 1)
+			require.Equal(t, http.StatusFound, details.ActiveProbes[0].StatusCode)
+			require.Equal(t, string(probeDispositionPending), details.ActiveProbes[0].Disposition)
+			for _, observation := range details.RecentProbes {
+				require.Equal(t, http.StatusFound, observation.StatusCode)
+				require.NotEqual(t, string(probeDispositionRedirect), observation.Disposition)
+			}
+		})
+	}
+}
+
+func TestDiscoveryTransportCompatibilityUseLastRedirectResponse(t *testing.T) {
+	t.Parallel()
+	for _, fetcher := range discoveryCompatibilityFetchers() {
+		t.Run(fetcher.name, func(t *testing.T) {
+			t.Parallel()
+			var redirectedRequests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/redirected" {
+					redirectedRequests.Add(1)
+				}
+				http.Redirect(w, r, "/redirected", http.StatusFound)
+			}))
+			t.Cleanup(server.Close)
+			client := server.Client()
+			client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+			origin := mustParseURL(t, server.URL)
+			state := NewDiscoveryState()
+			ctx := withStartupProbeSession(t.Context(), state, t.Context())
+			err := fetcher.fetch(ctx, client, origin, origin)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, http.ErrUseLastResponse)
+			require.Zero(t, redirectedRequests.Load())
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Len(t, details.ActiveProbes, 1)
+			require.Equal(t, http.StatusFound, details.ActiveProbes[0].StatusCode)
+			require.Equal(t, string(probeDispositionPending), details.ActiveProbes[0].Disposition)
+			for _, observation := range details.RecentProbes {
+				require.Equal(t, http.StatusFound, observation.StatusCode)
+				require.NotEqual(t, string(probeDispositionRedirect), observation.Disposition)
+			}
 		})
 	}
 }
@@ -205,6 +259,8 @@ func TestDiscoveryTransportCompatibilityClientTimeout(t *testing.T) {
 	origin := mustParseURL(t, "http://127.0.0.1:3001")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
+	state := NewDiscoveryState()
+	ctx = withStartupProbeSession(ctx, state, t.Context())
 	parentDeadline, _ := ctx.Deadline()
 	var requestDeadline time.Time
 	client := &http.Client{
@@ -217,7 +273,7 @@ func TestDiscoveryTransportCompatibilityClientTimeout(t *testing.T) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin.String()+"/metadata", nil)
 	require.NoError(t, err)
-	_, err = withTrustedDiscoveryOrigins(client, []*url.URL{origin}).Do(req)
+	_, err = withStartupProbeHTTPClient(ctx, withTrustedDiscoveryOrigins(client, []*url.URL{origin}), probeTypeProtectedResourceMetadata).Do(req)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.False(t, requestDeadline.IsZero())
 	require.True(t, requestDeadline.Before(parentDeadline), "the caller's shorter client timeout must reach the transport")
@@ -232,6 +288,8 @@ func TestDiscoveryTransportCompatibilityRequestCancellation(t *testing.T) {
 			origin := mustParseURL(t, "http://127.0.0.1:3001")
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			state := NewDiscoveryState()
+			ctx = withStartupProbeSession(ctx, state, ctx)
 			started := make(chan struct{})
 			var once sync.Once
 			client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -255,6 +313,12 @@ func TestDiscoveryTransportCompatibilityRequestCancellation(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("metadata fetch did not stop after request cancellation")
 			}
+			_, details := startupHTTPProbeDetails(t, state)
+			require.NotEmpty(t, details.ActiveProbes, "request cancellation waits for the startup owner to resolve the exchanges")
+			state.cancelActiveProbes()
+			_, details = startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			require.Equal(t, string(probeDispositionCancelled), details.RecentProbes[len(details.RecentProbes)-1].Disposition)
 		})
 	}
 }

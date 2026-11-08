@@ -190,6 +190,11 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 			}
 
 			go func() {
+				defer func() {
+					if ctx.Err() != nil {
+						p.State.cancelActiveProbes()
+					}
+				}()
 				if p.MCPConfig.StartupWaitTimeout > 0 {
 					logger.InfoContext(ctx, "waiting for MCP startup probe before OAuth discovery",
 						slog.Duration("timeout", p.MCPConfig.StartupWaitTimeout),
@@ -211,6 +216,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 				// endpoints without terminally settling readiness.
 				for {
 					fetchCtx, fetchCancel := context.WithTimeout(ctx, DefaultDiscoveryTimeout)
+					fetchCtx = withStartupProbeSession(fetchCtx, p.State, ctx)
 					start := time.Now()
 					candidates, probe, err := BuildOAuthDiscoveryCandidates(fetchCtx, p.HTTPClient, serverURL, logger, p.MCPConfig.OAuthTrustedOrigins...)
 					if err != nil {
@@ -218,7 +224,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 							fetchCancel()
 							return
 						}
-						p.State.Set(nil, err, nil, nil)
+						p.State.setWithProbe(nil, err, nil, nil, takeStartupProbe(fetchCtx))
 						completeStartupCatalog(err)
 						logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
 						fetchCancel()
@@ -227,7 +233,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 					candidateStrings := candidatesToStrings(candidates)
 					if len(candidates) == 0 {
 						err := errors.New("oauth discovery metadata URLs are not configured")
-						p.State.Set(nil, err, probe, candidateStrings)
+						p.State.setWithProbe(nil, err, probe, candidateStrings, takeStartupProbe(fetchCtx))
 						completeStartupCatalog(err)
 						logger.WarnContext(fetchCtx, "OAuth discovery disabled", slog.String("error", err.Error()))
 						fetchCancel()
@@ -252,6 +258,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 						}
 						failureType := classifyDiscoveryFailure(err)
 						if failureType == discoveryFailureTypeTimeoutOnly || failureType == discoveryFailureTypeRetryableResponse {
+							finishStartupProbe(fetchCtx, probeDispositionRetry)
 							retryIn := retryBackoff.Duration()
 							logger.WarnContext(fetchCtx, "OAuth discovery failed; retrying",
 								slog.String("error", err.Error()),
@@ -263,7 +270,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 							}
 							continue
 						}
-						p.State.Set(result, err, probe, candidateStrings)
+						p.State.setWithProbe(result, err, probe, candidateStrings, takeStartupProbe(fetchCtx))
 						if IsOptionalDiscoveryFailure(result, probe, err) {
 							if !startupCatalogBarrierEnabled {
 								completeStartupCatalog(nil)
@@ -282,12 +289,16 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 					}
 					if resp == nil {
 						err := errors.New("oauth discovery returned nil response")
-						p.State.Set(result, err, probe, candidateStrings)
+						p.State.setWithProbe(result, err, probe, candidateStrings, takeStartupProbe(fetchCtx))
 						completeStartupCatalog(err)
 						logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
 						fetchCancel()
 						return
 					}
+					// Startup has accepted the protected-resource response after its
+					// status override. Later enrichment or catalog failures do not
+					// change the outcome of this HTTP exchange.
+					finishStartupProbe(fetchCtx, probeDispositionAccepted)
 					bundle, authServerMetaFetch, err := buildURLBundleFromPRMDWithAuthServerMetadata(
 						fetchCtx,
 						p.HTTPClient,
@@ -307,6 +318,7 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 					}
 					if authServerMetaFetch != nil && (authServerMetaFetch.failureType == discoveryFailureTypeRetryableResponse ||
 						authServerMetaFetch.failureType == discoveryFailureTypeTimeoutOnly) {
+						finishStartupProbe(fetchCtx, probeDispositionRetry)
 						retryIn := retryBackoff.Duration()
 						logger.WarnContext(fetchCtx, "OAuth authorization-server metadata unavailable; retrying", slog.Duration("retry_in", retryIn))
 						fetchCancel()
@@ -315,7 +327,13 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 						}
 						continue
 					}
-					p.State.Set(result, err, probe, candidateStrings)
+					if authServerMetaFetch != nil {
+						// Permanent authorization-server metadata failure is tolerated
+						// as best-effort enrichment. Successful fetches are already
+						// resolved by their candidate-selection owner.
+						finishStartupProbe(fetchCtx, probeDispositionFallback)
+					}
+					p.State.setWithProbe(result, err, probe, candidateStrings, takeStartupProbe(fetchCtx))
 					if err != nil {
 						completeStartupCatalog(err)
 						logger.ErrorContext(fetchCtx, "OAuth discovery bundle build failed", slog.String("error", err.Error()))

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -292,6 +295,119 @@ func TestRuntimeComponentHealthConfigurationCompatibility(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestFullClientOAuthTerminalDiscoveryHealth keeps the process alive while a
+// rejected metadata origin makes required startup discovery fail. The health
+// record must not invent an HTTP response for the blocked request.
+func TestFullClientOAuthTerminalDiscoveryHealth(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	const (
+		pathResponseID = "terminal-prmd-path-404"
+		rootResponseID = "terminal-prmd-root-404"
+	)
+	subject := runtimeSubjectsWithBinaries(t, runtimeFullSubject())[0]
+	controlPlane := mocktunnelservice.NewMockTunnelService(
+		mocktunnelservice.WithAPIKey(runtimeArtifactAPIKey),
+		mocktunnelservice.WithTunnelID(runtimeArtifactTunnelID),
+	)
+	controlPlane.Start(t)
+	mcpServer := mockmcpserver.NewMockMCPServer()
+	mcpServer.Start(t)
+
+	var foreignRequests atomic.Int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		foreignRequests.Add(1)
+		http.Error(w, "unexpected foreign metadata request", http.StatusNotFound)
+	}))
+	t.Cleanup(foreign.Close)
+	backend := httputil.NewSingleHostReverseProxy(mcpServer.BaseURL())
+	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/mcp" && r.Method == http.MethodPost && r.ContentLength == 0:
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer resource_metadata=%q", foreign.URL+"/metadata"))
+			w.WriteHeader(http.StatusUnauthorized)
+		case r.URL.Path == "/.well-known/oauth-protected-resource/mcp":
+			w.Header().Set("X-Request-Id", pathResponseID)
+			http.NotFound(w, r)
+		case r.URL.Path == "/.well-known/oauth-protected-resource":
+			w.Header().Set("X-Request-Id", rootResponseID)
+			http.NotFound(w, r)
+		default:
+			backend.ServeHTTP(w, r)
+		}
+	}))
+	t.Cleanup(mcp.Close)
+
+	profile, healthFile, _ := writeRuntimeCompatibilityProfileWithValues(
+		t, controlPlane.BaseURL().String(), mcp.URL+"/mcp", runtimeArtifactTunnelID,
+	)
+	// Require the catalog gate and clear any inherited discovery trust.
+	env := map[string]string{
+		"CONTROL_PLANE_POLL_CHANNELS": "main,harpoon",
+		"MCP_OAUTH_TRUSTED_ORIGINS":   "",
+		"TUNNEL_CLIENT_PROFILE_FILE":  profile,
+	}
+	proc := startRuntimeArtifactWithEnv(
+		t, subject.binary, env, "run",
+	)
+	healthBaseURL := waitForRuntimeArtifactHealthURL(t, proc, healthFile)
+	signals := append([]string{
+		runtimeArtifactMCPReadySignal,
+		"startup catalog failed; control-plane polling disabled",
+	}, subject.startupSignals...)
+	waitForRuntimeArtifactOutput(t, proc, "terminal OAuth discovery", signals...)
+
+	select {
+	case <-proc.done:
+		t.Fatalf("full client exited after OAuth discovery failure: %s", proc.output.String())
+	default:
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	defer client.CloseIdleConnections()
+	require.Equal(t, http.StatusOK, runtimeArtifactStatus(t, client, healthBaseURL+"/healthz"))
+	require.Equal(t, http.StatusServiceUnavailable, runtimeArtifactStatus(t, client, healthBaseURL+"/readyz"))
+	oauth := readRuntimeOAuthProbeComponent(t, client, healthBaseURL)
+	require.Equal(t, "degraded", oauth.Status)
+	require.Equal(t, "failed", oauth.State)
+	require.Equal(t, "discovery_failed", oauth.ReasonCode)
+	require.True(t, oauth.Details.DiscoveryComplete)
+	require.Empty(t, oauth.Details.ActiveProbes)
+
+	var metadataProbes []runtimeOAuthProbeRecord
+	for _, probe := range oauth.Details.RecentProbes {
+		require.NotEmpty(t, probe.ProbeID)
+		require.Equal(t, "startup", probe.Origin)
+		if probe.ProbeType == "protected_resource_metadata" {
+			metadataProbes = append(metadataProbes, probe)
+		}
+	}
+	require.Len(t, metadataProbes, 3, "discovery must try the advertised origin and both well-known candidates")
+	requireRuntimeOAuthCompletedProbe(t, metadataProbes, pathResponseID, "protected_resource_metadata", http.MethodGet, http.StatusNotFound, "fallback")
+	requireRuntimeOAuthCompletedProbe(t, metadataProbes, rootResponseID, "protected_resource_metadata", http.MethodGet, http.StatusNotFound, "terminal_failure")
+	var blocked []runtimeOAuthProbeRecord
+	for _, probe := range metadataProbes {
+		if probe.ResponseRequestID != nil && (*probe.ResponseRequestID == pathResponseID || *probe.ResponseRequestID == rootResponseID) {
+			continue
+		}
+		blocked = append(blocked, probe)
+	}
+	require.Len(t, blocked, 1, "the rejected metadata origin must have one response-free observation")
+	require.Equal(t, http.MethodGet, blocked[0].Method)
+	require.False(t, blocked[0].StartedAt.IsZero())
+	require.NotNil(t, blocked[0].CompletedAt)
+	require.False(t, blocked[0].CompletedAt.IsZero())
+	require.Nil(t, blocked[0].ResponseAt)
+	require.Nil(t, blocked[0].StatusCode)
+	require.Nil(t, blocked[0].ResponseRequestID)
+	require.Equal(t, "fallback", blocked[0].Disposition)
+	require.Zero(t, foreignRequests.Load(), "the untrusted metadata origin must receive no request")
+	for _, request := range controlPlane.ReceivedHTTPRequests() {
+		require.False(t, strings.HasSuffix(request.Path, "/poll"), "required catalog failure must prevent polling")
+	}
+	require.NoErrorf(t, proc.stop(), "full client did not shut down cleanly: %s", proc.output.String())
 }
 
 // TestRuntimeCompatibilityMatchesFullClientSharedSurface launches the real

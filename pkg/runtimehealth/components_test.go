@@ -164,6 +164,63 @@ func TestComponentHealthJSONOrder(t *testing.T) {
 	}
 }
 
+func TestOAuthProbeHealthFieldsAreAdditiveAndOrdered(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	responded := started.Add(time.Second)
+	completed := responded.Add(time.Second)
+	component := &fixedHealthComponent{
+		name: "oauth",
+		value: healthstate.ComponentSnapshot{
+			Status:  healthstate.StatusUnknown,
+			State:   "pending",
+			Details: healthstate.OAuthDetails{},
+		},
+	}
+	h, err := newComponentHealth([]healthstate.Component{component}, false, func() bool { return false })
+	require.NoError(t, err)
+	read := func(path string) map[string]json.RawMessage {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.Equal(t, "1", string(body["schema_version"]))
+		return body
+	}
+
+	legacy := read("/health/oauth")
+	require.Equal(t, `{"discovery_complete":false}`, string(legacy["details"]))
+
+	component.value.Details = healthstate.OAuthDetails{
+		ActiveProbes: []healthstate.OAuthProbeObservation{{
+			ProbeID: "probe-active", Origin: "startup", ProbeType: "protected_resource_metadata", Method: http.MethodGet,
+			StartedAt: started, ResponseAt: &responded, StatusCode: http.StatusOK,
+			Disposition: "pending", ResponseRequestID: "response-active",
+		}},
+		RecentProbes: []healthstate.OAuthProbeObservation{{
+			ProbeID: "probe-fallback", Origin: "startup", ProbeType: "www_authenticate", Method: http.MethodPost,
+			StartedAt: started, ResponseAt: &responded, StatusCode: http.StatusUnsupportedMediaType,
+			CompletedAt: &completed, Disposition: "fallback", ResponseRequestID: "response-fallback",
+		}},
+	}
+	const active = `{"probe_id":"probe-active","origin":"startup","probe_type":"protected_resource_metadata","method":"GET","started_at":"2026-01-02T03:04:05Z","response_at":"2026-01-02T03:04:06Z","status_code":200,"disposition":"pending","response_request_id":"response-active"}`
+	const recent = `{"probe_id":"probe-fallback","origin":"startup","probe_type":"www_authenticate","method":"POST","started_at":"2026-01-02T03:04:05Z","response_at":"2026-01-02T03:04:06Z","status_code":415,"completed_at":"2026-01-02T03:04:07Z","disposition":"fallback","response_request_id":"response-fallback"}`
+	const expected = `{"discovery_complete":false,"active_probes":[` + active + `],"recent_probes":[` + recent + `]}`
+	individual := read("/health/oauth")
+	require.Equal(t, `"unknown"`, string(individual["status"]))
+	require.Equal(t, `"pending"`, string(individual["state"]))
+	require.Equal(t, expected, string(individual["details"]))
+
+	aggregate := read("/health?details=true")
+	require.Equal(t, "false", string(aggregate["ready"]))
+	var components map[string]map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(aggregate["components"], &components))
+	require.Equal(t, expected, string(components["oauth"]["details"]))
+}
+
 func TestComponentHealthRejectsInvalidRequests(t *testing.T) {
 	t.Parallel()
 

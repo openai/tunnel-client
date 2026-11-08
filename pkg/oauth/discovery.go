@@ -69,6 +69,7 @@ func FetchOAuthMetadata(
 	}
 
 	if failureType == discoveryFailureTypeTimeoutOnly {
+		finishStartupProbe(ctx, probeDispositionRetry)
 		if logger != nil {
 			logger.WarnContext(ctx, "oauth discovery encountered timeouts; retrying with timeout backoff")
 		}
@@ -103,6 +104,9 @@ func runOAuthMetadataDiscoveryPass(
 	failureType := discoveryFailureTypeTimeoutOnly
 	var responseFailures discoveryResponseFailures
 	for i, candidate := range filtered {
+		if i > 0 {
+			finishStartupProbe(ctx, probeDispositionFallback)
+		}
 		urlForLog := tclog.RedactURL(candidate.URL)
 		attempts[i].Tried = true
 		attempts[i].Selected = false
@@ -126,7 +130,11 @@ func runOAuthMetadataDiscoveryPass(
 		applyForwardedRequestID(req)
 
 		var resp *http.Response
-		discoveryClient := withSameOriginRedirects(withTrustedDiscoveryOrigins(client, candidate.trustedOrigins), candidate.URL)
+		discoveryClient := withStartupProbeHTTPClient(
+			ctx,
+			withSameOriginRedirects(withTrustedDiscoveryOrigins(client, candidate.trustedOrigins), candidate.URL),
+			probeTypeProtectedResourceMetadata,
+		)
 		if retryMode == discoveryRetryModeTimeoutBackoff {
 			resp, err = doWithRetryForTimeout(ctx, discoveryClient, req, logger)
 		} else {
@@ -281,6 +289,9 @@ func doWithRetryForTimeout(
 
 	var lastErr error
 	for attempt := range oauthMetadataRequestRetryCount {
+		if attempt > 0 {
+			finishStartupProbe(ctx, probeDispositionRetry)
+		}
 		timeout := timeoutBackoff.Duration()
 		reqCtx, cancel := context.WithTimeout(baseReq.Context(), timeout)
 		req := baseReq.Clone(reqCtx)

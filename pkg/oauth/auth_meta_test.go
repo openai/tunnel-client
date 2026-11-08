@@ -161,10 +161,19 @@ func TestFetchAuthServerMetadataRejectsCrossOriginRedirectBeforeDial(t *testing.
 	}))
 	t.Cleanup(issuer.Close)
 
-	_, _, err := FetchAuthServerMetadataWithResult(context.Background(), issuer.Client(), issuer.URL, mustParseURL(t, issuer.URL))
+	state := NewDiscoveryState()
+	ctx := withStartupProbeSession(t.Context(), state, t.Context())
+	_, _, err := FetchAuthServerMetadataWithResult(ctx, issuer.Client(), issuer.URL, mustParseURL(t, issuer.URL))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "redirect blocked")
 	require.Zero(t, attackerHits)
+	finishStartupProbe(ctx, probeDispositionFallback)
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 2)
+	for _, observation := range details.RecentProbes {
+		assertStartupHTTPProbe(t, observation, probeTypeAuthorizationServerMetadata, http.MethodGet, http.StatusFound, probeDispositionFallback, "")
+	}
 }
 
 func TestFetchAuthServerMetadataSupportsAppendStyleOIDCPath(t *testing.T) {
@@ -291,7 +300,9 @@ func TestFetchAuthServerMetadataWithResultAcceptsIssuerMismatch(t *testing.T) {
 		}`))
 	})
 
-	meta, result, err := FetchAuthServerMetadataWithResult(context.Background(), server.Client(), issuerURL, mustParseURL(t, server.URL))
+	state := NewDiscoveryState()
+	ctx := withStartupProbeSession(t.Context(), state, t.Context())
+	meta, result, err := FetchAuthServerMetadataWithResult(ctx, server.Client(), issuerURL, mustParseURL(t, server.URL))
 	if err != nil {
 		t.Fatalf("FetchAuthServerMetadataWithResult returned error: %v", err)
 	}
@@ -332,6 +343,11 @@ func TestFetchAuthServerMetadataWithResultAcceptsIssuerMismatch(t *testing.T) {
 	if selected.Error != "" {
 		t.Fatalf("did not expect hard error for issuer mismatch, got %q", selected.Error)
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 2)
+	assertStartupHTTPProbe(t, details.RecentProbes[0], probeTypeAuthorizationServerMetadata, http.MethodGet, http.StatusOK, probeDispositionFallback, "")
+	assertStartupHTTPProbe(t, details.RecentProbes[1], probeTypeAuthorizationServerMetadata, http.MethodGet, http.StatusNotFound, probeDispositionFallback, "")
 }
 
 func TestFetchAuthServerMetadataWithResultPrefersExactIssuerMatchOverMismatch(t *testing.T) {
@@ -378,7 +394,9 @@ func TestFetchAuthServerMetadataWithResultPrefersExactIssuerMatchOverMismatch(t 
 		http.NotFound(w, nil)
 	})
 
-	meta, result, err := FetchAuthServerMetadataWithResult(context.Background(), server.Client(), issuerURL, mustParseURL(t, server.URL))
+	state := NewDiscoveryState()
+	ctx := withStartupProbeSession(t.Context(), state, t.Context())
+	meta, result, err := FetchAuthServerMetadataWithResult(ctx, server.Client(), issuerURL, mustParseURL(t, server.URL))
 	if err != nil {
 		t.Fatalf("FetchAuthServerMetadataWithResult returned error: %v", err)
 	}
@@ -424,6 +442,11 @@ func TestFetchAuthServerMetadataWithResultPrefersExactIssuerMatchOverMismatch(t 
 	if selectedAttempt.IssuerMismatch {
 		t.Fatalf("did not expect issuer mismatch diagnostics on exact-match attempt")
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 2)
+	assertStartupHTTPProbe(t, details.RecentProbes[0], probeTypeAuthorizationServerMetadata, http.MethodGet, http.StatusOK, probeDispositionFallback, "")
+	assertStartupHTTPProbe(t, details.RecentProbes[1], probeTypeAuthorizationServerMetadata, http.MethodGet, http.StatusOK, probeDispositionAccepted, "")
 }
 
 func TestFetchAuthServerMetadataRetriesOnlyAfterAllTimeouts(t *testing.T) {

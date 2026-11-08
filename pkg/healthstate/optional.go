@@ -4,10 +4,27 @@ import "time"
 
 // OAuthDetails describes startup discovery, not user authentication.
 type OAuthDetails struct {
-	DiscoveryComplete bool `json:"discovery_complete"`
+	DiscoveryComplete bool                    `json:"discovery_complete"`
+	ActiveProbes      []OAuthProbeObservation `json:"active_probes,omitempty"`
+	RecentProbes      []OAuthProbeObservation `json:"recent_probes,omitempty"`
 }
 
 func (OAuthDetails) healthDetails() {}
+
+// OAuthProbeObservation describes one startup OAuth RoundTripper invocation.
+// The bounded projection excludes request URLs, raw headers, bodies, and errors.
+type OAuthProbeObservation struct {
+	ProbeID           string     `json:"probe_id"`
+	Origin            string     `json:"origin"`
+	ProbeType         string     `json:"probe_type"`
+	Method            string     `json:"method"`
+	StartedAt         time.Time  `json:"started_at"`
+	ResponseAt        *time.Time `json:"response_at,omitempty"`
+	StatusCode        int        `json:"status_code,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	Disposition       string     `json:"disposition"`
+	ResponseRequestID string     `json:"response_request_id,omitempty"`
+}
 
 // CloudflaredDetails contains no companion token or command material.
 type CloudflaredDetails struct {

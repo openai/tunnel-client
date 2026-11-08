@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jpillora/backoff"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 
 	"github.com/openai/tunnel-client/pkg/runtimeconfig"
@@ -61,6 +62,18 @@ func TestOAuthDiscoveryRetriesAfterTransientTimeout(t *testing.T) {
 	if state.IsDone() {
 		t.Fatal("transient timeout finalized discovery instead of leaving it pending for retry")
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 10, "each initial and timeout-backoff RoundTrip must have its own observation")
+	probeIDs := make(map[string]struct{}, len(details.RecentProbes))
+	for _, observation := range details.RecentProbes {
+		require.Zero(t, observation.StatusCode)
+		require.Nil(t, observation.ResponseAt)
+		_, duplicate := probeIDs[observation.ProbeID]
+		require.False(t, duplicate)
+		probeIDs[observation.ProbeID] = struct{}{}
+	}
+	assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, 0, probeDispositionRetry, "")
 
 	recovered.Store(true)
 	close(allowRetry)
@@ -75,6 +88,9 @@ func TestOAuthDiscoveryRetriesAfterTransientTimeout(t *testing.T) {
 	if result == nil || result.URL != "https://mcp.example.test/.well-known/oauth-protected-resource" {
 		t.Fatalf("unexpected discovery result after recovery: %#v", result)
 	}
+	_, details = startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, http.StatusOK, probeDispositionAccepted, "")
 }
 
 func TestOAuthDiscoveryRetriesAfterTransientMetadataBodyTimeout(t *testing.T) {
@@ -128,6 +144,11 @@ func TestOAuthDiscoveryRetriesAfterTransientMetadataBodyTimeout(t *testing.T) {
 	if state.IsDone() {
 		t.Fatal("metadata body timeout finalized discovery instead of leaving it pending for retry")
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 4, "body timeouts retry the pass without inventing transport retries")
+	assertStartupHTTPProbe(t, details.RecentProbes[2], probeTypeProtectedResourceMetadata, http.MethodGet, http.StatusOK, probeDispositionRetry, "")
+	assertStartupHTTPProbe(t, details.RecentProbes[3], probeTypeProtectedResourceMetadata, http.MethodGet, http.StatusOK, probeDispositionRetry, "")
 
 	recovered.Store(true)
 	close(allowRetry)
@@ -189,6 +210,16 @@ func TestOAuthDiscoveryRecoversAfterMissingPathAndRootTimeout(t *testing.T) {
 			if state.IsDone() {
 				t.Fatal("discovery must remain pending while the root metadata endpoint is unavailable")
 			}
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			for _, observation := range details.RecentProbes {
+				require.NotEqual(t, string(probeDispositionNotAdvertised), observation.Disposition)
+			}
+			lastStatus := 0
+			if bodyTimeout {
+				lastStatus = http.StatusOK
+			}
+			assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, lastStatus, probeDispositionRetry, "")
 			if done, _, err := catalog.Snapshot(); done {
 				t.Fatalf("startup catalog settled before endpoint recovery: %v", err)
 			}
@@ -267,6 +298,9 @@ func TestOAuthDiscoveryRecoversFromInvalidStartupMetadata(t *testing.T) {
 			if state.IsDone() {
 				t.Fatal("invalid startup metadata permanently settled discovery")
 			}
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, tc.status, probeDispositionRetry, "")
 			if done, _, err := catalog.Snapshot(); done {
 				t.Fatalf("invalid startup metadata settled startup catalog: %v", err)
 			}
@@ -311,6 +345,9 @@ func TestOAuthDiscoveryPreservesFailFastForNonTimeoutFailure(t *testing.T) {
 	if !errors.Is(err, transportErr) {
 		t.Fatalf("OAuth discovery error = %v, want wrapped transport error", err)
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, 0, probeDispositionTerminalFailure, "")
 }
 
 func TestOAuthDiscoveryRetriesTransientAuthServerMetadataFailure(t *testing.T) {
@@ -353,6 +390,9 @@ func TestOAuthDiscoveryRetriesTransientAuthServerMetadataFailure(t *testing.T) {
 			if state.IsDone() {
 				t.Fatal("transient authorization-server metadata failure settled discovery")
 			}
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeAuthorizationServerMetadata, http.MethodGet, status, probeDispositionRetry, "")
 			if done, _, err := catalog.Snapshot(); done {
 				t.Fatalf("partial authorization-server metadata settled startup catalog: %v", err)
 			}
@@ -417,6 +457,16 @@ func TestOAuthDiscoveryPreservesPermanentAndOptionalResponses(t *testing.T) {
 			if (err == nil) != tc.optional {
 				t.Fatalf("catalog error = %v, optional=%v", err, tc.optional)
 			}
+			snapshot, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			disposition := probeDispositionTerminalFailure
+			if tc.optional {
+				disposition = probeDispositionNotAdvertised
+				require.Equal(t, "not_advertised", snapshot.State)
+			} else {
+				require.Equal(t, "failed", snapshot.State)
+			}
+			assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, tc.status, disposition, "")
 			select {
 			case <-enteredRetry:
 				t.Fatal("permanent or optional metadata response entered retry")
@@ -444,6 +494,9 @@ func TestOAuthDiscoveryDoesNotRetryResponseAfterPermanentRequestFailure(t *testi
 	if _, _, _, err, done := state.Wait(time.Second); !done || err == nil {
 		t.Fatalf("permanent request failure did not settle: done=%v, err=%v", done, err)
 	}
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeProtectedResourceMetadata, http.MethodGet, http.StatusServiceUnavailable, probeDispositionTerminalFailure, "")
 	select {
 	case <-enteredRetry:
 		t.Fatal("retryable response masked a permanent request failure")
@@ -494,6 +547,9 @@ func TestOAuthDiscoveryPreservesBestEffortAuthServerMetadata(t *testing.T) {
 			if _, _, _, err, done := state.Wait(time.Second); !done || err != nil {
 				t.Fatalf("best-effort metadata enrichment blocked discovery: done=%v, err=%v", done, err)
 			}
+			_, details := startupHTTPProbeDetails(t, state)
+			require.Empty(t, details.ActiveProbes)
+			assertStartupHTTPProbe(t, details.RecentProbes[len(details.RecentProbes)-1], probeTypeAuthorizationServerMetadata, http.MethodGet, tc.status, probeDispositionFallback, "")
 			select {
 			case <-enteredRetry:
 				t.Fatal("best-effort metadata enrichment entered retry")

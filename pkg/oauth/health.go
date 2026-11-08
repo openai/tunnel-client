@@ -35,18 +35,24 @@ func (h *componentHealth) Snapshot(time.Time) healthstate.ComponentSnapshot {
 	if h.state == nil {
 		return result
 	}
-	h.state.mu.Lock()
-	defer h.state.mu.Unlock()
-	if h.state.completedAt.IsZero() {
+	snapshot := h.state.healthSnapshot()
+	details := healthstate.OAuthDetails{
+		ActiveProbes: snapshot.activeProbes,
+		RecentProbes: snapshot.recentProbes,
+	}
+	result.Details = details
+	result.Limited = snapshot.limited
+	if snapshot.completedAt.IsZero() {
 		return result
 	}
-	checked := h.state.completedAt
+	checked := snapshot.completedAt
 	result.ObservedAt = &checked
-	result.Details = healthstate.OAuthDetails{DiscoveryComplete: true}
+	details.DiscoveryComplete = true
+	result.Details = details
 	result.Status, result.State = healthstate.StatusOK, "complete"
-	if h.state.optionalFailure {
+	if snapshot.optionalFailure {
 		result.State, result.ReasonCode = "not_advertised", "metadata_not_advertised"
-	} else if h.state.err != nil {
+	} else if snapshot.failed {
 		result.Status, result.State, result.ReasonCode = healthstate.StatusDegraded, "failed", "discovery_failed"
 	}
 	return result

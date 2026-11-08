@@ -80,9 +80,11 @@ func TestFetchOAuthMetadataRejectsCrossOriginRedirectBeforeDial(t *testing.T) {
 	t.Cleanup(origin.Close)
 	candidateURL, err := url.Parse(origin.URL + "/.well-known/oauth-protected-resource")
 	require.NoError(t, err)
+	state := NewDiscoveryState()
+	ctx := withStartupProbeSession(t.Context(), state, t.Context())
 
 	_, _, attempts, fetchErr := FetchOAuthMetadata(
-		context.Background(),
+		ctx,
 		origin.Client(),
 		[]DiscoveryCandidate{{URL: candidateURL, Source: DiscoverySourceWellKnownRoot}},
 		testLogger(),
@@ -93,6 +95,11 @@ func TestFetchOAuthMetadataRejectsCrossOriginRedirectBeforeDial(t *testing.T) {
 	require.Len(t, attempts, 1)
 	require.Contains(t, attempts[0].Error, "redirect blocked")
 	require.Zero(t, attackerHits)
+	state.setWithProbe(nil, fetchErr, nil, nil, takeStartupProbe(ctx))
+	_, details := startupHTTPProbeDetails(t, state)
+	require.Empty(t, details.ActiveProbes)
+	require.Len(t, details.RecentProbes, 1)
+	assertStartupHTTPProbe(t, details.RecentProbes[0], probeTypeProtectedResourceMetadata, http.MethodGet, http.StatusFound, probeDispositionTerminalFailure, "")
 }
 
 func TestFetchOAuthMetadataRedactsCandidateURLFromLogsAndErrors(t *testing.T) {
