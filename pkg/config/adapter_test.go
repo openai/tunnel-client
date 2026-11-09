@@ -29,7 +29,9 @@ const (
 
 var (
 	fullOnlyAdapterFlags = []string{
+		"admin-ui.base-path",
 		"admin-ui.log-buffer-events",
+		"admin-ui.public-origin",
 		"allow-remote-ui",
 		"harpoon.capture-payloads",
 		"open-web-ui",
@@ -521,6 +523,8 @@ func TestFullAndRuntimeAcceptDefaultEquivalentFullOnlyEnvironment(t *testing.T) 
 		{name: "ALLOW_REMOTE_UI", value: "false"},
 		{name: "OPEN_WEB_UI", value: "false"},
 		{name: "ADMIN_UI_LOG_BUFFER_EVENTS", value: "2000"},
+		{name: "ADMIN_UI_BASE_PATH", value: ""},
+		{name: "ADMIN_UI_PUBLIC_ORIGIN", value: ""},
 		{name: "PROXY_CHECK_INTERVAL", value: "60s"},
 		{name: "PROXY_CHECK_INTERVAL", value: "1m"},
 		{name: "PROXY_CHECK_INTERVAL", value: "1m0s"},
@@ -1008,6 +1012,8 @@ admin_ui:
   allow_remote: false
   open_browser: false
   log_buffer_events: 2000
+  base_path: ""
+  public_origin: ""
 harpoon:
   capture_payloads: false
 proxy:
@@ -1033,6 +1039,8 @@ func TestRuntimeRejectsNonDefaultFullOnlyProfileValues(t *testing.T) {
 		"admin_ui.allow_remote":      "admin_ui:\n  allow_remote: true",
 		"admin_ui.open_browser":      "admin_ui:\n  open_browser: true",
 		"admin_ui.log_buffer_events": "admin_ui:\n  log_buffer_events: 2001",
+		"admin_ui.base_path":         "admin_ui:\n  base_path: /tunnel",
+		"admin_ui.public_origin":     "admin_ui:\n  public_origin: https://admin.example.test",
 		"harpoon.capture_payloads":   "harpoon:\n  capture_payloads: true",
 		"proxy.check_interval":       "proxy:\n  check_interval: 61s",
 	}
@@ -1122,6 +1130,8 @@ admin_ui:
   allow_remote: true
   open_browser: true
   log_buffer_events: 321
+  base_path: /tools/tunnel
+  public_origin: https://admin.example.test
 harpoon:
   capture_payloads: true
 proxy:

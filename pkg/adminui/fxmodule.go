@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
 	"time"
 
 	"go.uber.org/fx"
@@ -98,6 +100,23 @@ func registerRoutes(p routeParams) error {
 	if p.Lifecycle == nil {
 		return fmt.Errorf("adminui: lifecycle is required")
 	}
+	basePath := ""
+	allowRemote := false
+	var publicOrigin *url.URL
+	if p.AdminUIConfig != nil {
+		var err error
+		basePath, err = config.NormalizeAdminUIBasePath(p.AdminUIConfig.BasePath)
+		if err != nil {
+			return fmt.Errorf("adminui: invalid base path: %w", err)
+		}
+		allowRemote = p.AdminUIConfig.AllowRemote
+		if p.AdminUIConfig.PublicOrigin != nil {
+			publicOrigin, err = config.ParseAdminUIPublicOrigin(p.AdminUIConfig.PublicOrigin.String())
+			if err != nil {
+				return fmt.Errorf("adminui: invalid public origin: %w", err)
+			}
+		}
+	}
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	p.Lifecycle.Append(fx.Hook{
@@ -107,13 +126,12 @@ func registerRoutes(p routeParams) error {
 		},
 	})
 
-	gmux := httpguard.NewGuardedMux(
-		p.AdminMux,
-		p.AdminUIConfig != nil && p.AdminUIConfig.AllowRemote,
-		"admin UI is restricted to loopback; set --allow-remote-ui to override",
-	)
+	const accessMessage = "admin UI is restricted to loopback; set --allow-remote-ui to override"
+	uiMux := http.NewServeMux()
+	gmux := httpguard.NewGuardedMux(uiMux, allowRemote, accessMessage)
 
 	gmux.HandleFunc("/", handleIndex)
+	gmux.HandleFunc("/assets", relativeRedirect("assets/"))
 	gmux.Handle("/assets/", handleAssets())
 	gmux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildStatus(p))
@@ -148,26 +166,48 @@ func registerRoutes(p routeParams) error {
 	gmux.HandleFunc("/api/codex/status", handleCodexStatus(p))
 	gmux.HandleFunc("/api/codex/events", handleCodexEvents(p))
 	gmux.HandleFunc("/api/codex/events/stream", handleCodexEventsStream(p, streamCtx))
-	gmux.Handle("/api/codex/login/device", adminSameOriginUnsafe(handleCodexLoginDevice(p)))
-	gmux.Handle("/api/codex/login/cancel", adminSameOriginUnsafe(handleCodexLoginCancel(p)))
-	gmux.Handle("/api/codex/thread/start", adminSameOriginUnsafe(handleCodexThreadStart(p)))
-	gmux.Handle("/api/codex/turn/start", adminSameOriginUnsafe(handleCodexTurnStart(p)))
+	gmux.Handle("/api/codex/login/device", adminSameOriginUnsafe(handleCodexLoginDevice(p), publicOrigin))
+	gmux.Handle("/api/codex/login/cancel", adminSameOriginUnsafe(handleCodexLoginCancel(p), publicOrigin))
+	gmux.Handle("/api/codex/thread/start", adminSameOriginUnsafe(handleCodexThreadStart(p), publicOrigin))
+	gmux.Handle("/api/codex/turn/start", adminSameOriginUnsafe(handleCodexTurnStart(p), publicOrigin))
 	gmux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	mountUI(p.AdminMux, uiMux, basePath, allowRemote, accessMessage)
+
 	// Record a single startup line in the in-memory buffer so the UI isn't empty.
 	if p.Logger != nil {
-		p.Logger.Info("admin ui enabled", slog.String("path", "/"))
+		p.Logger.Info("admin ui enabled", slog.String("path", basePath+"/"))
 	}
 
 	return nil
 }
 
-func adminSameOriginUnsafe(fn http.HandlerFunc) http.Handler {
-	return httpguard.SameOriginUnsafe(
+func mountUI(adminMux, uiMux *http.ServeMux, basePath string, allowRemote bool, accessMessage string) {
+	if basePath == "" {
+		// The shared mux's more specific operational and Harpoon routes retain
+		// their existing handlers and access policies.
+		adminMux.Handle("/", uiMux)
+		return
+	}
+
+	// Only the three operational endpoints used by the UI get aliases.
+	// Forwarding the whole shared mux would also expose unrelated routes.
+	gmux := httpguard.NewGuardedMux(uiMux, allowRemote, accessMessage)
+	for _, route := range []string{"/healthz", "/readyz", "/metrics"} {
+		gmux.Handle(route, adminMux)
+	}
+	outer := httpguard.NewGuardedMux(adminMux, allowRemote, accessMessage)
+	outer.HandleFunc(basePath, relativeRedirect(path.Base(basePath)+"/"))
+	adminMux.Handle(basePath+"/", http.StripPrefix(basePath, uiMux))
+}
+
+func adminSameOriginUnsafe(fn http.HandlerFunc, publicOrigin *url.URL) http.Handler {
+	return httpguard.SameOriginUnsafeWithPublicOrigin(
 		fn,
 		"admin UI unsafe request must be same-origin",
+		publicOrigin,
 	)
 }
 

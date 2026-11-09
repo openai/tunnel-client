@@ -85,9 +85,11 @@ type fileHealthConfig struct {
 // validation for every flavor. Runtime flavors accept only disabled/default
 // values; pkg/config consumes the values only for the full client.
 type fileAdminUICompat struct {
-	AllowRemote     *bool `yaml:"allow_remote"`
-	OpenBrowser     *bool `yaml:"open_browser"`
-	LogBufferEvents *int  `yaml:"log_buffer_events"`
+	AllowRemote     *bool   `yaml:"allow_remote"`
+	OpenBrowser     *bool   `yaml:"open_browser"`
+	LogBufferEvents *int    `yaml:"log_buffer_events"`
+	BasePath        *string `yaml:"base_path"`
+	PublicOrigin    *string `yaml:"public_origin"`
 }
 
 type fileProcessConfig struct {
@@ -292,6 +294,12 @@ func (c fileConfig) validateRuntimeFullOnlyCompatibility() error {
 	if c.AdminUI.LogBufferEvents != nil && *c.AdminUI.LogBufferEvents != DefaultAdminUILogBufferEvents {
 		return fmt.Errorf("runtime configuration rejects non-default admin_ui.log_buffer_events")
 	}
+	if c.AdminUI.BasePath != nil && *c.AdminUI.BasePath != "" {
+		return fmt.Errorf("runtime configuration rejects non-default admin_ui.base_path")
+	}
+	if c.AdminUI.PublicOrigin != nil && *c.AdminUI.PublicOrigin != "" {
+		return fmt.Errorf("runtime configuration rejects non-default admin_ui.public_origin")
+	}
 	if c.Harpoon.PayloadCapture != nil && *c.Harpoon.PayloadCapture {
 		return fmt.Errorf("runtime configuration rejects non-default harpoon.capture_payloads")
 	}
@@ -400,6 +408,8 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 	setBool(env, "ALLOW_REMOTE_UI", c.AdminUI.AllowRemote)
 	setBool(env, "OPEN_WEB_UI", c.AdminUI.OpenBrowser)
 	setInt(env, "ADMIN_UI_LOG_BUFFER_EVENTS", c.AdminUI.LogBufferEvents)
+	setString(env, "ADMIN_UI_BASE_PATH", c.AdminUI.BasePath)
+	setString(env, "ADMIN_UI_PUBLIC_ORIGIN", c.AdminUI.PublicOrigin)
 	setString(env, "PID_FILE", c.Process.PIDFile)
 	setBool(env, "CLOUDFLARED_MANAGED", c.Cloudflared.Managed)
 	setString(env, "CLOUDFLARED_PATH", c.Cloudflared.Path)

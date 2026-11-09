@@ -1,3 +1,5 @@
+import { adminURL } from "./urls";
+
 export interface TextResponse {
   ok: boolean;
   status: number;
@@ -5,7 +7,7 @@ export interface TextResponse {
 }
 
 export async function fetchJSONWithInit<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { cache: "no-store", ...init });
+  const res = await fetch(adminURL(path), { cache: "no-store", ...init });
   if (!res.ok) {
     throw new Error(`${res.status} ${res.statusText}`);
   }
@@ -17,7 +19,7 @@ export async function fetchJSON<T>(path: string): Promise<T> {
 }
 
 export async function fetchTextResponse(path: string): Promise<TextResponse> {
-  const res = await fetch(path, { cache: "no-store" });
+  const res = await fetch(adminURL(path), { cache: "no-store" });
   return {
     ok: res.ok,
     status: res.status,

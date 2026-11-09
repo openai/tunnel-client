@@ -9,6 +9,7 @@
     deriveCodexState,
   } from "../lib/codex";
   import { fmtTimestamp } from "../lib/format";
+  import { adminURL } from "../lib/urls";
   import type {
     CodexDeviceCodeLoginResponse,
     CodexEvent,
@@ -225,7 +226,7 @@
 
   function connectStream(): void {
     if (stream) return;
-    stream = new EventSource("/api/codex/events/stream");
+    stream = new EventSource(adminURL("/api/codex/events/stream"));
     stream.addEventListener("codex", (raw) => {
       const event = raw as MessageEvent<string>;
       try {

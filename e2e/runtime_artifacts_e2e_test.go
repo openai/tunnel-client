@@ -1098,7 +1098,9 @@ func startRuntimeArtifactWithEnv(t *testing.T, binary string, overrides map[stri
 
 func runtimeArtifactEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
+		"ADMIN_UI_BASE_PATH":                     {},
 		"ADMIN_UI_LOG_BUFFER_EVENTS":             {},
+		"ADMIN_UI_PUBLIC_ORIGIN":                 {},
 		"ALLOW_REMOTE_UI":                        {},
 		"CLOUDFLARED_MANAGED":                    {},
 		"CLOUDFLARED_PATH":                       {},

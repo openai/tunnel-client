@@ -1,7 +1,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import LogsPanel from "../LogsPanel.svelte";
+import { setAdminUIRoot } from "../../test/adminRoot";
 import { jsonResponse, mockFetchRequest } from "../../test/mockFetch";
 
 class MockEventSource {
@@ -19,6 +21,19 @@ class MockEventSource {
   close(): void {}
 }
 
+function observeInitialConnection() {
+  let resolveConnected!: () => void;
+  const connected = new Promise<void>((resolve) => {
+    resolveConnected = resolve;
+  });
+  return {
+    connected,
+    onConnectionChange: (value: boolean) => {
+      if (value) resolveConnected();
+    },
+  };
+}
+
 describe("LogsPanel", () => {
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
@@ -30,7 +45,7 @@ describe("LogsPanel", () => {
   });
 
   it("updates the runtime log level through the admin API", async () => {
-    let currentLevel = "info";
+    let currentLevel = "warn";
     let lastPutBody = "";
 
     mockFetchRequest(async ({ url, init }) => {
@@ -56,16 +71,19 @@ describe("LogsPanel", () => {
 
     const navigateTo = vi.fn();
     const confirmLogExport = vi.fn(() => true);
+    const initialConnection = observeInitialConnection();
     const { getByRole, findByText } = render(LogsPanel, {
-      onConnectionChange: () => {},
+      onConnectionChange: initialConnection.onConnectionChange,
       navigateTo,
       confirmLogExport,
     });
 
+    // The stream connects after the initial requests have settled.
+    await initialConnection.connected;
+    await tick();
     const runtimeLevelSelect = getByRole("combobox", { name: "Runtime log level" }) as HTMLSelectElement;
-    await waitFor(() => {
-      expect(runtimeLevelSelect.value).toBe("info");
-    });
+    expect(runtimeLevelSelect.value).toBe("warn");
+    expect(runtimeLevelSelect.disabled).toBe(false);
 
     await fireEvent.change(runtimeLevelSelect, { target: { value: "debug" } });
     await fireEvent.click(getByRole("button", { name: "Apply runtime level" }));
@@ -76,8 +94,38 @@ describe("LogsPanel", () => {
     expect(confirmLogExport).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { documentPath: "/", appRoot: "./", expectedRoot: "/" },
+    { documentPath: "/gateway/client/", appRoot: "./", expectedRoot: "/gateway/client/" },
+    { documentPath: "/gateway/client/ui/", appRoot: "../", expectedRoot: "/gateway/client/" },
+  ])("uses the application root for log exports at $documentPath", async ({
+    documentPath,
+    appRoot,
+    expectedRoot,
+  }) => {
+    setAdminUIRoot(`${documentPath}?view=compact#logs`, appRoot);
+    mockFetchRequest(async ({ url }) => {
+      if (url.endsWith("/api/logs?limit=500")) return jsonResponse({ events: [] });
+      if (url.endsWith("/api/log-level")) return jsonResponse({ level: "info" });
+      if (url.endsWith("/api/status")) return jsonResponse({ raw_http_logging_enabled: false });
+      return new Response("not found", { status: 404 });
+    });
+
+    const navigateTo = vi.fn();
+    const { findByText, getByRole } = render(LogsPanel, {
+      onConnectionChange: () => {},
+      navigateTo,
+    });
+    const exportPath = `${expectedRoot}api/logs/export?minutes=30`;
+    const exportURL = `${window.location.origin}${exportPath}`;
+
+    expect(await findByText(`curl -fsSJO "${exportURL}"`)).toBeTruthy();
+    await fireEvent.click(getByRole("button", { name: "Download recent logs" }));
+    await waitFor(() => expect(navigateTo).toHaveBeenCalledWith(exportPath));
+  });
+
   it("warns before downloading logs when debug + raw unsafe logging are enabled", async () => {
-    let currentLevel = "info";
+    let currentLevel = "warn";
     let statusRequestCount = 0;
 
     mockFetchRequest(async ({ url, init }) => {
@@ -103,17 +151,19 @@ describe("LogsPanel", () => {
 
     const confirmSpy = vi.fn(() => false);
     const navigateTo = vi.fn();
+    const initialConnection = observeInitialConnection();
 
     const { getByRole, findByText } = render(LogsPanel, {
-      onConnectionChange: () => {},
+      onConnectionChange: initialConnection.onConnectionChange,
       navigateTo,
       confirmLogExport: confirmSpy,
     });
 
+    await initialConnection.connected;
+    await tick();
     const runtimeLevelSelect = getByRole("combobox", { name: "Runtime log level" }) as HTMLSelectElement;
-    await waitFor(() => {
-      expect(runtimeLevelSelect.value).toBe("info");
-    });
+    expect(runtimeLevelSelect.value).toBe("warn");
+    expect(runtimeLevelSelect.disabled).toBe(false);
 
     await fireEvent.change(runtimeLevelSelect, { target: { value: "debug" } });
     await fireEvent.click(getByRole("button", { name: "Apply runtime level" }));

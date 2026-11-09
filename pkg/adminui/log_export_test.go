@@ -592,7 +592,11 @@ func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {
 				},
 			},
 		},
-		AdminUI:     config.AdminUIConfig{LogBufferEvents: 10},
+		AdminUI: config.AdminUIConfig{
+			BasePath:        "/tools/tunnel",
+			PublicOrigin:    mustURLForTest(t, "https://admin.example"),
+			LogBufferEvents: 10,
+		},
 		ProxyHealth: config.ProxyHealthConfig{CheckInterval: time.Minute},
 		Runtime:     config.RuntimeConfig{ConfigFile: "/tmp/tunnel-client.yaml"},
 	}
@@ -617,6 +621,8 @@ func TestRuntimeSnapshotProviderIncludesRedactedEffectiveConfig(t *testing.T) {
 	require.Contains(t, files[runtimeSnapshotFile], "X-Internal-Auth: '[REDACTED]'")
 	require.Contains(t, files[runtimeSnapshotFile], "X-Discovery-Auth: '[REDACTED]'")
 	require.Contains(t, files[runtimeSnapshotFile], "https://mcp.example/mcp")
+	require.Contains(t, files[runtimeSnapshotFile], "base_path: /tools/tunnel")
+	require.Contains(t, files[runtimeSnapshotFile], "public_origin: https://admin.example")
 }
 
 func TestRuntimeSnapshotProviderIncludesRedactedActualConfigSnapshot(t *testing.T) {

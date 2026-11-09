@@ -79,6 +79,8 @@ func TestRuntimeRunHelpOmitsFullAndCloudflaredFlags(t *testing.T) {
 	for _, excluded := range []string{
 		"--allow-remote-ui",
 		"--open-web-ui",
+		"--admin-ui.base-path",
+		"--admin-ui.public-origin",
 		"--admin-ui.log-buffer-events",
 		"--harpoon.capture-payloads",
 		"--cloudflared.managed",

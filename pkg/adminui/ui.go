@@ -1,10 +1,12 @@
 package adminui
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -24,6 +26,8 @@ var adminUIFS = func() fs.FS {
 	return sub
 }()
 
+var adminUIIndex = template.Must(template.ParseFS(adminUIFS, "index.html"))
+
 type logsResponse struct {
 	Events []LogEvent `json:"events"`
 }
@@ -40,31 +44,52 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
-	case "/", "/ui", "/ui/":
-		// ok
+	case "/", "/ui":
+		renderIndex(w, "./")
+	case "/ui/":
+		renderIndex(w, "../")
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func renderIndex(w http.ResponseWriter, appRoot string) {
+	var page bytes.Buffer
+	if err := adminUIIndex.ExecuteTemplate(&page, "index.html", struct{ AppRoot string }{AppRoot: appRoot}); err != nil {
+		http.Error(w, "render ui asset index.html", http.StatusInternalServerError)
 		return
 	}
-
 	setNoCacheHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-
-	data, err := fs.ReadFile(adminUIFS, "index.html")
-	if err != nil {
-		http.Error(w, "missing ui asset index.html", http.StatusInternalServerError)
-		return
-	}
-	_, _ = w.Write(data)
+	_, _ = w.Write(page.Bytes())
 }
 
 func handleAssets() http.Handler {
 	fsHandler := http.StripPrefix("/assets/", http.FileServer(http.FS(adminUIFS)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// FileServer historically served index.html at this path. Render it with
+		// the correct relative root instead of exposing the template source.
+		if r.URL != nil && r.URL.Path == "/assets/" {
+			renderIndex(w, "../")
+			return
+		}
 		setNoCacheHeaders(w)
 		fsHandler.ServeHTTP(w, r)
 	})
+}
+
+func relativeRedirect(target string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		location := target
+		if r.URL != nil && (r.URL.RawQuery != "" || r.URL.ForceQuery) {
+			location += "?" + r.URL.RawQuery
+		}
+		// http.Redirect resolves relative targets against the upstream path,
+		// which would discard a prefix removed by a reverse proxy.
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}
 }
 
 func handleLogsJSON(buf *LogBuffer) http.HandlerFunc {

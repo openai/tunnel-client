@@ -4,7 +4,9 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -70,16 +72,99 @@ func LocalOnly(next http.Handler, message string) http.Handler {
 // the admin UI origin. Requests without browser CSRF headers are allowed so
 // local non-browser clients keep working.
 func SameOriginUnsafe(next http.Handler, message string) http.Handler {
+	return SameOriginUnsafeWithPublicOrigin(next, message, nil)
+}
+
+// SameOriginUnsafeWithPublicOrigin additionally permits an explicitly configured
+// public browser origin. It does not change network access or trust proxy headers.
+// The caller must validate publicOrigin as an HTTP(S) origin and apply the
+// appropriate network access guard before this handler.
+func SameOriginUnsafeWithPublicOrigin(next http.Handler, message string, publicOrigin *url.URL) http.Handler {
 	if message == "" {
 		message = defaultSameOriginMessage
 	}
+	var allowedOrigin *url.URL
+	if publicOrigin != nil {
+		origin := *publicOrigin
+		allowedOrigin = &origin
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isUnsafeMethod(r.Method) && !IsSameOriginBrowserRequest(r) {
+		if isUnsafeMethod(r.Method) && !isSameOriginOrPublicBrowserRequest(r, allowedOrigin) {
 			http.Error(w, message, http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isSameOriginOrPublicBrowserRequest(r *http.Request, publicOrigin *url.URL) bool {
+	if IsSameOriginBrowserRequest(r) {
+		return true
+	}
+	if r == nil || publicOrigin == nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		return false
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return matchesPublicOrigin(origin, publicOrigin, false)
+	}
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+		return matchesPublicOrigin(referer, publicOrigin, true)
+	}
+	return false
+}
+
+func matchesPublicOrigin(raw string, publicOrigin *url.URL, allowPath bool) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User != nil || parsed.Opaque != "" || parsed.Hostname() == "" {
+		return false
+	}
+	if !allowPath && ((parsed.Path != "" && parsed.Path != "/") || parsed.RawPath != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(raw, "#")) {
+		return false
+	}
+	if publicOrigin == nil || !strings.EqualFold(parsed.Scheme, publicOrigin.Scheme) {
+		return false
+	}
+	host := originHostname(parsed)
+	port := originPort(parsed)
+	return host != "" && port != "" && host == originHostname(publicOrigin) && port == originPort(publicOrigin)
+}
+
+func originHostname(origin *url.URL) string {
+	if origin == nil {
+		return ""
+	}
+	host := strings.ToLower(origin.Hostname())
+	if strings.ContainsAny(host, "*%") {
+		return ""
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.String()
+	}
+	return host
+}
+
+func originPort(origin *url.URL) string {
+	if origin == nil || strings.HasSuffix(origin.Host, ":") {
+		return ""
+	}
+	defaultPort := ""
+	switch strings.ToLower(origin.Scheme) {
+	case "http":
+		defaultPort = "80"
+	case "https":
+		defaultPort = "443"
+	default:
+		return ""
+	}
+	if port := origin.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return ""
+		}
+		return strconv.Itoa(n)
+	}
+	return defaultPort
 }
 
 func isUnsafeMethod(method string) bool {

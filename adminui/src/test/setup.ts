@@ -1,5 +1,6 @@
 import { cleanup } from "@testing-library/svelte";
 import { afterEach, vi } from "vitest";
+import { resetAdminUIRoot } from "./adminRoot";
 
 class MockEventSource {
   url: string;
@@ -21,6 +22,7 @@ globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
 
 afterEach(() => {
   cleanup();
+  resetAdminUIRoot();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });

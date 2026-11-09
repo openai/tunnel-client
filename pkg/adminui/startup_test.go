@@ -1,11 +1,15 @@
 package adminui
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/fx/fxtest"
 
 	"github.com/openai/tunnel-client/pkg/codexplugin"
 	"github.com/openai/tunnel-client/pkg/config"
@@ -43,7 +47,7 @@ func TestBuildStartupSummaryIncludesRuntimeAndPluginGuidance(t *testing.T) {
 		},
 	}
 
-	summary := buildStartupSummary(cfg, "http://127.0.0.1:7777", nil, nil, codexplugin.Detection{
+	summary := buildStartupSummary(cfg, "http://127.0.0.1:7777", "http://127.0.0.1:7777/ui", nil, nil, codexplugin.Detection{
 		Detected:        true,
 		CodexHome:       "/tmp/.codex",
 		PluginInstalled: false,
@@ -74,7 +78,7 @@ func TestBuildStartupSummaryMarksProfileFileSource(t *testing.T) {
 			ProfilePath: "/tmp/demo.yaml",
 			ProfileFile: true,
 		},
-	}, "http://127.0.0.1:7777", nil, nil, codexplugin.Detection{})
+	}, "http://127.0.0.1:7777", "http://127.0.0.1:7777/ui", nil, nil, codexplugin.Detection{})
 
 	require.Equal(t, "profile-file:/tmp/demo.yaml", summary.ConfigSource)
 }
@@ -82,13 +86,56 @@ func TestBuildStartupSummaryMarksProfileFileSource(t *testing.T) {
 func TestBuildStartupSummaryHandlesNilConfig(t *testing.T) {
 	t.Parallel()
 
-	summary := buildStartupSummary(nil, "http://127.0.0.1:7777", nil, nil, codexplugin.Detection{})
+	summary := buildStartupSummary(nil, "http://127.0.0.1:7777", "http://127.0.0.1:7777/ui", nil, nil, codexplugin.Detection{})
 
 	require.Equal(t, "http://127.0.0.1:7777", summary.HealthURL)
 	require.Equal(t, "", summary.HealthURLFile)
 	require.Equal(t, "http://127.0.0.1:7777/ui", summary.UIURL)
 	require.Equal(t, "http://127.0.0.1:7777/metrics", summary.MetricsURL)
 }
+
+func TestRegisterStartupNormalizesAdminUIBasePath(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		basePath string
+		wantURL  string
+	}{
+		{basePath: "", wantURL: "http://127.0.0.1:7777/ui"},
+		{basePath: "/", wantURL: "http://127.0.0.1:7777/ui"},
+		{basePath: "/tools/tunnel", wantURL: "http://127.0.0.1:7777/tools/tunnel/ui"},
+		{basePath: "/tools/tunnel/", wantURL: "http://127.0.0.1:7777/tools/tunnel/ui"},
+	} {
+		t.Run("base="+tc.basePath, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			cfg := &config.Config{
+				AdminUI: config.AdminUIConfig{BasePath: tc.basePath},
+				Health:  config.HealthConfig{ListenAddr: "127.0.0.1:7777"},
+			}
+			lifecycle := fxtest.NewLifecycle(t)
+			err := registerStartup(startupParams{
+				Lifecycle:     lifecycle,
+				Logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+				Config:        cfg,
+				HealthConfig:  &cfg.Health,
+				AdminUIConfig: &cfg.AdminUI,
+				HealthService: fixedHealthService("127.0.0.1:7777"),
+			})
+			require.NoError(t, err)
+			lifecycle.RequireStart()
+			t.Cleanup(func() { lifecycle.RequireStop() })
+			require.Contains(t, logs.String(), "WEB UI: "+tc.wantURL)
+			require.Contains(t, logs.String(), "ui_url="+tc.wantURL)
+			require.Contains(t, logs.String(), "health_url=http://127.0.0.1:7777")
+			require.Contains(t, logs.String(), "metrics_url=http://127.0.0.1:7777/metrics")
+		})
+	}
+}
+
+type fixedHealthService string
+
+func (s fixedHealthService) Addr(time.Duration) (string, error) { return string(s), nil }
 
 func TestStartupFirstFailingDependencyPrefersProbeOverOAuth(t *testing.T) {
 	t.Parallel()

@@ -822,6 +822,12 @@ plugin installed by `tunnel-client codex plugin install`.
   mismatch diagnostics preserved in logs/state.
 - It exposes an **admin/health server** (`/healthz`, `/readyz`, `/metrics`) and
   a lightweight **admin UI** (`/ui`) for operational status.
+- The admin UI supports a generic reverse-proxy path prefix. Prefix-stripping
+  proxies need no base-path setting; prefix-preserving proxies use
+  `--admin-ui.base-path`. An explicit `--admin-ui.public-origin` can allow the
+  browser's origin for guarded actions through a reverse proxy. See
+  [reverse proxy paths](docs/configuration.md#reverse-proxy-paths) for mount
+  URLs, security boundaries, and configuration examples.
 - Local `GET /health?details=true`, `GET /health/mcp`, and `GET /health/oauth`
   expose bounded observations of legacy initialize and modern `server/discover`
   MCP discovery, OAuth startup probes, polling, response delivery, queues, and

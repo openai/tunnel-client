@@ -52,12 +52,15 @@ describe("CodexPanel", () => {
       return new Response("not found", { status: 404 });
     });
 
-    const { getAllByText, getByText } = render(CodexPanel, { props: { active: true } });
+    const { getAllByText, getByRole, getByText } = render(CodexPanel, { props: { active: true } });
 
     await waitFor(() => {
       expect(getByText("ABCD-EFGH")).toBeTruthy();
       expect(getAllByText("thread_123").length).toBeGreaterThan(0);
       expect(getByText("hello")).toBeTruthy();
     });
+    expect(getByRole("link", { name: "Open verification page" }).getAttribute("href")).toBe(
+      "https://auth.openai.com/codex/device",
+    );
   });
 });

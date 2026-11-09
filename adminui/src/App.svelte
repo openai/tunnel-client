@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import { fetchTextResponse } from "./lib/api";
   import { healthBadgeFromResponse, readyBadgeFromResponse } from "./lib/badges";
+  import { adminURL } from "./lib/urls";
   import type { BadgeKind } from "./lib/types";
   import OverviewPanel from "./components/OverviewPanel.svelte";
   import MetricsPanel from "./components/MetricsPanel.svelte";
@@ -115,7 +116,7 @@
     </button>
   {/each}
   <span style="flex: 1"></span>
-  <a class="small muted" href="/metrics" target="_blank" rel="noreferrer">
+  <a class="small muted" href={adminURL("/metrics")} target="_blank" rel="noreferrer">
     open /metrics
   </a>
 </div>

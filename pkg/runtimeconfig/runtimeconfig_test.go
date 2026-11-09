@@ -56,7 +56,9 @@ func TestRuntimeSettingAllowlistsStayExplicitAndCurrent(t *testing.T) {
 	t.Parallel()
 
 	assertExactRuntimeSettingList(t, "full-only flags", fullOnlyFlags, []string{
+		"admin-ui.base-path",
 		"admin-ui.log-buffer-events",
+		"admin-ui.public-origin",
 		"allow-remote-ui",
 		"harpoon.capture-payloads",
 		"open-web-ui",
@@ -67,7 +69,9 @@ func TestRuntimeSettingAllowlistsStayExplicitAndCurrent(t *testing.T) {
 		fullOnlyEnvironmentNames = append(fullOnlyEnvironmentNames, setting.name)
 	}
 	assertExactRuntimeSettingList(t, "full-only environment", fullOnlyEnvironmentNames, []string{
+		"ADMIN_UI_BASE_PATH",
 		"ADMIN_UI_LOG_BUFFER_EVENTS",
+		"ADMIN_UI_PUBLIC_ORIGIN",
 		"ALLOW_REMOTE_UI",
 		"HARPOON_CAPTURE_PAYLOADS",
 		"OPEN_WEB_UI",
@@ -148,6 +152,8 @@ mcp:
     - url: https://mcp.example.invalid/mcp
 admin_ui:
   open_browser: false
+  base_path: ""
+  public_origin: ""
 `)
 	fs := runtimeFlagSet(t, FlavorRuntime, "--config", configPath)
 	if _, err := LoadFromFlagSet(fs, lookupEnvMap(map[string]string{"CONTROL_PLANE_API_KEY": testAPIKey})); err != nil {
@@ -158,7 +164,12 @@ admin_ui:
 func TestRuntimeRejectsNonDefaultAdminUIKeys(t *testing.T) {
 	t.Parallel()
 
-	for key, value := range map[string]string{"allow_remote": "true", "log_buffer_events": "2001"} {
+	for key, value := range map[string]string{
+		"allow_remote":      "true",
+		"log_buffer_events": "2001",
+		"base_path":         "/tunnel",
+		"public_origin":     "https://admin.example.test",
+	} {
 		t.Run(key, func(t *testing.T) {
 			t.Parallel()
 			configPath := writeRuntimeConfig(t, `
@@ -191,6 +202,8 @@ func TestRuntimeAcceptsDefaultEquivalentFullOnlyEnvironment(t *testing.T) {
 		{name: "ALLOW_REMOTE_UI", value: "false"},
 		{name: "OPEN_WEB_UI", value: "false"},
 		{name: "ADMIN_UI_LOG_BUFFER_EVENTS", value: "2000"},
+		{name: "ADMIN_UI_BASE_PATH", value: ""},
+		{name: "ADMIN_UI_PUBLIC_ORIGIN", value: ""},
 		{name: "PROXY_CHECK_INTERVAL", value: "60s"},
 		{name: "PROXY_CHECK_INTERVAL", value: "1m"},
 		{name: "PROXY_CHECK_INTERVAL", value: "1m0s"},
@@ -218,6 +231,8 @@ func TestRuntimeRejectsNonDefaultFullOnlyEnvironment(t *testing.T) {
 		"ALLOW_REMOTE_UI":            "true",
 		"OPEN_WEB_UI":                "true",
 		"ADMIN_UI_LOG_BUFFER_EVENTS": "2001",
+		"ADMIN_UI_BASE_PATH":         "/tunnel",
+		"ADMIN_UI_PUBLIC_ORIGIN":     "https://admin.example.test",
 		"PROXY_CHECK_INTERVAL":       "61s",
 		"HARPOON_CAPTURE_PAYLOADS":   "true",
 	}

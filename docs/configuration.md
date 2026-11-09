@@ -201,6 +201,8 @@ health:
   url_file: /run/tunnel-client/health-url
 admin_ui:
   open_browser: false
+  base_path: ""
+  public_origin: ""
   log_buffer_events: 2000
 process:
   pid_file: /run/tunnel-client/tunnel-client.pid
@@ -1277,7 +1279,7 @@ and `/metrics` behavior is unchanged.
 
 When running `tunnel-client run`, the tunnel client serves a lightweight web UI from the same admin/health server.
 
-- **UI entrypoints**: `GET /` or `GET /ui`
+- **UI entrypoints**: `GET /`, `GET /ui`, or `GET /ui/`
 - **Static assets**: `GET /assets/*`
 - **Remote access (optional)**
   - By default, UI + log endpoints only respond to loopback clients (127.0.0.1/::1).
@@ -1288,10 +1290,94 @@ When running `tunnel-client run`, the tunnel client serves a lightweight web UI 
   - Flag: `--open-web-ui`
   - Env: `OPEN_WEB_UI`
   - Default: `false`
+- **Base path (optional)**
+  - Flag: `--admin-ui.base-path`
+  - Env: `ADMIN_UI_BASE_PATH`
+  - YAML: `admin_ui.base_path`
+  - Default: empty (the UI uses the root paths above).
+  - Set this only when a reverse proxy preserves the prefix in requests to
+    tunnel-client. For example, `/tools/tunnel` serves the UI at
+    `/tools/tunnel/`, `/tools/tunnel/ui`, and `/tools/tunnel/ui/`, with its
+    assets and admin API under the same prefix. The root `/healthz`, `/readyz`,
+    and `/metrics` endpoints remain available for probes and monitoring.
+  - A nonempty value must start with `/` and contain slash-separated,
+    nonempty segments made only of unreserved ASCII characters
+    (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, `-`). The maximum configured length
+    is 2048 bytes before normalization. `/` normalizes to empty, and one
+    trailing slash is removed. Segments `.` and `..`, double slashes, percent
+    escapes, query strings, fragments, wildcards, and braces are rejected. The
+    `/health`, `/healthz`, `/readyz`, `/metrics`, and `/harpoon` namespaces
+    (the exact paths and their descendants) are reserved and cannot be used
+    as a base path.
+- **Public browser origin (optional)**
+  - Flag: `--admin-ui.public-origin`
+  - Env: `ADMIN_UI_PUBLIC_ORIGIN`
+  - YAML: `admin_ui.public_origin`
+  - Default: unset.
+  - Adds one exact HTTP(S) browser origin to the allowed `Origin` and `Referer`
+    origins for admin UI requests protected by the same-origin check (currently
+    Codex actions), after the existing UI network access check. Set it if the
+    proxy connects over loopback or Unix and the browser hostname is neither
+    `localhost` nor a loopback IP, even when Host is preserved. Also set it when
+    TLS termination or Host rewriting makes the browser and upstream origins
+    differ, for example `https://ops.example.com` behind a TLS-terminating
+    proxy. Scheme, host, and effective port must match; the default ports are
+    80 for HTTP and 443 for HTTPS.
+  - Supply an origin only: no credentials, path except an optional `/`, query,
+    fragment, wildcard, or IPv6 zone identifier. Hostnames must use ASCII;
+    use the browser's punycode form for internationalized hostnames. A port,
+    when present, must be between 1 and 65535. Every path on that origin receives
+    the same browser-origin permission, so use an origin whose applications you
+    trust.
+  - This permission does not authenticate users or grant network access. The
+    existing loopback/Unix default and `--allow-remote-ui` boundary still
+    apply. It does not change generated URLs or trust `Forwarded`,
+    `X-Forwarded-*`, or provider-specific prefix headers.
 - **Runtime log level toggle**
   - The Logs tab can change the live runtime log level between `debug`, `info`,
     and `warn` through `GET`/`PUT /api/log-level`.
   - Use this for short troubleshooting windows without restarting the client.
+
+The `base_path` and `public_origin` settings are available only in the full
+client. Their precedence is flag, environment, YAML, then default; an explicitly
+empty flag or environment value clears a value from a lower-precedence source.
+Runtime-only binaries do not expose these flags and reject nonempty environment
+or YAML values; empty environment and YAML values are accepted for compatibility.
+Older clients do not support these options: remove the new flags and YAML keys
+before downgrading, and do not expect the new environment variables to enable
+prefix support on an older version.
+
+### Reverse proxy paths
+
+Choose the layout that matches how the proxy forwards requests:
+
+| Proxy behavior | Browser UI URL | Upstream UI URL | Client setting |
+| --- | --- | --- | --- |
+| Strip `/tools/tunnel` | `/tools/tunnel/ui` | `/ui` | Leave `--admin-ui.base-path` empty |
+| Preserve `/tools/tunnel` | `/tools/tunnel/ui` | `/tools/tunnel/ui` | Set `--admin-ui.base-path=/tools/tunnel` |
+
+With a prefix-stripping proxy, the UI's relative URLs keep assets and admin API
+requests under the browser's prefix without a base-path setting. Expose the
+mount root with a trailing slash, such as `/tools/tunnel/`, or link to
+`/tools/tunnel/ui` or `/tools/tunnel/ui/`. If users may visit the bare mount
+`/tools/tunnel`, configure the proxy to redirect it to `/tools/tunnel/`; after
+stripping the prefix, the client cannot distinguish those two browser URLs.
+
+With a prefix-preserving proxy, set the base path to the prefix and forward it
+unchanged. The UI and its admin routes move under that mount, while root
+`/healthz`, `/readyz`, and `/metrics` keep their existing behavior. The UI uses
+prefixed aliases for those endpoints. For either layout, use the canonical UI
+URLs shown above; malformed paths containing dot segments or repeated slashes
+may follow Go's standard path-cleaning redirects.
+
+Keep the admin server on loopback or a Unix socket when the proxy runs locally.
+When the proxy connects over a non-loopback network, use `--allow-remote-ui`
+only on a trusted operator network and provide authentication at the proxy as
+needed. Configure `admin_ui.public_origin` for a browser hostname other than
+`localhost` or a loopback IP when the proxy connects locally, or when the proxy
+changes the upstream scheme or host. The client does not infer the public origin
+or prefix from proxy headers, so the proxy must enforce its own routing and
+header policy.
 
 ## Process utilities
 

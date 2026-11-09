@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { fetchText } from "../lib/api";
   import { fmtTimestampSeconds } from "../lib/format";
+  import { adminURL } from "../lib/urls";
   import {
     extractInterestingMetricKeys,
     maxMetric,
@@ -123,7 +124,7 @@
     <div class="muted small">About these metrics</div>
     <div class="small" style="margin-top: 8px">
       This is a light parse of Prometheus text format and may not show every series. For full
-      detail, open <a href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.
+      detail, open <a href={adminURL("/metrics")} target="_blank" rel="noreferrer">/metrics</a>.
     </div>
     <details style="margin-top: 12px">
       <summary class="muted">Raw metrics</summary>

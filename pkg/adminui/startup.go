@@ -72,6 +72,10 @@ func registerStartup(p startupParams) error {
 	if p.HealthService == nil {
 		return fmt.Errorf("adminui: health service is required")
 	}
+	basePath, err := config.NormalizeAdminUIBasePath(p.AdminUIConfig.BasePath)
+	if err != nil {
+		return fmt.Errorf("adminui: invalid base path: %w", err)
+	}
 
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -94,8 +98,8 @@ func registerStartup(p startupParams) error {
 				return fmt.Errorf("adminui: health URL could not be determined (health_addr=%s)", healthAddr)
 			}
 
-			uiURL := baseURL + "/ui"
-			summary := buildStartupSummary(p.Config, baseURL, p.ProbeState, p.OAuthState, codexplugin.Detect(os.LookupEnv))
+			uiURL := baseURL + basePath + "/ui"
+			summary := buildStartupSummary(p.Config, baseURL, uiURL, p.ProbeState, p.OAuthState, codexplugin.Detect(os.LookupEnv))
 			// Put the URL directly in the message so it pops in terminal output,
 			// even when users don't expand structured fields.
 			logger.InfoContext(ctx, "🌐 WEB UI: "+uiURL,
@@ -172,13 +176,14 @@ func buildAdminBaseURL(cfg *config.HealthConfig, boundAddr string) string {
 func buildStartupSummary(
 	cfg *config.Config,
 	baseURL string,
+	uiURL string,
 	probeState *mcpclient.ProbeState,
 	oauthState *oauth.DiscoveryState,
 	detection codexplugin.Detection,
 ) startupSummary {
 	summary := startupSummary{
 		HealthURL:              baseURL,
-		UIURL:                  baseURL + "/ui",
+		UIURL:                  uiURL,
 		MetricsURL:             baseURL + "/metrics",
 		CodexDetected:          detection.Detected,
 		CodexHome:              detection.CodexHome,

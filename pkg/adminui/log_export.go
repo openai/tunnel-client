@@ -724,6 +724,8 @@ func buildEffectiveConfigSnapshot(cfg *config.Config) map[string]any {
 		"admin_ui": map[string]any{
 			"allow_remote":      cfg.AdminUI.AllowRemote,
 			"open_browser":      cfg.AdminUI.OpenBrowser,
+			"base_path":         redactString(cfg.AdminUI.BasePath),
+			"public_origin":     urlForSnapshot(cfg.AdminUI.PublicOrigin),
 			"log_buffer_events": cfg.AdminUI.LogBufferEvents,
 		},
 		"mcp": map[string]any{

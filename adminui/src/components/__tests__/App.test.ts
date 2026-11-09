@@ -2,13 +2,16 @@ import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../../App.svelte";
+import { setAdminUIRoot } from "../../test/adminRoot";
 import { jsonResponse, mockFetchRequest, textResponse, type MockFetchRequest } from "../../test/mockFetch";
 
 class ConnectingEventSource {
+  static urls: string[] = [];
   onopen: ((event: Event) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
   constructor(public readonly url: string) {
+    ConnectingEventSource.urls.push(url);
     queueMicrotask(() => {
       this.onopen?.(new Event("open"));
     });
@@ -299,6 +302,7 @@ function installAppFetchMock({
 
 describe("App", () => {
   beforeEach(() => {
+    ConnectingEventSource.urls = [];
     vi.stubGlobal("EventSource", ConnectingEventSource);
     window.history.replaceState(null, "", "/");
   });
@@ -321,6 +325,53 @@ describe("App", () => {
 
     expect(getAllByText("proxy").length).toBeGreaterThan(0);
     expect(getAllByText(/MCP server has no OAuth metadata/).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    { documentPath: "/", appRoot: "./", expectedRoot: "/" },
+    { documentPath: "/gateway/client/", appRoot: "./", expectedRoot: "/gateway/client/" },
+    { documentPath: "/gateway/client/ui/", appRoot: "../", expectedRoot: "/gateway/client/" },
+  ])("keeps browser requests and navigation within the application at $documentPath", async ({
+    documentPath,
+    appRoot,
+    expectedRoot,
+  }) => {
+    setAdminUIRoot(`${documentPath}?view=compact#overview`, appRoot);
+    const requests: string[] = [];
+    installAppFetchMock({
+      onRequest: ({ url }) => {
+        requests.push(url);
+        return undefined;
+      },
+    });
+
+    const { container, getByRole } = render(App);
+
+    await waitFor(() => {
+      expect(requests).toContain(`${expectedRoot}healthz`);
+      expect(requests).toContain(`${expectedRoot}readyz`);
+      expect(requests).toContain(`${expectedRoot}metrics`);
+      expect(requests).toContain(`${expectedRoot}api/status`);
+      expect(requests).toContain(`${expectedRoot}api/logs?limit=500`);
+      expect(ConnectingEventSource.urls).toContain(`${expectedRoot}api/logs/stream`);
+    });
+
+    expect(
+      Array.from(container.querySelectorAll('a[href$="/metrics"]'), (link) => link.getAttribute("href")),
+    ).toEqual([`${expectedRoot}metrics`, `${expectedRoot}metrics`]);
+
+    await fireEvent.click(getByRole("tab", { name: "Assistant" }));
+    await waitFor(() => {
+      expect(requests).toContain(`${expectedRoot}api/codex/status`);
+      expect(requests).toContain(`${expectedRoot}api/codex/events?limit=200`);
+      expect(ConnectingEventSource.urls).toContain(`${expectedRoot}api/codex/events/stream`);
+    });
+
+    expect(requests.every((url) => url.startsWith(expectedRoot))).toBe(true);
+    expect(ConnectingEventSource.urls.every((url) => url.startsWith(expectedRoot))).toBe(true);
+    expect(window.location.pathname).toBe(documentPath);
+    expect(window.location.search).toBe("?view=compact");
+    expect(window.location.hash).toBe("#codex");
   });
 
   it("registers and switches to the System tab", async () => {

@@ -891,6 +891,8 @@ var fullOnlyFlags = []string{
 	"allow-remote-ui",
 	"open-web-ui",
 	"admin-ui.log-buffer-events",
+	"admin-ui.base-path",
+	"admin-ui.public-origin",
 	"proxy.check-interval",
 	"harpoon.capture-payloads",
 }
@@ -904,6 +906,8 @@ var fullOnlyEnv = []fullOnlyEnvSetting{
 	{name: "ALLOW_REMOTE_UI", isDefault: isDisabledBoolValue},
 	{name: "OPEN_WEB_UI", isDefault: isDisabledBoolValue},
 	{name: "ADMIN_UI_LOG_BUFFER_EVENTS", isDefault: isDefaultAdminUILogBufferEvents},
+	{name: "ADMIN_UI_BASE_PATH", isDefault: isEmptyFullOnlyValue},
+	{name: "ADMIN_UI_PUBLIC_ORIGIN", isDefault: isEmptyFullOnlyValue},
 	{name: "PROXY_CHECK_INTERVAL", isDefault: isDefaultProxyCheckInterval},
 	{name: "HARPOON_CAPTURE_PAYLOADS", isDefault: isDisabledBoolValue},
 }
@@ -966,6 +970,10 @@ func isDisabledBoolValue(raw string) (bool, error) {
 		return false, err
 	}
 	return !value, nil
+}
+
+func isEmptyFullOnlyValue(raw string) (bool, error) {
+	return raw == "", nil
 }
 
 func isDefaultAdminUILogBufferEvents(raw string) (bool, error) {

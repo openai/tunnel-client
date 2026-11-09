@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, onDestroy, onMount } from "svelte";
   import { fetchJSON, fetchJSONWithInit } from "../lib/api";
+  import { adminURL } from "../lib/urls";
   import type { LogEvent, LogLevelResponse, LogsResponse, StatusResponse } from "../lib/types";
 
   export let onConnectionChange: (connected: boolean) => void;
@@ -27,7 +28,7 @@
   let activeRuntimeLevel = "info";
   let rawHTTPLoggingEnabled = false;
   let streamConnected = false;
-  let curlExportURL = "/api/logs/export?minutes=30";
+  let curlExportURL = adminURL("/api/logs/export?minutes=30");
   let logsContainer: HTMLDivElement | null = null;
   let eventSource: EventSource | null = null;
 
@@ -150,11 +151,11 @@
       );
       if (!proceed) return;
     }
-    navigateTo("/api/logs/export?minutes=30");
+    navigateTo(adminURL("/api/logs/export?minutes=30"));
   }
 
   function updateCurlExportURL(): void {
-    curlExportURL = new URL("/api/logs/export?minutes=30", window.location.href).toString();
+    curlExportURL = new URL(adminURL("/api/logs/export?minutes=30"), window.location.href).toString();
   }
 
   function updateConnection(next: boolean): void {
@@ -223,7 +224,7 @@
 
   function startStream(): void {
     try {
-      eventSource = new EventSource("/api/logs/stream");
+      eventSource = new EventSource(adminURL("/api/logs/stream"));
       eventSource.onopen = () => updateConnection(true);
       eventSource.onerror = () => updateConnection(false);
       eventSource.addEventListener("log", (evt) => {

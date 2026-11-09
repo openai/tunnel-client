@@ -84,6 +84,11 @@ type AdminUIConfig struct {
 	AllowRemote     bool
 	OpenBrowser     bool
 	LogBufferEvents int
+	// BasePath is the normalized optional mount path for the UI and its routes.
+	BasePath string
+	// PublicOrigin adds an exact browser-origin permission after the existing
+	// UI network gate. It does not change URLs or trust proxy headers.
+	PublicOrigin *url.URL
 }
 
 // HarpoonConfig keeps the full-client-only payload-capture switch alongside
@@ -129,6 +134,8 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-remote-ui", false, "Allow remote access to the embedded web UI and log endpoints (env.ALLOW_REMOTE_UI)")
 	fs.Bool("open-web-ui", false, "Open the embedded web UI in your default browser on startup (env.OPEN_WEB_UI)")
 	fs.Int("admin-ui.log-buffer-events", defaultAdminUILogBufferEvents, "Number of recent log events to keep in memory for the embedded web UI and export archive (env.ADMIN_UI_LOG_BUFFER_EVENTS, max 100000)")
+	fs.String("admin-ui.base-path", "", "Optional path prefix for the embedded web UI when a reverse proxy preserves the prefix (env.ADMIN_UI_BASE_PATH)")
+	fs.String("admin-ui.public-origin", "", "Optional exact HTTP(S) browser origin allowed for embedded web UI actions after the UI network access check (env.ADMIN_UI_PUBLIC_ORIGIN)")
 	fs.Duration("proxy.check-interval", defaultProxyCheckInterval, "Interval between proxy connectivity checks (env.PROXY_CHECK_INTERVAL)")
 	fs.Bool("harpoon.capture-payloads", false, "Capture request/response payloads for the Harpoon admin UI (debug only). (env.HARPOON_CAPTURE_PAYLOADS)")
 }
@@ -224,7 +231,32 @@ func buildAdminUIConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)
 	if logBufferEvents > maxAdminUILogBufferEvents {
 		return AdminUIConfig{}, fmt.Errorf("admin-ui.log-buffer-events must be <= %d", maxAdminUILogBufferEvents)
 	}
-	return AdminUIConfig{AllowRemote: allowRemote, OpenBrowser: openBrowser, LogBufferEvents: logBufferEvents}, nil
+	basePath, err := NormalizeAdminUIBasePath(getStringWithEmptyOverride(fs, lookupEnv, "admin-ui.base-path", "ADMIN_UI_BASE_PATH"))
+	if err != nil {
+		return AdminUIConfig{}, fmt.Errorf("invalid admin-ui.base-path: %w", err)
+	}
+	publicOrigin, err := ParseAdminUIPublicOrigin(getStringWithEmptyOverride(fs, lookupEnv, "admin-ui.public-origin", "ADMIN_UI_PUBLIC_ORIGIN"))
+	if err != nil {
+		return AdminUIConfig{}, fmt.Errorf("invalid admin-ui.public-origin: %w", err)
+	}
+	return AdminUIConfig{
+		AllowRemote:     allowRemote,
+		OpenBrowser:     openBrowser,
+		LogBufferEvents: logBufferEvents,
+		BasePath:        basePath,
+		PublicOrigin:    publicOrigin,
+	}, nil
+}
+
+// getStringWithEmptyOverride preserves an explicitly empty flag or environment
+// value so it can clear a value from a lower-precedence source.
+func getStringWithEmptyOverride(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), flagName, envName string) string {
+	if fs != nil {
+		if flag := fs.Lookup(flagName); flag != nil && flag.Changed {
+			return flag.Value.String()
+		}
+	}
+	return envOrDefault(lookupEnv, envName, "")
 }
 
 func buildProxyHealthConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (ProxyHealthConfig, error) {
@@ -344,6 +376,8 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  ALLOW_REMOTE_UI\tSet to true to allow non-loopback access to the embedded web UI (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  OPEN_WEB_UI\tSet to true to open the embedded web UI in a browser on startup (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  ADMIN_UI_LOG_BUFFER_EVENTS\tRecent log-event capacity for the embedded web UI and export archive (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  ADMIN_UI_BASE_PATH\tOptional path prefix for the embedded web UI when a reverse proxy preserves the prefix")
+	_, _ = fmt.Fprintln(fs.Output(), "  ADMIN_UI_PUBLIC_ORIGIN\tOptional exact HTTP(S) browser origin allowed for embedded web UI actions after the UI network access check")
 	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_TUNNEL_TOKEN\tPre-provisioned remotely managed Cloudflare Tunnel token; enables bundled cloudflared supervision (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_MANAGED\tFetch the managed Cloudflare Tunnel runtime token from the control plane on startup (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_PATH\tAdvanced override for the bundled cloudflared executable path (optional)")
