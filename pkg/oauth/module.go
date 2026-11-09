@@ -280,10 +280,11 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 							} else {
 								completeStartupCatalog(nil)
 							}
+							logger.InfoContext(fetchCtx, "OAuth metadata not advertised; continuing without OAuth")
 						} else {
 							completeStartupCatalog(err)
+							logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
 						}
-						logger.WarnContext(fetchCtx, "OAuth discovery failed", slog.String("error", err.Error()))
 						fetchCancel()
 						return
 					}

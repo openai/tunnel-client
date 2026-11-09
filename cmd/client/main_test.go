@@ -21,26 +21,197 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/require"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
 	"go.uber.org/fx/fxtest"
 
 	"github.com/openai/tunnel-client/pkg/app"
 	"github.com/openai/tunnel-client/pkg/codexappserver"
 	"github.com/openai/tunnel-client/pkg/config"
 	"github.com/openai/tunnel-client/pkg/health"
+	"github.com/openai/tunnel-client/pkg/healthstate"
 	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/mcpclient"
 	"github.com/openai/tunnel-client/pkg/metrics"
+	"github.com/openai/tunnel-client/pkg/runtimeharpoon/hostbus"
 	"github.com/openai/tunnel-client/pkg/types"
 )
+
+func TestRunStartupDiagnostics(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		advertised bool
+		optional   bool
+	}{
+		{name: "empty 404", status: http.StatusNotFound, optional: true},
+		{name: "HTML 404", status: http.StatusNotFound, body: "<html>not found</html>", optional: true},
+		{name: "JSON 404", status: http.StatusNotFound, body: `{"error":"not_found"}`, optional: true},
+		// A terminal non-JSON response is independent of optional all-404 discovery.
+		{name: "forbidden metadata", status: http.StatusForbidden, body: "403: Forbidden"},
+		{name: "advertised 404", status: http.StatusNotFound, advertised: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			mcpServer := mcp.NewServer(&mcp.Implementation{Name: "startup fixture", Version: "1"}, nil)
+			mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, &mcp.StreamableHTTPOptions{Stateless: true})
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(r.URL.Path, "/.well-known/") {
+					w.WriteHeader(tc.status)
+					_, _ = io.WriteString(w, tc.body)
+					return
+				}
+				if tc.advertised && r.Method == http.MethodPost && r.ContentLength == 0 {
+					w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="http://`+r.Host+`/.well-known/oauth-protected-resource"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				mcpHandler.ServeHTTP(w, r)
+			}))
+			t.Cleanup(upstream.Close)
+			polled := make(chan struct{})
+			var pollOnce sync.Once
+			controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/poll") {
+					pollOnce.Do(func() { close(polled) })
+					<-r.Context().Done()
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"name":"startup fixture"}`)
+			}))
+			t.Cleanup(controlPlane.Close)
+			cfg := &config.Config{
+				ControlPlane: config.ControlPlaneConfig{BaseURL: mustParseURL(t, controlPlane.URL), TunnelID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "test-key", MaxInFlightRequests: 1, PollTimeout: time.Minute},
+				Health:       config.HealthConfig{ListenAddr: "127.0.0.1:0"},
+				MCP:          config.MCPConfig{ServerURL: mustParseURL(t, upstream.URL+"/mcp"), TransportKind: config.MCPTransportHTTPStreamable, MaxConcurrentRequests: 1, ConnectionMaxTTL: time.Minute},
+			}
+			logs := &startupLogRecorder{summary: make(chan map[string]any, 1), pollingDisabled: make(chan struct{})}
+			logger := slog.New(slog.NewJSONHandler(logs, nil))
+			var svc health.Service
+			var catalog *hostbus.StartupCatalogState
+			var probe *mcpclient.ProbeState
+			fxApp := app.New(cfg, isolatedAppMetrics(), isolatedAppCodex(t), fx.Replace(logger),
+				fx.WithLogger(func() fxevent.Logger { return newTunnelEventLogger(logger, &cfg.ControlPlane, nil, &cfg.MCP) }),
+				fx.Populate(&svc, &catalog, &probe),
+			)
+			require.NoError(t, fxApp.Start(ctx))
+			t.Cleanup(func() {
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer stopCancel()
+				require.NoError(t, fxApp.Stop(stopCtx))
+			})
+			var summary map[string]any
+			select {
+			case summary = <-logs.summary:
+			case <-ctx.Done():
+				t.Fatal("OAuth summary was not logged")
+			}
+			catalogErr := catalog.Wait(ctx)
+			require.NoError(t, probe.WaitUntilDone(ctx))
+			if tc.optional {
+				require.NoError(t, catalogErr)
+				select {
+				case <-polled:
+				case <-ctx.Done():
+					t.Fatal("optional discovery did not start polling")
+				}
+			} else {
+				require.Error(t, catalogErr)
+				select {
+				case <-logs.pollingDisabled:
+				case <-ctx.Done():
+					t.Fatal("failed startup catalog did not disable polling")
+				}
+				select {
+				case <-polled:
+					t.Fatal("failed startup catalog polled for commands")
+				default:
+				}
+			}
+			addr, err := svc.Addr(time.Second)
+			require.NoError(t, err)
+			get := func(path string) *http.Response {
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, nil)
+				require.NoError(t, err)
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = resp.Body.Close() })
+				return resp
+			}
+			ready := get("/readyz")
+			var snapshot struct {
+				State   string                   `json:"state"`
+				Details healthstate.OAuthDetails `json:"details"`
+			}
+			require.NoError(t, json.NewDecoder(get("/health/oauth").Body).Decode(&snapshot))
+			require.Empty(t, snapshot.Details.ActiveProbes)
+			require.NotEmpty(t, snapshot.Details.RecentProbes)
+			lastProbe := snapshot.Details.RecentProbes[len(snapshot.Details.RecentProbes)-1]
+			require.Equal(t, tc.status, lastProbe.StatusCode)
+			if tc.optional {
+				require.Equal(t, http.StatusOK, ready.StatusCode)
+				require.Equal(t, "not_advertised", snapshot.State)
+				require.Equal(t, "not_advertised", lastProbe.Disposition)
+				require.Equal(t, "INFO", summary["level"])
+				require.Equal(t, "OAuth metadata not advertised; continuing without OAuth", summary["msg"])
+				require.NotContains(t, summary, "error")
+			} else {
+				require.Equal(t, http.StatusServiceUnavailable, ready.StatusCode)
+				require.Equal(t, "failed", snapshot.State)
+				require.Equal(t, "terminal_failure", lastProbe.Disposition)
+				require.Equal(t, "WARN", summary["level"])
+				require.Equal(t, "OAuth discovery failed", summary["msg"])
+			}
+			logs.mu.Lock()
+			defer logs.mu.Unlock()
+			require.Contains(t, logs.messages, "tunnel-client process started; readiness and control-plane polling are reported separately")
+			require.NotContains(t, logs.messages, "🟢 tunnel-client started")
+		})
+	}
+}
+
+type startupLogRecorder struct {
+	mu              sync.Mutex
+	messages        []string
+	summary         chan map[string]any
+	pollingDisabled chan struct{}
+}
+
+func (w *startupLogRecorder) Write(data []byte) (int, error) {
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		return 0, err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	message, _ := record["msg"].(string)
+	if strings.Contains(message, "tunnel-client") {
+		w.messages = append(w.messages, message)
+	}
+	switch message {
+	case "OAuth discovery failed", "OAuth metadata not advertised; continuing without OAuth":
+		w.summary <- record
+	case "startup catalog failed; control-plane polling disabled":
+		close(w.pollingDisabled)
+	}
+	return len(data), nil
+}
 
 func TestRootCommandContextCancelsOnSIGTERM(t *testing.T) {
 	// Signals are process-wide, so this test runs before parallel tests start.

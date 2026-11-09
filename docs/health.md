@@ -233,6 +233,11 @@ Protocol evidence does not prove that its response upload succeeded; inspect
 
 ## Supervising startup
 
+The `tunnel-client process started` log confirms that the CLI lifecycle started.
+It can appear while discovery is pending or after a startup catalog failure;
+it does not establish readiness or control-plane polling. Check `/readyz` and
+`/health/control-plane` separately.
+
 Use each process's own exit and liveness policy for restarts. The MCP server's
 health contract governs the MCP process; tunnel-client's `/healthz` governs
 tunnel-client liveness. A tunnel-client readiness failure or an individual MCP
@@ -319,6 +324,13 @@ A final failure still has `discovery_complete: true`:
 
 These fields describe the overall startup discovery outcome. Use the optional
 probe observations below to inspect the HTTP attempts that led to it.
+
+When no metadata URL was advertised in a challenge and all metadata candidates
+return HTTP 404, the summary is INFO `OAuth metadata not advertised; continuing
+without OAuth`, including when those 404 bodies contain HTML or JSON errors.
+The component reports `not_advertised`, and optional absence does not block the
+startup catalog. Required discovery failures still log WARN `OAuth discovery
+failed` and retain their existing readiness and polling gates.
 
 ### Inspect OAuth startup probes
 

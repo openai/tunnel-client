@@ -774,6 +774,11 @@ plugin installed by `tunnel-client codex plugin install`.
   automatically uses `https://mtls.api.openai.com` for control-plane calls.
 - On startup, it fetches tunnel metadata for operator visibility:
   - `GET /v1/tunnels/{tunnel_id}`
+- The `tunnel-client process started` log confirms process startup. Check
+  `/readyz` for readiness and `/health/control-plane` for observed polling.
+  Optional all-404 OAuth metadata discovery logs at INFO and reports
+  `not_advertised` in `/health/oauth`, including HTML or JSON 404 bodies.
+  See [startup supervision](docs/health.md#supervising-startup).
 - It forwards received JSON-RPC requests to your configured MCP server over
   Streamable HTTP, stdio, or in-memory transport, and relays explicit
   Streamable HTTP session termination requests when the control plane receives

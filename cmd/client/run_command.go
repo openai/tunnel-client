@@ -76,7 +76,7 @@ func (l *tunnelEventLogger) LogEvent(event fxevent.Event) {
 				priority++
 			}
 		}
-		l.logger.Info("🟢 tunnel-client started",
+		l.logger.Info("tunnel-client process started; readiness and control-plane polling are reported separately",
 			slog.String("tunnel_id", l.cfg.TunnelID.String()),
 			slog.String("tunnel_url", tunnelURL),
 			slog.String("name", metaName),

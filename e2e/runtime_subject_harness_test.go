@@ -47,7 +47,7 @@ func runtimeFullSubject() runtimeSubject {
 		packagePath:    "./cmd/client",
 		binaryName:     "tunnel-client",
 		flavor:         "full",
-		startupSignals: []string{"🟢 tunnel-client started"},
+		startupSignals: []string{"tunnel-client process started; readiness and control-plane polling are reported separately"},
 	}
 }
 
