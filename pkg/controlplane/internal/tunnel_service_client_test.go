@@ -2013,7 +2013,7 @@ func TestTunnelServiceClientFetchTunnelMetadata(t *testing.T) {
 			t.Fatalf("unexpected auth header: %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"tunnel_123","name":"Demo tunnel","description":"demo"}`))
+		_, _ = w.Write([]byte(`{"id":"tunnel_123","name":"Demo tunnel","description":"demo","residency":"eu","control_plane_url":"https://eu.api.openai.com"}`))
 	}))
 
 	client, err := NewTunnelServiceClient(context.Background(), &config.ControlPlaneConfig{

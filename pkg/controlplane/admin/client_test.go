@@ -26,7 +26,7 @@ func TestAdminTunnelClientCreateAndGet(t *testing.T) {
 			}
 			w.Header().Set("X-Request-Id", "req_create_123")
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n","description":"d","creator":"u","organization_ids":["org1"],"workspace_ids":["ws1"]}`))
+			_, _ = w.Write([]byte(`{"id":"tunnel_1","name":"n","description":"d","creator":"u","organization_ids":["org1"],"workspace_ids":["ws1"],"residency":"eu","control_plane_url":"https://eu.api.openai.com"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels/tunnel_1":
 			w.Header().Set("X-Request-Id", "req_get_123")
 			w.Header().Set("Content-Type", "application/json")

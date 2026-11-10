@@ -402,6 +402,12 @@ EU Tunnel residency is not currently available as a supported customer deploymen
 Service failures stay on the selected endpoint and retain the usual error and
 retry behavior; there is no fallback to global or another residency.
 
+Tunnel metadata responses can report the service-assigned `residency` and a
+`control_plane_url` for ordinary TLS. These fields are informational in current
+tunnel-client versions: endpoint selection continues to come from client configuration.
+The URL can be absent in older responses or when no public endpoint is configured for
+that environment and assignment.
+
 Configure both existing `control_plane.client_cert` and `client_key` settings to
 select the same residency's mTLS endpoint. Requesting mTLS where the catalog has
 no mTLS endpoint fails configuration validation. MCP certificates remain separate.
