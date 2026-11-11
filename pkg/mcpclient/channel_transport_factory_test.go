@@ -449,14 +449,15 @@ func TestRuntimeMCPHTTPClientRejectsCrossOriginRedirects(t *testing.T) {
 				sinkCalls.Add(1)
 			}))
 			t.Cleanup(sink.Close)
+			redirectURL := localhostURLFactoryTest(t, sink.URL+"/capture")
 
 			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Location", sink.URL+"/capture")
+				w.Header().Set("Location", redirectURL.String())
 				w.WriteHeader(statusCode)
 			}))
 			t.Cleanup(origin.Close)
 
-			configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+			configuredURL := mustParseURLFactoryTest(t, origin.URL+"/mcp")
 			client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
 			ctx, _, err := internal.ContextWithHeaders(context.Background(), http.Header{
 				"Authorization":       {"Bearer redirect-proof-secret"},
@@ -570,6 +571,7 @@ func TestRuntimeMCPHTTPClientRevalidatesEveryRedirectHop(t *testing.T) {
 		sinkCalls.Add(1)
 	}))
 	t.Cleanup(sink.Close)
+	redirectURL := localhostURLFactoryTest(t, sink.URL+"/capture")
 
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -577,7 +579,7 @@ func TestRuntimeMCPHTTPClientRevalidatesEveryRedirectHop(t *testing.T) {
 			w.Header().Set("Location", "/second")
 			w.WriteHeader(http.StatusTemporaryRedirect)
 		case "/second":
-			w.Header().Set("Location", sink.URL+"/capture")
+			w.Header().Set("Location", redirectURL.String())
 			w.WriteHeader(http.StatusTemporaryRedirect)
 		default:
 			http.NotFound(w, r)
@@ -585,7 +587,7 @@ func TestRuntimeMCPHTTPClientRevalidatesEveryRedirectHop(t *testing.T) {
 	}))
 	t.Cleanup(origin.Close)
 
-	configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+	configuredURL := mustParseURLFactoryTest(t, origin.URL+"/mcp")
 	client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
 	req, err := http.NewRequest(http.MethodGet, strings.Replace(configuredURL.String(), "/mcp", "/first", 1), nil)
 	if err != nil {
@@ -615,17 +617,18 @@ func TestRuntimeMCPHTTPClientRejectsCrossOriginSessionTerminationRedirect(t *tes
 				sinkCalls.Add(1)
 			}))
 			t.Cleanup(sink.Close)
+			redirectURL := localhostURLFactoryTest(t, sink.URL+"/capture")
 
 			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodDelete {
 					t.Errorf("termination method = %s, want DELETE", r.Method)
 				}
-				w.Header().Set("Location", sink.URL+"/capture")
+				w.Header().Set("Location", redirectURL.String())
 				w.WriteHeader(statusCode)
 			}))
 			t.Cleanup(origin.Close)
 
-			configuredURL := localhostURLFactoryTest(t, origin.URL+"/mcp")
+			configuredURL := mustParseURLFactoryTest(t, origin.URL+"/mcp")
 			client := newRuntimeHTTPClientFactoryTest(t, configuredURL, nil)
 			streamable := &mcp.StreamableClientTransport{
 				Endpoint:   configuredURL.String(),
@@ -750,6 +753,9 @@ func newRuntimeHTTPClientFactoryTest(t *testing.T, serverURL *url.URL, proxyURL 
 
 func localhostURLFactoryTest(t *testing.T, raw string) *url.URL {
 	t.Helper()
+	// Use this alias only for redirects that must be rejected before dialing.
+	// Initial requests must use the server's listener address: localhost may
+	// resolve to an address family that the httptest server is not listening on.
 	parsed := mustParseURLFactoryTest(t, raw)
 	parsed.Host = net.JoinHostPort("localhost", parsed.Port())
 	return parsed
