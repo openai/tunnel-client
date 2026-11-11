@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -192,24 +192,53 @@ func TestStartupDiscoveryRecoveryDelaysPollingUntilHarpoonTargetsRegistered(t *t
 	}
 }
 
-// TestStartupWaitDelaysPollingUntilMCPListenerBinds covers the sidecar startup
-// race where tunnel-client starts before its pod-local MCP proxy has bound.
-func TestStartupWaitDelaysPollingUntilMCPListenerBinds(t *testing.T) {
-	t.Parallel()
-
-	delayedAddr := reserveLoopbackAddr(t)
-	delayedURL := mustParseURL(t, "http://"+delayedAddr)
+// TestStartupWaitDelaysPollingUntilMCPDialSucceeds covers sidecar startup when
+// TCP dials are initially refused. The mock keeps its listener bound throughout.
+func TestStartupWaitDelaysPollingUntilMCPDialSucceeds(t *testing.T) {
+	// Keep serial because this test temporarily replaces http.DefaultTransport.
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatalf("default HTTP transport has type %T, want *http.Transport", http.DefaultTransport)
+	}
+	gatedTransport := defaultTransport.Clone()
+	dial := gatedTransport.DialContext
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+	var mcpAddr atomic.Pointer[string]
+	var mcpAvailable atomic.Bool
+	var refusedDials atomic.Int32
+	gatedTransport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if target := mcpAddr.Load(); target != nil && addr == *target && !mcpAvailable.Load() {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			refusedDials.Add(1)
+			return nil, &net.OpError{Op: "dial", Net: network, Err: syscall.ECONNREFUSED}
+		}
+		return dial(ctx, network, addr)
+	}
+	http.DefaultTransport = gatedTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = defaultTransport
+		gatedTransport.CloseIdleConnections()
+	})
 	retryLog := newSubstringSignalWriter(retryingStartupProbeLog)
 
 	h := runSimpleToolScenarioWithHarnessOptions(
 		t,
 		[]harnesspkg.HarnessOption{
-			harnesspkg.WithPreserveClientURLs(),
 			harnesspkg.WithLogWriter(retryLog),
 			harnesspkg.WithClientConfig(func(cfg *config.Config) {
 				cfg.Logging.Level = slog.LevelDebug
-				cfg.MCP.ServerURL = delayedURL
 				cfg.MCP.StartupWaitTimeout = 10 * time.Second
+			}),
+			harnesspkg.WithBeforeClientStart(func(h *harnesspkg.Harness) {
+				if h.MCP.BaseURL() == nil {
+					t.Fatal("mock MCP server URL is nil")
+				}
+				addr := h.MCP.BaseURL().Host
+				mcpAddr.Store(&addr)
 			}),
 			harnesspkg.WithAfterClientStart(func(h *harnesspkg.Harness) {
 				waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -217,14 +246,17 @@ func TestStartupWaitDelaysPollingUntilMCPListenerBinds(t *testing.T) {
 				select {
 				case <-retryLog.Seen():
 				case <-waitCtx.Done():
-					t.Fatalf("did not observe %q before listener bind: %v", retryingStartupProbeLog, waitCtx.Err())
+					t.Fatalf("did not observe %q while MCP dial was refused: %v", retryingStartupProbeLog, waitCtx.Err())
+				}
+				if refusedDials.Load() == 0 {
+					t.Fatal("startup retry did not observe a refused MCP dial")
 				}
 
 				if h.MCPProbeState == nil {
 					t.Fatal("MCP probe state was not populated")
 				}
 				if h.MCPProbeState.IsDone() {
-					t.Fatal("MCP probe completed before delayed listener bound")
+					t.Fatal("MCP probe completed while MCP dial was refused")
 				}
 
 				client := h.PrimaryClient()
@@ -232,16 +264,16 @@ func TestStartupWaitDelaysPollingUntilMCPListenerBinds(t *testing.T) {
 					t.Fatal("primary tunnel-client was not started")
 				}
 				if got := client.PollCount(); got != 0 {
-					t.Fatalf("poll count before delayed listener bind = %d, want 0", got)
+					t.Fatalf("poll count while MCP dial was refused = %d, want 0", got)
 				}
 				if got := len(h.ControlPlane.DeliveredCommands()); got != 0 {
-					t.Fatalf("delivered commands before delayed listener bind = %d, want 0", got)
+					t.Fatalf("delivered commands while MCP dial was refused = %d, want 0", got)
 				}
 				if got := len(h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchAll)); got != 0 {
-					t.Fatalf("responses before delayed listener bind = %d, want 0", got)
+					t.Fatalf("responses while MCP dial was refused = %d, want 0", got)
 				}
 
-				startDelayedMCPProxy(t, delayedAddr, h.MCP.BaseURL())
+				mcpAvailable.Store(true)
 			}),
 		},
 		nil,
@@ -252,53 +284,6 @@ func TestStartupWaitDelaysPollingUntilMCPListenerBinds(t *testing.T) {
 			t.Fatalf("received early terminal 502 for request %q", response.RequestID)
 		}
 	}
-}
-
-func reserveLoopbackAddr(t testing.TB) string {
-	t.Helper()
-
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve delayed MCP listener address: %v", err)
-	}
-	addr := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatalf("release delayed MCP listener address: %v", err)
-	}
-	return addr
-}
-
-func startDelayedMCPProxy(t testing.TB, addr string, target *url.URL) {
-	t.Helper()
-	if target == nil {
-		t.Fatal("mock MCP server URL is nil")
-	}
-
-	listener, err := net.Listen("tcp4", addr)
-	if err != nil {
-		t.Fatalf("bind delayed MCP listener %q: %v", addr, err)
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	server := &http.Server{Handler: proxy}
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- server.Serve(listener)
-	}()
-
-	t.Cleanup(func() {
-		if err := server.Close(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("close delayed MCP proxy: %v", err)
-		}
-		select {
-		case err := <-serveErr:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				t.Errorf("serve delayed MCP proxy: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Error("delayed MCP proxy did not stop")
-		}
-	})
 }
 
 type substringSignalWriter struct {
