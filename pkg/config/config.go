@@ -384,6 +384,7 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  CLOUDFLARED_READY_TIMEOUT\tMaximum startup wait for bundled cloudflared readiness (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  CA_BUNDLE\tPath to a PEM CA bundle used for outbound TLS connections (additive to system trust) (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_EXTRA_HEADERS\tStatic headers for outbound MCP HTTP requests to the configured MCP server origin; values accept env:VAR or file:/path (optional)")
+	_, _ = fmt.Fprintln(fs.Output(), "  MCP_OAUTH_DISCOVERY\tOAuth metadata discovery mode: auto (default) or disabled")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_DISCOVERY_EXTRA_HEADERS\tStatic headers for MCP discovery/probe requests to the configured MCP server origin; values accept env:VAR or file:/path (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_STARTUP_WAIT_TIMEOUT\tMaximum opt-in startup wait for the main MCP HTTP listener before first poll (optional)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_STDIO_FAILURE_POLICY\tRecovery after an unexpected stdio child loss: restart or exit (default: restart)")

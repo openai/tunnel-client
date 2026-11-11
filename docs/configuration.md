@@ -539,6 +539,8 @@ endpoints must still match the selected residency.
     parameters are serialized.
   - A Harpoon-only client may set only `harpoon` and omit the main MCP binding,
     but it must configure at least one routable Harpoon target.
+    When OAuth discovery is disabled, any explicit poll scope containing
+    `harpoon` requires at least one configured Harpoon target, even with `main`.
   - Unscoped polling and scopes that include `harpoon` wait for startup OAuth
     discovery and target registration to complete. A failed startup catalog
     prevents polling, and `/readyz` stays non-ready while registration is
@@ -826,6 +828,24 @@ routing, streaming, OAuth discovery, and common setup pitfalls, see
     unrelated authorization-server hosts.
   - Conflict behavior: connector-forwarded request headers are applied last and
     override these static values case-insensitively.
+- **OAuth discovery mode**
+  - Set `--mcp.oauth-discovery=disabled`, `MCP_OAUTH_DISCOVERY=disabled`, or
+    `mcp.oauth_discovery: disabled` for a static-credential MCP server.
+    The default, `auto`, probes the main HTTP MCP server and retries malformed
+    successful metadata responses.
+  - In `disabled` mode, startup and `tunnel-client doctor` skip OAuth challenge
+    and metadata probes. The startup catalog completes with only explicitly
+    configured targets. For a later queued OAuth discovery request, the client
+    returns a 404 with code `oauth_discovery_disabled` without contacting the
+    MCP server. Flows that rely on discovered registration, token, or
+    revocation endpoints are unavailable.
+  - The MCP initialization probe and normal MCP requests still run.
+    `MCP_EXTRA_HEADERS` can supply the upstream credential, and the MCP
+    server's authentication errors propagate to callers. Check `/health/oauth`
+    for `state: "disabled"` and `reason_code: "disabled_by_configuration"`.
+  - When upgrading multiple replicas, older clients ignore the environment
+    variable and continue discovery. Check each replica's `/health/oauth`
+    after upgrading. Use the CLI flag or YAML key once all replicas support it.
 - **Static discovery/probe headers (optional)**
   - Flag (repeatable): `--mcp.discovery-extra-headers "Key: Value"`
   - Env: `MCP_DISCOVERY_EXTRA_HEADERS="Key: Value, Key2: Value2"`

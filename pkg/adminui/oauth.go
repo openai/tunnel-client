@@ -2,6 +2,7 @@ package adminui
 
 import (
 	"encoding/json"
+	"net/url"
 	"time"
 
 	"github.com/openai/tunnel-client/pkg/oauth"
@@ -11,30 +12,25 @@ type oauthStatusResponse struct {
 	DiscoveryURLs        []string                          `json:"discovery_urls,omitempty"`
 	Metadata             *oauth.DiscoveryResult            `json:"metadata,omitempty"`
 	Error                string                            `json:"error,omitempty"`
+	ReasonCode           string                            `json:"reason_code,omitempty"`
 	Pending              bool                              `json:"pending,omitempty"`
 	WWWAuthenticateProbe *oauth.WWWAuthenticateProbeStatus `json:"www_authenticate_probe,omitempty"`
 	MetadataSource       string                            `json:"metadata_source,omitempty"`
-	AuthServerMetaMode   string                            `json:"auth_server_metadata_mode"`
+	AuthServerMetaMode   string                            `json:"auth_server_metadata_mode,omitempty"`
 	AuthServerCount      int                               `json:"authorization_server_count"`
 	SelectedAuthServer   string                            `json:"selected_authorization_server,omitempty"`
 }
 
 func buildOAuthStatus(p routeParams) oauthStatusResponse {
+	if p.MCPConfig != nil && p.MCPConfig.DisableOAuthDiscovery {
+		return oauthStatusResponse{ReasonCode: "disabled_by_configuration"}
+	}
 	out := oauthStatusResponse{
 		AuthServerMetaMode: "authorization_servers[0] only (source of truth)",
 	}
 
-	if p.MCPConfig != nil {
-		if mainBinding := p.MCPConfig.MainChannelBinding(); mainBinding != nil {
-			urls := oauth.BuildResourceMetadataURLs(mainBinding.ServerURL)
-			out.DiscoveryURLs = make([]string, 0, len(urls))
-			for _, u := range urls {
-				if u == nil {
-					continue
-				}
-				out.DiscoveryURLs = append(out.DiscoveryURLs, u.String())
-			}
-		}
+	if mainBinding := p.MCPConfig.MainChannelBinding(); mainBinding != nil {
+		out.DiscoveryURLs = resourceMetadataURLs(mainBinding.ServerURL)
 	}
 
 	if p.OAuthState == nil {
@@ -65,6 +61,15 @@ func buildOAuthStatus(p routeParams) oauthStatusResponse {
 
 	out.Pending = true
 	return out
+}
+
+func resourceMetadataURLs(serverURL *url.URL) []string {
+	candidates := oauth.BuildResourceMetadataURLs(serverURL)
+	urls := make([]string, len(candidates))
+	for i, u := range candidates {
+		urls[i] = u.String()
+	}
+	return urls
 }
 
 func deriveMetadataSource(

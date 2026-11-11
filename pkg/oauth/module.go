@@ -170,6 +170,12 @@ func startOAuthDiscoveryWithRetryPolicy(p discoveryParams, retryPolicy oauthDisc
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(startCtx context.Context) error {
 			settleUnsupportedStartupCatalog()
+			if p.MCPConfig.DisableOAuthDiscovery {
+				p.State.Set(nil, nil, nil, nil)
+				finalizeStaticStartupCatalog()
+				logger.InfoContext(startCtx, "OAuth discovery disabled by configuration")
+				return nil
+			}
 			if p.MCPConfig.AllowNoMain {
 				const reason = "oauth discovery disabled because the main channel is not enabled"
 				p.State.Set(nil, nil, nil, nil)

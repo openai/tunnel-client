@@ -6,6 +6,7 @@
   import type { OAuthRow, OAuthStatusResponse } from "../lib/types";
 
   let rows: OAuthRow[] = [];
+  let disabled = false;
   let errorMessage = "";
   let refreshTimer: number | undefined;
   let expandedRows = new Set<string>();
@@ -24,11 +25,13 @@
     errorMessage = "";
     try {
       const payload = await fetchJSON<OAuthStatusResponse>("/api/oauth");
-      rows = buildOAuthRows(payload);
+      disabled = payload.reason_code === "disabled_by_configuration";
+      rows = disabled ? [] : buildOAuthRows(payload);
       if (payload.error) {
         errorMessage = payload.error;
       }
     } catch (err) {
+      disabled = false;
       errorMessage = `error: ${String(err)}`;
       rows = buildOAuthRows(null);
     }
@@ -71,7 +74,9 @@
       <tbody>
         {#if rows.length === 0}
           <tr>
-            <td colspan="5" class="muted">No discovery rows.</td>
+            <td colspan="5" class="muted">
+              {disabled ? "OAuth discovery is disabled by configuration." : "No discovery rows."}
+            </td>
           </tr>
         {:else}
           {#each rows as row}

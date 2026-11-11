@@ -47,6 +47,14 @@ func TestComponentHealthClassifiesWithoutDiscoveryPayloads(t *testing.T) {
 	}
 	disabled := newComponentHealth(NewDiscoveryState(), &runtimeconfig.MCPConfig{TransportKind: runtimeconfig.MCPTransportStdio, ServerURL: u})
 	require.Equal(t, healthstate.StatusDisabled, disabled.Snapshot(time.Now()).Status)
+	require.Empty(t, disabled.Snapshot(time.Now()).ReasonCode)
+
+	configured := newComponentHealth(NewDiscoveryState(), &runtimeconfig.MCPConfig{DisableOAuthDiscovery: true, ServerURL: u})
+	snapshot := configured.Snapshot(time.Now())
+	require.Equal(t, healthstate.StatusDisabled, snapshot.Status)
+	require.Equal(t, "disabled", snapshot.State)
+	require.Equal(t, "disabled_by_configuration", snapshot.ReasonCode)
+	require.Equal(t, healthstate.OAuthDetails{}, snapshot.Details)
 }
 
 func TestComponentHealthIncludesBoundedProbeEvidence(t *testing.T) {

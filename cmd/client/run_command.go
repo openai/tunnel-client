@@ -66,7 +66,7 @@ func (l *tunnelEventLogger) LogEvent(event fxevent.Event) {
 			}
 		}
 		oauthDiscoveryURLs := make([]string, 0)
-		if l.mcpConfig != nil {
+		if l.mcpConfig != nil && !l.mcpConfig.DisableOAuthDiscovery {
 			priority := 1
 			for _, metadataURL := range oauth.BuildResourceMetadataURLs(l.mcpConfig.ServerURL) {
 				if metadataURL == nil {

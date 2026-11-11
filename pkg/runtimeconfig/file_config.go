@@ -111,6 +111,7 @@ type fileMCPConfig struct {
 	ClientKey                        *string            `yaml:"client_key"`
 	ExtraHeaders                     map[string]string  `yaml:"extra_headers"`
 	DiscoveryExtraHeaders            map[string]string  `yaml:"discovery_extra_headers"`
+	OAuthDiscovery                   *string            `yaml:"oauth_discovery"`
 	OAuthTrustedOrigins              []string           `yaml:"oauth_trusted_origins"`
 	StartupWaitTimeout               *string            `yaml:"startup_wait_timeout"`
 	StdioFailurePolicy               *string            `yaml:"stdio_failure_policy"`
@@ -446,6 +447,7 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 		}
 		env["MCP_DISCOVERY_EXTRA_HEADERS"] = discoveryExtraHeaders
 	}
+	setString(env, "MCP_OAUTH_DISCOVERY", c.MCP.OAuthDiscovery)
 	if c.MCP.OAuthTrustedOrigins != nil {
 		// Validate each YAML element before encoding the environment list so a
 		// newline inside one element cannot grant trust to additional origins.

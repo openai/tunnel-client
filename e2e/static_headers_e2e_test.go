@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"sync"
 	"testing"
@@ -62,6 +63,72 @@ func TestMCPStaticHeadersE2E(t *testing.T) {
 			t.Parallel()
 			runStaticHeadersTransportCase(t, tc.useUnixMCP)
 		})
+	}
+}
+
+func TestStaticBearerWithOAuthDiscoveryDisabled(t *testing.T) {
+	t.Parallel()
+
+	const staticAuth = "Bearer static-service-token"
+	var backend *httputil.ReverseProxy
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" {
+			t.Errorf("unexpected metadata request: %s %s", r.Method, r.URL.Path)
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = fmt.Fprint(w, "<html>frontend</html>")
+			return
+		}
+		if r.Header.Get("Accept") == "application/json" && (r.Method == http.MethodGet || r.ContentLength == 0) {
+			t.Errorf("unexpected OAuth challenge probe: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != staticAuth {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		backend.ServeHTTP(w, r)
+	}))
+	t.Cleanup(upstream.Close)
+
+	denied := mocktunnelservice.CommandResponse{
+		Command: mocktunnelservice.NewCommand("denied", json.RawMessage(`{"jsonrpc":"2.0","id":"denied","method":"tools/list"}`),
+			http.Header{"Authorization": {"Bearer expired"}}),
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{RequestID: "denied"}},
+	}
+	discovery := mocktunnelservice.CommandResponse{
+		Command:           mocktunnelservice.NewOAuthDiscoveryCommand("discover", nil),
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{RequestID: "discover"}},
+	}
+	h := harnesspkg.NewHarness(t,
+		harnesspkg.WithScenarioTimeout(5*time.Second),
+		harnesspkg.WithPreserveClientURLs(),
+		harnesspkg.WithClientConfig(func(cfg *config.Config) {
+			cfg.MCP.ServerURL = mustParseURL(t, upstream.URL+"/mcp")
+			cfg.MCP.DisableOAuthDiscovery = true
+			cfg.MCP.ExtraHeaders = map[string]string{"Authorization": staticAuth}
+		}),
+		harnesspkg.WithBeforeClientStart(func(h *harnesspkg.Harness) {
+			backend = httputil.NewSingleHostReverseProxy(h.MCP.BaseURL())
+		}),
+		harnesspkg.WithControlPlaneOptions(
+			mocktunnelservice.WithInitializationPhaseCommands(),
+			mocktunnelservice.WithSessionHeaderPropagation(),
+			mocktunnelservice.WithCommandResponses(denied, discovery),
+		),
+	)
+	h.ExecuteScenarious(t)
+
+	for _, r := range h.ControlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched) {
+		switch r.RequestID {
+		case "denied":
+			if r.ResponseCode != http.StatusUnauthorized || r.ResponseHeaders.Get("WWW-Authenticate") != "Bearer" {
+				t.Errorf("denied MCP response = %d, challenge %q", r.ResponseCode, r.ResponseHeaders.Get("WWW-Authenticate"))
+			}
+		case "discover":
+			if r.ResponseCode != http.StatusNotFound || r.ResponseType != string(wiretypes.ResponsePayloadOAuth) {
+				t.Errorf("disabled discovery response = %d, type %q", r.ResponseCode, r.ResponseType)
+			}
+		}
 	}
 }
 

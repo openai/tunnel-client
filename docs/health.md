@@ -283,7 +283,8 @@ The current schema version 1 OAuth component uses these values:
 | `complete` | `ok` | omitted | `true` | Startup OAuth discovery completed successfully. |
 | `not_advertised` | `ok` | `metadata_not_advertised` | `true` | Optional absence of protected-resource metadata; this allowed outcome supports plain MCP servers. |
 | `failed` | `degraded` | `discovery_failed` | `true` | Required startup OAuth discovery failed. |
-| `disabled` | `disabled` | omitted | `false` | Startup OAuth discovery is not enabled for this configuration. |
+| `disabled` | `disabled` | `disabled_by_configuration` | `false` | The operator set `MCP_OAUTH_DISCOVERY=disabled`. The catalog gate can complete without fetching metadata. |
+| `disabled` | `disabled` | omitted | `false` | The main channel has no HTTP MCP target for discovery. |
 
 For enabled discovery, `discovery_complete` means it reached a final outcome,
 including a failure; it is not a success flag. Component `status` describes that

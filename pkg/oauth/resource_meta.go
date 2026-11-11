@@ -46,6 +46,9 @@ type DiscoveryAttempt struct {
 	StatusCode int             `json:"status_code,omitempty"`
 	Error      string          `json:"error,omitempty"`
 	Selected   bool            `json:"selected,omitempty"`
+	// HTMLInsteadOfMetadata identifies a successful HTTP response whose body is
+	// an HTML page. Diagnostics only need this classification, not the page.
+	HTMLInsteadOfMetadata bool `json:"-"`
 }
 
 // WWWAuthenticateProbeStatus captures the outcome of a WWW-Authenticate probe.

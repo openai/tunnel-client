@@ -327,6 +327,18 @@ describe("App", () => {
     expect(getAllByText(/MCP server has no OAuth metadata/).length).toBeGreaterThan(0);
   });
 
+  it("reports disabled OAuth discovery without rendering discovery steps", async () => {
+    installAppFetchMock({
+      onRequest: ({ url }) => url.endsWith("/api/oauth")
+        ? jsonResponse({ reason_code: "disabled_by_configuration" })
+        : undefined,
+    });
+    const { findByText, queryByText } = render(App);
+
+    expect(await findByText("OAuth discovery is disabled by configuration.")).toBeTruthy();
+    expect(queryByText("well_known_root")).toBeNull();
+  });
+
   it.each([
     { documentPath: "/", appRoot: "./", expectedRoot: "/" },
     { documentPath: "/gateway/client/", appRoot: "./", expectedRoot: "/gateway/client/" },

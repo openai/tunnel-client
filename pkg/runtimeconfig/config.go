@@ -420,6 +420,8 @@ type MCPConfig struct {
 	MaxConcurrentRequests int
 	ExtraHeaders          map[string]string
 	DiscoveryExtraHeaders map[string]string
+	// DisableOAuthDiscovery suppresses startup and on-demand OAuth discovery.
+	DisableOAuthDiscovery bool
 	OAuthTrustedOrigins   []*url.URL
 	HTTPProxy             *url.URL
 	HTTPProxySource       ProxySource
@@ -640,6 +642,7 @@ func WriteUsage(fs *pflag.FlagSet, w io.Writer) {
 	_, _ = fmt.Fprintln(fs.Output(), "  OPENAI_API_KEY\tAPI key env var used when CONTROL_PLANE_API_KEY unset")
 	_, _ = fmt.Fprintln(fs.Output(), "  CONTROL_PLANE_TUNNEL_ID\tIdentifier for this client/tunnel (required)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_SERVER_URL or MCP_COMMAND\tMain MCP target (required unless poll channels exclude main)")
+	_, _ = fmt.Fprintln(fs.Output(), "  MCP_OAUTH_DISCOVERY\tOAuth metadata discovery mode: auto (default) or disabled")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_STDIO_FAILURE_POLICY\tRecovery after an unexpected stdio child loss: restart or exit (default: restart)")
 	_, _ = fmt.Fprintln(fs.Output(), "  MCP_FORWARD_TRACE_CONTEXT\tOpt in to forwarding traceparent/tracestate through MCP params._meta (default: false)")
 	_, _ = fmt.Fprintln(fs.Output(), "  FORWARD_REQUEST_ID\tHTTP egress surfaces for the original X-Request-Id (default: mcp)")
@@ -694,6 +697,7 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.String("mcp.client-key", "", "Path to PEM client private key for MCP mTLS (format <path|env:VAR>) (env.MCP_CLIENT_KEY)")
 	fs.StringArray("mcp.extra-headers", nil, "Static HTTP headers to send to the configured MCP server origin (format 'Key: Value', repeatable; values accept env:VAR or file:/path) (env.MCP_EXTRA_HEADERS)")
 	fs.StringArray("mcp.discovery-extra-headers", nil, "Static HTTP headers to send to MCP discovery/probe requests for the configured MCP server origin (format 'Key: Value', repeatable; values accept env:VAR or file:/path) (env.MCP_DISCOVERY_EXTRA_HEADERS)")
+	fs.String("mcp.oauth-discovery", "auto", "OAuth metadata discovery mode for startup and later requests: auto or disabled (env.MCP_OAUTH_DISCOVERY)")
 	fs.StringArray("mcp.oauth-trusted-origin", nil, "Additional HTTP(S) origin trusted for OAuth discovery (repeatable; origin only, without a path) (env.MCP_OAUTH_TRUSTED_ORIGINS)")
 	fs.Duration("mcp.startup-wait-timeout", 0, "Maximum opt-in startup wait for the main MCP HTTP listener before first poll (env.MCP_STARTUP_WAIT_TIMEOUT)")
 	fs.Duration("mcp.connection-max-ttl", defaultMCPConnectionMaxTTL, "Maximum lifetime of MCP transport connections (env.MCP_CONNECTION_MAX_TTL)")
@@ -1501,10 +1505,10 @@ func validateConfiguredPollChannels(controlPlane ControlPlaneConfig, mcp MCPConf
 				return errors.New("control-plane.poll-channel main has no local MCP handler")
 			}
 		case types.ChannelHarpoon:
-			// Main can discover and register Harpoon targets through OAuth after
-			// startup. A true Harpoon-only process has no such bootstrap path and
-			// must fail closed unless it starts with a routable target.
-			if len(harpoon.Targets) == 0 && !slices.Contains(controlPlane.PollChannels, types.DefaultChannel) {
+			// An explicit Harpoon subscription needs a configured target unless
+			// the main channel can discover and register targets through OAuth.
+			canDiscoverTargets := !mcp.DisableOAuthDiscovery && slices.Contains(controlPlane.PollChannels, types.DefaultChannel)
+			if len(harpoon.Targets) == 0 && !canDiscoverTargets {
 				return errors.New("control-plane.poll-channel harpoon has no routable target")
 			}
 		default:
@@ -2019,6 +2023,27 @@ func resolveStdioFailurePolicy(fs *pflag.FlagSet, lookupEnv func(string) (string
 	return StdioFailurePolicyRestart, nil
 }
 
+func parseOAuthDiscoveryMode(source, raw string) (disabled bool, err error) {
+	switch raw {
+	case "auto":
+		return false, nil
+	case "disabled":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid %s: must be auto or disabled", source)
+	}
+}
+
+func resolveDisableOAuthDiscovery(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) (bool, error) {
+	if raw, ok := changedStringFlag(fs, "mcp.oauth-discovery"); ok {
+		return parseOAuthDiscoveryMode("--mcp.oauth-discovery", raw)
+	}
+	if raw, ok := lookupEnv("MCP_OAUTH_DISCOVERY"); ok {
+		return parseOAuthDiscoveryMode("MCP_OAUTH_DISCOVERY", raw)
+	}
+	return false, nil
+}
+
 func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), globalProxy *url.URL, globalProxySource ProxySource, mainServerURL string) (MCPConfig, error) {
 	commandEntries, err := resolveMCPEntries(fs, lookupEnv, "mcp.command", "MCP_COMMAND")
 	if err != nil {
@@ -2131,6 +2156,10 @@ func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), gl
 	if err != nil {
 		return MCPConfig{}, err
 	}
+	disableOAuthDiscovery, err := resolveDisableOAuthDiscovery(fs, lookupEnv)
+	if err != nil {
+		return MCPConfig{}, err
+	}
 	oauthTrustedOrigins, err := buildOAuthTrustedOrigins(fs, lookupEnv)
 	if err != nil {
 		return MCPConfig{}, err
@@ -2186,6 +2215,7 @@ func buildMCPConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, bool), gl
 		MaxConcurrentRequests:            maxConcurrent,
 		ExtraHeaders:                     extraHeaders,
 		DiscoveryExtraHeaders:            discoveryExtraHeaders,
+		DisableOAuthDiscovery:            disableOAuthDiscovery,
 		OAuthTrustedOrigins:              oauthTrustedOrigins,
 		HTTPProxy:                        mcpProxy,
 		HTTPProxySource:                  mcpProxySource,

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jpillora/backoff"
@@ -217,6 +218,8 @@ func runOAuthMetadataDiscoveryPass(
 		}
 
 		if err := validateProtectedResourceMetadata(body); err != nil {
+			attempts[i].HTMLInsteadOfMetadata = resp.StatusCode >= 200 && resp.StatusCode < 300 &&
+				strings.HasPrefix(http.DetectContentType(body), "text/html;")
 			lastErr = fmt.Errorf("oauth discovery invalid metadata from %s: %w", urlForLog, err)
 			attempts[i].Error = lastErr.Error()
 			responseFailures.record(resp.StatusCode, lastErr, true)

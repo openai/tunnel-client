@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -67,6 +68,43 @@ func TestDoctorSuccess(t *testing.T) {
 	require.Contains(t, stdout, canonicalRuntimeAPIKeysURL)
 	require.Contains(t, stdout, canonicalAdminAPIKeysURL)
 	require.Contains(t, stdout, canonicalChatGPTConnectorSettingsURL)
+}
+
+func TestDoctorOAuthDiscoveryDisabled(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/mcp" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="/metadata"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	stdout, stderr, err := executeCommand(t, map[string]string{
+		"HOME":                  t.TempDir(),
+		"CONTROL_PLANE_API_KEY": "test-api-key",
+		"MCP_OAUTH_DISCOVERY":   "disabled",
+	}, "doctor",
+		"--control-plane.tunnel-id", "tunnel_0123456789abcdef0123456789abcdef",
+		"--mcp.server-url", server.URL+"/mcp",
+		"--health.listen-addr", "127.0.0.1:0",
+		"--json",
+	)
+
+	require.NoError(t, err, stderr)
+	var report doctorReport
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+	require.Contains(t, report.Checks, doctorCheck{
+		ID: "mcp_server_reachable", Status: doctorStatusPass, Summary: "HTTP 401 from " + server.URL + "/mcp",
+	})
+	require.Contains(t, report.Checks, doctorCheck{
+		ID: "oauth_metadata", Status: doctorStatusSkip, Summary: "OAuth discovery disabled by configuration",
+	})
+	require.EqualValues(t, 1, requests.Load(), "only the MCP reachability check should send a request")
 }
 
 func TestDoctorCABundle(t *testing.T) {
@@ -241,6 +279,8 @@ func (transport doctorFailingTransport) RoundTrip(*http.Request) (*http.Response
 func TestDoctorOAuthMetadataCheckCandidates(t *testing.T) {
 	t.Parallel()
 
+	const htmlPage = "<!DOCTYPE html><html>private upstream content</html>"
+
 	tests := []struct {
 		name                 string
 		pathStatus           int
@@ -249,6 +289,7 @@ func TestDoctorOAuthMetadataCheckCandidates(t *testing.T) {
 		emptyErrorBodies     bool
 		advertiseMetadataURL bool
 		wantStatus           doctorStatus
+		wantHTMLHint         bool
 		wantSummaryPart      string
 		wantMetadataPaths    []string
 	}{
@@ -293,6 +334,40 @@ func TestDoctorOAuthMetadataCheckCandidates(t *testing.T) {
 			wantStatus:        doctorStatusFail,
 			wantSummaryPart:   "invalid metadata",
 			wantMetadataPaths: []string{"/.well-known/oauth-protected-resource/mcp"},
+		},
+		{
+			name:              "SuccessfulHTMLWellKnownResponse",
+			pathStatus:        http.StatusOK,
+			pathBody:          htmlPage,
+			wantStatus:        doctorStatusFail,
+			wantHTMLHint:      true,
+			wantSummaryPart:   "invalid metadata",
+			wantMetadataPaths: []string{"/.well-known/oauth-protected-resource/mcp"},
+		},
+		{
+			name:              "XMLDoesNotSuggestDisablingOAuth",
+			pathStatus:        http.StatusOK,
+			pathBody:          "<error>private upstream content</error>",
+			wantStatus:        doctorStatusFail,
+			wantSummaryPart:   "invalid metadata",
+			wantMetadataPaths: []string{"/.well-known/oauth-protected-resource/mcp"},
+		},
+		{
+			name:              "UnauthorizedHTMLDoesNotSuggestDisablingOAuth",
+			pathStatus:        http.StatusUnauthorized,
+			pathBody:          htmlPage,
+			wantStatus:        doctorStatusFail,
+			wantSummaryPart:   "invalid metadata",
+			wantMetadataPaths: []string{"/.well-known/oauth-protected-resource/mcp"},
+		},
+		{
+			name:                 "AdvertisedOAuthDoesNotSuggestDisablingOAuth",
+			pathStatus:           http.StatusOK,
+			pathBody:             htmlPage,
+			advertiseMetadataURL: true,
+			wantStatus:           doctorStatusFail,
+			wantSummaryPart:      "invalid metadata",
+			wantMetadataPaths:    []string{"/advertised-oauth-metadata", "/.well-known/oauth-protected-resource/mcp"},
 		},
 		{
 			name:                 "AdvertisedMetadataNotFoundIsNotOptional",
@@ -359,6 +434,16 @@ func TestDoctorOAuthMetadataCheckCandidates(t *testing.T) {
 
 			require.Equal(t, tt.wantStatus, check.Status)
 			require.Contains(t, check.Summary, tt.wantSummaryPart)
+			var output bytes.Buffer
+			writeDoctorReport(&output, doctorReport{Checks: []doctorCheck{check}}, true)
+			require.NotContains(t, output.String(), "private upstream content")
+			if tt.wantHTMLHint {
+				require.Contains(t, output.String(), "returned an HTML page")
+				require.Contains(t, output.String(), "MCP_OAUTH_DISCOVERY=disabled")
+				output.Reset()
+				writeDoctorReport(&output, doctorReport{Checks: []doctorCheck{check}}, false)
+			}
+			require.NotContains(t, output.String(), "MCP_OAUTH_DISCOVERY=disabled")
 			mu.Lock()
 			gotPaths := append([]string(nil), requestedMetadataPaths...)
 			mu.Unlock()

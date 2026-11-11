@@ -83,6 +83,29 @@ func TestBuildOAuthStatusPendingUsesConfigURLs(t *testing.T) {
 	require.Empty(t, out.SelectedAuthServer)
 }
 
+func TestDisabledDiscoveryAdminStatus(t *testing.T) {
+	t.Parallel()
+
+	serverURL := mustParseURL(t, "https://example.com/public/mcp")
+	p := routeParams{
+		Buffer: NewLogBufferWithCapacity(1),
+		MCPConfig: &config.MCPConfig{
+			DisableOAuthDiscovery: true,
+			ChannelBindings: []config.MCPChannelBinding{{
+				Channel:       types.DefaultChannel,
+				TransportKind: config.MCPTransportHTTPStreamable,
+				ServerURL:     serverURL,
+			}},
+		},
+		OAuthState: oauth.NewDiscoveryState(),
+	}
+
+	require.Equal(t, oauthStatusResponse{ReasonCode: "disabled_by_configuration"}, buildOAuthStatus(p))
+	status := buildStatus(p)
+	require.Equal(t, serverURL.String(), status.MCPServerURL)
+	require.Empty(t, status.MCPResourceMetadataURLs)
+}
+
 func TestBuildOAuthStatusErrorIncludesAttempts(t *testing.T) {
 	t.Parallel()
 

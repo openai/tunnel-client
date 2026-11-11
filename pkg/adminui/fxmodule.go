@@ -254,13 +254,8 @@ func buildStatus(p routeParams) statusResponse {
 	if p.MCPConfig != nil {
 		if mainBinding := p.MCPConfig.MainChannelBinding(); mainBinding != nil && mainBinding.ServerURL != nil {
 			out.MCPServerURL = mainBinding.ServerURL.String()
-			urls := oauth.BuildResourceMetadataURLs(mainBinding.ServerURL)
-			out.MCPResourceMetadataURLs = make([]string, 0, len(urls))
-			for _, url := range urls {
-				if url == nil {
-					continue
-				}
-				out.MCPResourceMetadataURLs = append(out.MCPResourceMetadataURLs, url.String())
+			if !p.MCPConfig.DisableOAuthDiscovery {
+				out.MCPResourceMetadataURLs = resourceMetadataURLs(mainBinding.ServerURL)
 			}
 		}
 	}

@@ -85,6 +85,7 @@ type mcpProcessor struct {
 	tracing             *tracing.Runtime
 	metrics             *processorMetrics
 	tunnelID            types.TunnelID
+	skipOAuthDiscovery  bool
 	oauthHTTPClient     *http.Client
 	hostBus             hostbus.HostRegistrationBus
 	mcpServerURL        *url.URL
@@ -280,7 +281,7 @@ func NewProcessor(p processorParams) (Processor, error) {
 			Priority:      cfg.priority,
 			RoutableNow:   cfg.isRoutable(),
 			SupportsMCP:   cfg.features.supportsMCP,
-			SupportsOAuth: cfg.features.supportsOAuth,
+			SupportsOAuth: cfg.features.supportsOAuth && !p.MCPConfig.DisableOAuthDiscovery,
 		})
 	}
 	sort.SliceStable(registered, func(i, j int) bool {
@@ -310,6 +311,7 @@ func NewProcessor(p processorParams) (Processor, error) {
 		tracing:             p.Tracing,
 		metrics:             processorMetrics,
 		tunnelID:            p.ControlPlaneCfg.TunnelID,
+		skipOAuthDiscovery:  p.MCPConfig.DisableOAuthDiscovery,
 		oauthHTTPClient:     p.OAuthHTTPClient,
 		hostBus:             p.HostBus,
 		mcpServerURL:        p.MCPConfig.ServerURL,
@@ -780,6 +782,11 @@ func (p *mcpProcessor) processSessionTerminationCommand(ctx context.Context, log
 }
 
 func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger *slog.Logger, cmd controlplane.OauthDiscoveryCommand, channel types.Channel) error {
+	if p.skipOAuthDiscovery {
+		payload := json.RawMessage(`{"error":{"type":"invalid_request_error","code":"oauth_discovery_disabled","message":"OAuth discovery disabled by configuration"}}`)
+		resp := types.NewOAuthDiscoveryResponse(channel, payload, http.StatusNotFound, http.Header{"Content-Type": {"application/json"}})
+		return p.postOAuthDiscoveryResponse(ctx, logger, cmd, resp)
+	}
 	if p.mcpServerURL == nil {
 		return fmt.Errorf("dispatcher processor: missing MCP server URL")
 	}
@@ -829,6 +836,10 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 		}
 	}
 
+	return p.postOAuthDiscoveryResponse(ctx, logger, cmd, resp)
+}
+
+func (p *mcpProcessor) postOAuthDiscoveryResponse(ctx context.Context, logger *slog.Logger, cmd controlplane.OauthDiscoveryCommand, resp *types.TunnelResponse) error {
 	post := p.postTunnelResponse(ctx, cmd.RequestID(), resp)
 	if post.err != nil {
 		attrs := post.errorAttrs()
@@ -843,7 +854,7 @@ func (p *mcpProcessor) processOauthDiscoveryCommand(ctx context.Context, logger 
 	latencyRecorded := &latencyFlags{}
 	metricAttrs := []attribute.KeyValue{
 		attribute.String("request_kind", "oauth_discovery"),
-		attribute.String("channel", channel.String()),
+		attribute.String("channel", resp.Channel().String()),
 	}
 	p.metrics.recordCommandLatencies(ctx, p.tunnelID, resp.ResponseCode(), metricAttrs, cmd.EnqueuedAt(), cmd.PolledAt(), latencyRecorded)
 

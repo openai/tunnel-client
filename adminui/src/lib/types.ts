@@ -130,6 +130,7 @@ export interface LogEvent {
 
 export interface OAuthStatusResponse {
   discovery_urls?: string[];
+  reason_code?: string;
   metadata?: OAuthMetadata;
   error?: string;
   pending?: boolean;

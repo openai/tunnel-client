@@ -8,11 +8,15 @@ import (
 )
 
 type componentHealth struct {
-	state   *DiscoveryState
-	enabled bool
+	state          *DiscoveryState
+	enabled        bool
+	disabledReason string
 }
 
 func newComponentHealth(state *DiscoveryState, cfg *runtimeconfig.MCPConfig) healthstate.Component {
+	if cfg != nil && cfg.DisableOAuthDiscovery {
+		return &componentHealth{disabledReason: "disabled_by_configuration"}
+	}
 	enabled := false
 	if cfg != nil && !cfg.AllowNoMain {
 		kind, serverURL := cfg.TransportKind, cfg.ServerURL
@@ -29,6 +33,7 @@ func (*componentHealth) Name() string { return "oauth" }
 func (h *componentHealth) Snapshot(time.Time) healthstate.ComponentSnapshot {
 	result := healthstate.ComponentSnapshot{Status: healthstate.StatusDisabled, State: "disabled", Details: healthstate.OAuthDetails{}}
 	if !h.enabled {
+		result.ReasonCode = h.disabledReason
 		return result
 	}
 	result.Status, result.State = healthstate.StatusUnknown, "pending"

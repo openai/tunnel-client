@@ -3189,6 +3189,48 @@ func TestProcessorHandlesOAuthDiscoveryCommand(t *testing.T) {
 	require.Equal(t, "application/json", got.response.Headers().Get("Content-Type"))
 }
 
+func TestProcessorReturnsNotFoundWithoutProbingWhenOAuthDiscoveryDisabled(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unexpected discovery request", http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL + "/mcp")
+	require.NoError(t, err)
+	responder := newRecordingResponder()
+	bus := newRecordingHostBus()
+	processor, err := NewProcessor(processorParams{
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ChannelBindings: newTestChannelBindings(&stubForwardingTransport{}),
+		TunnelResponder: responder,
+		MCPConfig: &config.MCPConfig{
+			ServerURL:             serverURL,
+			ConnectionMaxTTL:      time.Second,
+			DisableOAuthDiscovery: true,
+		},
+		OAuthHTTPClient: server.Client(),
+		HostBus:         bus,
+		ControlPlaneCfg: newTestControlPlaneConfig(t),
+		MeterProvider:   newTestMeterProvider(t),
+	})
+	require.NoError(t, err)
+
+	cmd := &fakeOauthDiscoveryCommand{id: "discovery-disabled", shardToken: "shard"}
+	require.NoError(t, processor.Process(context.Background(), cmd))
+	reply := responder.waitForResponse(t)
+	require.Equal(t, cmd.id, reply.requestID)
+	require.Equal(t, types.ResponseTypeOAuthDiscovery, reply.response.Type())
+	require.Equal(t, types.DefaultChannel, reply.response.Channel())
+	require.Equal(t, http.StatusNotFound, reply.response.ResponseCode())
+	require.Equal(t, "application/json", reply.response.Headers().Get("Content-Type"))
+	require.JSONEq(t, `{"error":{"code":"oauth_discovery_disabled","message":"OAuth discovery disabled by configuration","type":"invalid_request_error"}}`, string(reply.response.Payload()))
+	require.Zero(t, requests.Load())
+	require.Empty(t, bus.bundles)
+}
+
 func TestProcessorHandlesSessionTerminationCommand(t *testing.T) {
 	t.Parallel()
 

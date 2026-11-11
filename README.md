@@ -786,12 +786,14 @@ plugin installed by `tunnel-client codex plugin install`.
 - It routes commands by channel: `main` targets the configured MCP binding,
   additional configured channels can target their own MCP bindings, and
   `harpoon` is routable only when Harpoon has registered targets.
-- On startup, it fetches OAuth Protected Resource Metadata from the MCP server
+- By default, it fetches OAuth Protected Resource Metadata from the MCP server on startup
   and registers discovered Harpoon targets. Timeouts, HTTP `429`/`5xx`, and
   malformed successful metadata responses retry with bounded exponential
   backoff until discovery succeeds or the process stops. Permanent errors
   remain visible through readiness; discovery validation and trusted-origin
-  restrictions still apply.
+  restrictions still apply. For an MCP server using a static credential,
+  set `MCP_OAUTH_DISCOVERY=disabled` to skip startup and later OAuth discovery.
+  [MCP configuration](docs/configuration.md#mcp-server)
 - Before polling for Harpoon work, the runtime waits for startup discovery and
   target registration to complete. Failed startup catalogs do not consume
   commands, and readiness remains non-ready until registration succeeds.

@@ -1,5 +1,9 @@
 OAuth discovery matters when your main MCP target is an HTTP server that expects DCR/PRMD metadata.
 
+For an MCP server using static credentials, set MCP_OAUTH_DISCOVERY=disabled
+or pass --mcp.oauth-discovery=disabled. This skips startup, queued, and doctor
+OAuth probes. The MCP initialization probe and configured MCP headers still apply.
+
 Why it matters:
   - /readyz can stay degraded if the MCP server does not expose the expected metadata
   - tunnel-client logs the discovery URLs it will try for the main MCP channel

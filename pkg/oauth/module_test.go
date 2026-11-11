@@ -474,7 +474,16 @@ func newStartupCatalogOAuthServer(t *testing.T) *httptest.Server {
 
 func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 	t.Parallel()
+	testDisabledOAuthDiscovery(t, &config.MCPConfig{AllowNoMain: true})
+}
 
+func TestOAuthDiscoveryDisabledByConfiguration(t *testing.T) {
+	t.Parallel()
+	testDisabledOAuthDiscovery(t, &config.MCPConfig{DisableOAuthDiscovery: true, StartupWaitTimeout: time.Hour})
+}
+
+func testDisabledOAuthDiscovery(t *testing.T, cfg *config.MCPConfig) {
+	t.Helper()
 	requestSeen := make(chan struct{})
 	var requestOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -489,18 +498,14 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 		t.Fatalf("parse server URL: %v", err)
 	}
 
+	cfg.ServerURL = serverURL
+	cfg.TransportKind = config.MCPTransportHTTPStreamable
 	state := NewDiscoveryState()
 	startupCatalog := hostbus.NewStartupCatalogState()
 	bus := &recordingBus{notify: make(chan struct{})}
 	app := fx.New(
 		fx.Provide(
-			func() *config.MCPConfig {
-				return &config.MCPConfig{
-					AllowNoMain:   true,
-					ServerURL:     serverURL,
-					TransportKind: config.MCPTransportHTTPStreamable,
-				}
-			},
+			func() *config.MCPConfig { return cfg },
 			fx.Annotate(
 				func() *http.Client { return server.Client() },
 				fx.ResultTags(`name:"mcp_client"`),
@@ -522,12 +527,15 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 		_ = app.Stop(context.Background())
 	}()
 
-	_, _, _, discoveryErr, done := state.Wait(time.Second)
+	result, probe, urls, discoveryErr, done := state.Wait(time.Second)
 	if !done {
 		t.Fatal("OAuth discovery did not settle")
 	}
 	if discoveryErr != nil {
 		t.Fatalf("disabled OAuth discovery returned error: %v", discoveryErr)
+	}
+	if result != nil || probe != nil || len(urls) != 0 {
+		t.Fatalf("expected empty discovery state, got result=%v, probe=%v, urls=%v", result, probe, urls)
 	}
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
 	defer cancelWait()
@@ -536,14 +544,14 @@ func TestOAuthDiscoveryDisabledWhenMainChannelNotEnabled(t *testing.T) {
 	}
 	select {
 	case <-requestSeen:
-		t.Fatal("disabled main MCP endpoint received an OAuth discovery request")
+		t.Fatal("MCP endpoint received an OAuth discovery request with discovery disabled")
 	default:
 	}
 
 	bus.mu.Lock()
 	defer bus.mu.Unlock()
 	if len(bus.bundles) != 1 || len(bus.bundles[0].URLs) != 0 {
-		t.Fatalf("disabled main finalization bundles = %#v, want one empty bundle", bus.bundles)
+		t.Fatalf("disabled discovery finalization bundles = %#v, want one empty bundle", bus.bundles)
 	}
 }
 

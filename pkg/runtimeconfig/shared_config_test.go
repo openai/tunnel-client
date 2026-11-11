@@ -2186,6 +2186,33 @@ func TestLoadMainAndHarpoonPollChannelsAllowOAuthBootstrap(t *testing.T) {
 	}
 }
 
+func TestLoadPollChannelsWithOAuthDiscoveryDisabled(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{name: "unscoped"},
+		{name: "main only", args: []string{"--control-plane.poll-channel=main"}},
+		{name: "explicit harpoon without targets", args: []string{"--control-plane.poll-channel=main", "--control-plane.poll-channel=harpoon"}, wantErr: true},
+		{name: "explicit harpoon with target", args: []string{"--control-plane.poll-channel=main", "--control-plane.poll-channel=harpoon", "--harpoon.target=label=auth,url=https://auth.example"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"--control-plane.tunnel-id", flagTunnelID, "--mcp.server-url=https://mcp.example", "--mcp.oauth-discovery=disabled"}
+			_, err := LoadRuntimeForTest(append(args, tc.args...), lookupEnvMap(map[string]string{"OPENAI_API_KEY": "key"}))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "harpoon has no routable target") {
+					t.Fatalf("Load error = %v, want missing Harpoon target", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestLoadPollChannelsFromYAML(t *testing.T) {
 	t.Parallel()
 

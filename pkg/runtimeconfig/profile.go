@@ -386,6 +386,11 @@ func validateFileConfigSyntax(c fileConfig) error {
 	if err := validateHeaderReferenceSyntax("mcp.discovery_extra_headers", c.MCP.DiscoveryExtraHeaders); err != nil {
 		return err
 	}
+	if c.MCP.OAuthDiscovery != nil {
+		if _, err := parseOAuthDiscoveryMode("mcp.oauth_discovery", *c.MCP.OAuthDiscovery); err != nil {
+			return err
+		}
+	}
 	if err := validateFileOAuthTrustedOrigins(c.MCP.OAuthTrustedOrigins); err != nil {
 		return err
 	}
