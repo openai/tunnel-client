@@ -70,10 +70,10 @@ go.uber.org/fx|direct|v1.23.0|MIT|go.uber.org/fx@v1.23.0/LICENSE|darwin/amd64,da
 go.uber.org/multierr|transitive|v1.11.0|MIT|go.uber.org/multierr@v1.11.0/LICENSE.txt|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.uber.org/zap|transitive|v1.27.0|MIT|go.uber.org/zap@v1.27.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 go.yaml.in/yaml/v2|transitive|v2.4.2|Apache-2.0|go.yaml.in/yaml/v2@v2.4.2/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
-golang.org/x/net/publicsuffix|transitive|v0.60.0|BSD-3-Clause|golang.org/x/net@v0.60.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/net/publicsuffix|transitive|v0.62.0|BSD-3-Clause|golang.org/x/net@v0.62.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 golang.org/x/oauth2|transitive|v0.35.0|BSD-3-Clause|golang.org/x/oauth2@v0.35.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 golang.org/x/sync|direct|v0.20.0|BSD-3-Clause|golang.org/x/sync@v0.20.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
-golang.org/x/sys|direct|v0.48.0|BSD-3-Clause|golang.org/x/sys@v0.48.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
+golang.org/x/sys|direct|v0.49.0|BSD-3-Clause|golang.org/x/sys@v0.49.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 golang.org/x/time/rate|transitive|v0.15.0|BSD-3-Clause|golang.org/x/time@v0.15.0/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 google.golang.org/protobuf|transitive|v1.36.8|BSD-3-Clause|google.golang.org/protobuf@v1.36.8/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 gopkg.in/yaml.v3|direct|v3.0.1|MIT|gopkg.in/yaml.v3@v3.0.1/LICENSE|darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # Pinned multi-platform manifest digests keep runtime image inputs stable.
-ARG BASE_BUILDER_IMAGE=golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd
+ARG BASE_BUILDER_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 ARG BASE_IMAGE=alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
 ARG GIT_SHA=dev
 ARG GO_VERSION=unknown

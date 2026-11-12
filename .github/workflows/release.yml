@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: "1.27.3"
+  GO_VERSION: "1.27.4"
   NODE_VERSION: "22.23.3"
   GOPROXY: https://proxy.golang.org
   MODULE_PATH: github.com/openai/tunnel-client
