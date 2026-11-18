@@ -33,6 +33,109 @@ const (
 	flagTunnelID = "tunnel_fedcba9876543210fedcba9876543210"
 )
 
+func TestTunnelBasePathConfiguration(t *testing.T) {
+	t.Parallel()
+
+	const custom = "/custom/tunnels"
+	for _, tc := range []struct {
+		name   string
+		source string
+		yaml   string
+		env    *string
+		flags  []string
+		want   string
+	}{
+		{name: "released config", source: "--config", want: "/v1/tunnels"},
+		{name: "YAML", source: "--config", yaml: custom + "/", want: custom},
+		{name: "profile", source: "--profile-file", yaml: "env:CUSTOM_PATH", want: custom},
+		{name: "YAML file reference", source: "--config", yaml: "file:" + writeTempSecretFile(t, custom), want: custom},
+		{name: "empty YAML", source: "--config", yaml: "''", want: "/v1/tunnels"},
+		{name: "environment overrides profile", source: "--profile-file", yaml: "env:UNSET", env: new(custom), want: custom},
+		{name: "flag overrides environment and YAML", source: "--config", yaml: "/", env: new("invalid"), flags: []string{"--control-plane.tunnel-base-path=" + custom}, want: custom},
+		{name: "invalid YAML", source: "--config", yaml: "relative"},
+		{name: "invalid environment", source: "--profile-file", env: new("relative")},
+		{name: "invalid flag", source: "--config", flags: []string{"--control-plane.tunnel-base-path=relative"}},
+		{name: "empty environment restores default", source: "--config", yaml: custom, env: new(""), want: "/v1/tunnels"},
+		{name: "empty flag restores default", source: "--profile-file", yaml: "invalid", env: new(custom), flags: []string{"--control-plane.tunnel-base-path="}, want: "/v1/tunnels"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfgYAML := "mcp:\n  server_urls:\n    - url: https://mcp.example\ncontrol_plane:\n  url_path: /gateway/\n  tunnel_id: " + envTunnelID + "\n"
+			if tc.yaml != "" {
+				cfgYAML += "  tunnel_base_path: " + tc.yaml + "\n"
+			}
+			args := append([]string{tc.source, writeTempConfigFile(t, cfgYAML)}, tc.flags...)
+			env := map[string]string{"CUSTOM_PATH": custom, "CONTROL_PLANE_API_KEY": "test-key"}
+			if tc.env != nil {
+				env["CONTROL_PLANE_TUNNEL_BASE_PATH"] = *tc.env
+			}
+			cfg, err := LoadRuntimeForTest(args, lookupEnvMap(env))
+			if tc.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "control-plane.tunnel-base-path") {
+					t.Fatalf("expected a tunnel base path error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ControlPlane.TunnelBasePath != tc.want || cfg.ControlPlane.URLPath != "/gateway/" {
+				t.Errorf("got tunnel base path %q, URL path %q; want %q, /gateway/", cfg.ControlPlane.TunnelBasePath, cfg.ControlPlane.URLPath, tc.want)
+			}
+		})
+	}
+}
+
+func TestTunnelBasePathComposesWithLegacyFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, flavor := range []Flavor{FlavorRuntime, FlavorRuntimeCloudflared, FlavorFull} {
+		t.Run(string(flavor), func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Load([]string{
+				"--control-plane-url-path=/gateway/", "--control-plane.tunnel-base-path=/custom/tunnels",
+				"--control-plane-tunnel-id=" + envTunnelID, "--mcp-server-url=https://mcp.example",
+			}, flavor, lookupEnvMap(map[string]string{"CONTROL_PLANE_API_KEY": "test-key"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ControlPlane.URLPath != "/gateway/" || cfg.ControlPlane.TunnelBasePath != "/custom/tunnels" {
+				t.Errorf("got URL path %q, tunnel base path %q", cfg.ControlPlane.URLPath, cfg.ControlPlane.TunnelBasePath)
+			}
+		})
+	}
+}
+
+func TestTunnelBasePathValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{"relative", "//gateway/path", "https://example.test/tunnels", "/a?", "/a#fragment", "/a/../b", "/a/%2e", "/a%2F..", "/a%5Cb", "/a%0A", "/bad%"} {
+		if _, err := NormalizeTunnelBasePath(raw); err == nil {
+			t.Errorf("accepted invalid path %q", raw)
+		}
+	}
+	for _, tc := range []struct{ raw, want string }{
+		{"", "/v1/tunnels"}, {"/", "/"}, {"/custom/tunnels///", "/custom/tunnels"},
+		{"/custom%2Ftunnels/%25/", "/custom%2Ftunnels/%25"}, {"/custom//tunnels/", "/custom//tunnels"},
+	} {
+		if got, err := NormalizeTunnelBasePath(tc.raw); err != nil || got != tc.want {
+			t.Errorf("NormalizeTunnelBasePath(%q) = %q, %v; want %q", tc.raw, got, err, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		raw     string
+		invalid bool
+	}{
+		{"/custom/tunnels", false}, {"env:CUSTOM_PATH", false}, {"file:/example", false},
+		{"//gateway", true}, {"env:", true},
+	} {
+		data := fmt.Appendf(nil, "control_plane:\n  tunnel_base_path: %q\n", tc.raw)
+		if err := ValidateProfileBytes("profile.yaml", data); (err != nil) != tc.invalid {
+			t.Errorf("validate profile path %q: %v", tc.raw, err)
+		}
+	}
+}
+
 func TestValidateControlPlaneAPIKey(t *testing.T) {
 	t.Parallel()
 

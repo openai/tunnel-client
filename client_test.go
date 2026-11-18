@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -61,6 +62,12 @@ func TestNewValidatesRequiredInputs(t *testing.T) {
 			cfg:       tunnelclient.Config{TunnelID: testTunnelID, APIKey: testAPIKey, ControlPlaneResidency: tunnelclient.Residency("unknown")},
 			transport: clientTransport,
 			wantErr:   "control-plane.residency",
+		},
+		{
+			name:      "invalid tunnel base path",
+			cfg:       tunnelclient.Config{TunnelID: testTunnelID, APIKey: testAPIKey, TunnelBasePath: "https://example.org/tunnels"},
+			transport: clientTransport,
+			wantErr:   "control-plane.tunnel-base-path",
 		},
 		{
 			name:      "conflicting residency and base URL",
@@ -149,6 +156,50 @@ func TestNewValidatesRequiredInputs(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestSDKTunnelBasePath(t *testing.T) {
+	t.Parallel()
+
+	const tunnelPath = "/gateway/custom/tunnels/" + testTunnelID
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET " + tunnelPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"` + testTunnelID + `","name":"SDK test"}`))
+		case "GET " + tunnelPath + "/poll":
+			if r.Header.Get("Authorization") != "Bearer "+testAPIKey || r.Header.Get("X-Example-Header") != "example" {
+				t.Error("SDK poll omitted the configured authorization or extra header")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected SDK request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "sdk-test", Version: "1.0.0"}, nil)
+	serverCtx, cancelServer := context.WithCancel(context.Background())
+	defer cancelServer()
+	go func() { _ = mcpServer.Run(serverCtx, serverTransport) }()
+
+	client, err := tunnelclient.New(tunnelclient.Config{
+		TunnelID:                 testTunnelID,
+		APIKey:                   testAPIKey,
+		ControlPlaneBaseURL:      server.URL,
+		ControlPlaneURLPath:      "/gateway",
+		TunnelBasePath:           "/custom/tunnels",
+		ControlPlaneExtraHeaders: map[string]string{"X-Example-Header": "example"},
+		LogWriter:                io.Discard,
+	}, clientTransport)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, client.Start(ctx))
+	defer func() { _ = client.Stop(context.Background()) }()
+	require.NoError(t, client.WaitUntilReady(ctx))
 }
 
 func TestClientForwardsMCPToolCallsOverInMemoryTransport(t *testing.T) {

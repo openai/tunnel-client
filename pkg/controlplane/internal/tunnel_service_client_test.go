@@ -1906,6 +1906,62 @@ func TestTunnelServiceClientExtraHeadersAreSent(t *testing.T) {
 	assert.NoError(t, err, "Poll should succeed with extra headers enabled")
 }
 
+func TestTunnelServiceClientTunnelBasePath(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, urlPath, tunnelBasePath, want string
+	}{
+		{name: "default", want: "/v1/tunnels"},
+		{name: "existing URL path", urlPath: "/gateway/", want: "/gateway/v1/tunnels"},
+		{name: "custom path", tunnelBasePath: "/custom/tunnels", want: "/custom/tunnels"},
+		{name: "both paths", urlPath: "/gateway/", tunnelBasePath: "/custom/tunnels/", want: "/gateway/custom/tunnels"},
+		{name: "root", urlPath: "/gateway/", tunnelBasePath: "/", want: "/gateway"},
+		{name: "escaped path", urlPath: "/with space/", tunnelBasePath: "/custom%2Ftunnels//nested%25/", want: "/with%20space/custom%2Ftunnels//nested%25"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// The released client puts the escaped tunnel ID in URL.Path.
+			want := tc.want + "/id%252Fwith%2520space"
+			server := newHTTPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
+				assert.Equal(t, []string{"example"}, r.Header.Values("X-Example-Header"))
+				assert.False(t, r.URL.Query().Has("ignored"))
+				switch r.Method + " " + r.URL.EscapedPath() {
+				case "GET " + want:
+					_, _ = io.WriteString(w, `{"id":"id/with space"}`)
+				case "GET " + want + "/poll":
+					w.WriteHeader(http.StatusNoContent)
+				case "POST " + want + "/response":
+					w.WriteHeader(http.StatusOK)
+				case "GET " + want + "/cloudflare/runtime":
+					_, _ = io.WriteString(w, `{"cloudflare_tunnel":{"tunnel_id":"id","name":"test","account_id":"account"},"runtime_token":"test-token"}`)
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.RequestURI)
+					http.NotFound(w, r)
+				}
+			}))
+			client, err := NewTunnelServiceClient(t.Context(), &config.ControlPlaneConfig{
+				BaseURL: mustParseURL(t, server.URL+"/legacy?ignored=1"), URLPath: tc.urlPath,
+				TunnelBasePath: tc.tunnelBasePath, TunnelID: "id/with space", APIKey: "test-api-key",
+				ExtraHeaders: map[string]string{"X-Example-Header": "example"},
+			}, nil, newDiscardLogger(), &config.LoggingConfig{}, testMeterProvider)
+			require.NoError(t, err)
+
+			metadata, err := client.FetchTunnelMetadata(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "id/with space", metadata.ID)
+			_, _, err = client.Poll(t.Context(), 1)
+			require.NoError(t, err)
+			ctx := tunnelctx.ContextWithChannel(tunnelctx.ContextWithShardToken(t.Context(), "shard"), types.DefaultChannel)
+			_, err = client.PostResponse(ctx, "request", types.NewNotificationAck(types.DefaultChannel, http.StatusOK, http.Header{}))
+			require.NoError(t, err)
+			_, err = client.FetchManagedCloudflareTunnel(t.Context())
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestNewTunnelServiceClientRejectsInvalidExtraHeaders(t *testing.T) {
 	t.Parallel()
 

@@ -131,6 +131,13 @@ return client.Run(ctx)
 The runnable [Go SDK example](examples/go-sdk-inmemory) registers an `echo`
 tool and connects it to the OpenAI Tunnel control plane.
 
+If your gateway serves tunnel runtime requests under a custom path, set
+`--control-plane.tunnel-base-path=/custom/tunnels` or set `Config.TunnelBasePath`
+in the Go SDK. The default is `/v1/tunnels`. To send an extra header on runtime
+requests, pass `--control-plane.extra-headers "X-Example-Header: example"` or
+set `Config.ControlPlaneExtraHeaders` in the SDK.
+[Configuration reference](docs/configuration.md#other-control-plane-settings)
+
 ## Documentation Map
 
 - **Public Secure MCP Tunnel guide**:

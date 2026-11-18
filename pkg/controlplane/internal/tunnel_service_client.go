@@ -40,10 +40,6 @@ import (
 )
 
 const (
-	pollPathFormat                        = "/v1/tunnels/%s/poll"
-	responsePathFormat                    = "/v1/tunnels/%s/response"
-	metadataPathFormat                    = "/v1/tunnels/%s"
-	managedCloudflarePathFormat           = "/v1/tunnels/%s/cloudflare/runtime"
 	maxControlPlaneErrorBodySize          = 64 * 1024
 	tunnelIntegrationSocketEnv            = "TUNNEL_INTEGRATION_TUNNEL_SERVICE_SOCKET_PATH"
 	defaultResponseRetryAttempts          = 3
@@ -123,11 +119,21 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 		return nil, errors.New("controlplane client: logger is required")
 	}
 
+	tunnelBasePath, err := runtimeconfig.NormalizeTunnelBasePath(cfg.TunnelBasePath)
+	if err != nil {
+		return nil, err
+	}
+	root := runtimeconfig.ResolveControlPlanePath(cfg.BaseURL, cfg.URLPath, "/")
+	// Both prefixes are URL-escaped. Preserve encoded separators and resolve
+	// the tunnel ID relative to the resulting directory, as one path segment.
+	base, err := root.Parse(strings.TrimSuffix(root.EscapedPath(), "/") + strings.TrimSuffix(tunnelBasePath, "/") + "/")
+	if err != nil {
+		return nil, err
+	}
 	tunnelIDSegment := url.PathEscape(cfg.TunnelID.String())
-	pollEndpoint := runtimeconfig.ResolveControlPlanePath(cfg.BaseURL, cfg.URLPath, fmt.Sprintf(pollPathFormat, tunnelIDSegment))
-	responseEndpoint := runtimeconfig.ResolveControlPlanePath(cfg.BaseURL, cfg.URLPath, fmt.Sprintf(responsePathFormat, tunnelIDSegment))
-	metadataEndpoint := runtimeconfig.ResolveControlPlanePath(cfg.BaseURL, cfg.URLPath, fmt.Sprintf(metadataPathFormat, tunnelIDSegment))
-	managedCloudflareEndpoint := runtimeconfig.ResolveControlPlanePath(cfg.BaseURL, cfg.URLPath, fmt.Sprintf(managedCloudflarePathFormat, tunnelIDSegment))
+	endpoint := func(suffix string) *url.URL {
+		return base.ResolveReference(&url.URL{Path: tunnelIDSegment + suffix})
+	}
 
 	pollTimeout := cfg.PollTimeoutOrDefault()
 	pollGuardrail := cfg.PollDeadlineGuardrailOrDefault()
@@ -153,10 +159,10 @@ func NewTunnelServiceClient(ctx context.Context, cfg *runtimeconfig.ControlPlane
 			Timeout:   pollDeadline,
 			Transport: secretTransport,
 		},
-		pollEndpoint:                   pollEndpoint,
-		responseEndpoint:               responseEndpoint,
-		metadataEndpoint:               metadataEndpoint,
-		managedCloudflareEndpoint:      managedCloudflareEndpoint,
+		pollEndpoint:                   endpoint("/poll"),
+		responseEndpoint:               endpoint("/response"),
+		metadataEndpoint:               endpoint(""),
+		managedCloudflareEndpoint:      endpoint("/cloudflare/runtime"),
 		logger:                         logger,
 		tunnelID:                       cfg.TunnelID,
 		userAgent:                      version.UserAgent,

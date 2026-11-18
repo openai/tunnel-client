@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/pflag"
 
@@ -133,6 +134,7 @@ func resolveRequestIDForwarding(fs *pflag.FlagSet, lookupEnv func(string) (strin
 }
 
 const (
+	defaultTunnelBasePath                              = "/v1/tunnels"
 	defaultControlPlaneBaseURL                         = "https://api.openai.com"
 	defaultControlPlaneMTLSBaseURL                     = "https://mtls.api.openai.com"
 	defaultControlPlaneMaxInFlight                     = 20
@@ -297,6 +299,7 @@ type ControlPlaneConfig struct {
 	BaseURL               *url.URL
 	UnixSocketPath        string
 	URLPath               string
+	TunnelBasePath        string
 	TunnelID              types.TunnelID
 	OrganizationID        string
 	APIKey                string
@@ -663,6 +666,7 @@ func RegisterFlags(fs *pflag.FlagSet, flavor Flavor) {
 	fs.String("profile-dir", "", "Directory containing profile YAML files (env.TUNNEL_CLIENT_PROFILE_DIR; default $XDG_CONFIG_HOME/tunnel-client or ~/.config/tunnel-client)")
 	RegisterControlPlaneEndpointFlags(fs)
 	fs.String("control-plane.url-path", "", "Optional URL path appended to the control-plane base URL before tunnel-client adds its /v1/... routes (env.CONTROL_PLANE_URL_PATH)")
+	fs.String("control-plane.tunnel-base-path", defaultTunnelBasePath, "Tunnel runtime path appended after control-plane.url-path (env.CONTROL_PLANE_TUNNEL_BASE_PATH)")
 	fs.String("control-plane.tunnel-id", "", "Identifier for this client/tunnel (env.CONTROL_PLANE_TUNNEL_ID)")
 	fs.String("control-plane.organization-id", "", "Organization ID to send as OpenAI-Organization on tunnel control-plane requests (env.CONTROL_PLANE_ORGANIZATION_ID)")
 	fs.String("control-plane.api-key", "", "Reference to environment variable or file containing the control-plane API key (format env:VARNAME or file:/path/to/secret)")
@@ -1274,6 +1278,14 @@ func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, 
 	if err != nil {
 		return ControlPlaneConfig{}, err
 	}
+	rawTunnelBasePath, changed := changedStringFlag(fs, "control-plane.tunnel-base-path")
+	if !changed {
+		rawTunnelBasePath, _ = lookupEnv("CONTROL_PLANE_TUNNEL_BASE_PATH")
+	}
+	tunnelBasePath, err := NormalizeTunnelBasePath(rawTunnelBasePath)
+	if err != nil {
+		return ControlPlaneConfig{}, err
+	}
 
 	var tunnelID string
 	if flag := fs.Lookup("control-plane.tunnel-id"); flag != nil && flag.Changed {
@@ -1432,6 +1444,7 @@ func buildControlPlaneConfig(fs *pflag.FlagSet, lookupEnv func(string) (string, 
 		Residency:              endpoint.Residency,
 		BaseURL:                baseURL,
 		URLPath:                controlPlaneURLPath,
+		TunnelBasePath:         tunnelBasePath,
 		TunnelID:               types.TunnelID(tunnelID),
 		OrganizationID:         organizationID,
 		APIKey:                 apiKey,
@@ -1528,6 +1541,30 @@ func validateControlPlanePollTiming(pollTimeout, pollDeadlineGuardrail time.Dura
 		return fmt.Errorf("control-plane.poll-timeout plus control-plane.poll-deadline-guardrail must be less than or equal to %s", maxControlPlanePollDeadline)
 	}
 	return nil
+}
+
+// NormalizeTunnelBasePath returns an escaped absolute path for tunnel runtime requests.
+// An empty value selects the default. Trailing slashes are removed except at the root.
+func NormalizeTunnelBasePath(raw string) (string, error) {
+	if raw == "" {
+		return defaultTunnelBasePath, nil
+	}
+	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, " ?#") {
+		return "", errors.New("invalid control-plane.tunnel-base-path: must be an absolute URL path without an authority, query, or fragment")
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || strings.Contains(parsed.Path, `\`) || strings.IndexFunc(parsed.Path, unicode.IsControl) >= 0 {
+		return "", errors.New("invalid control-plane.tunnel-base-path: malformed URL path")
+	}
+	for segment := range strings.SplitSeq(parsed.Path, "/") {
+		if segment == "." || segment == ".." {
+			return "", errors.New("invalid control-plane.tunnel-base-path: dot segments are not allowed")
+		}
+	}
+	if raw == "/" {
+		return "/", nil
+	}
+	return strings.TrimRight(parsed.EscapedPath(), "/"), nil
 }
 
 func controlPlaneURLPathRaw(fs *pflag.FlagSet, lookupEnv func(string) (string, bool)) string {

@@ -2,10 +2,12 @@ package internal
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/openai/tunnel-client/pkg/runtimeconfig"
 )
 
 func TestControlPlaneEndpointsMatchOpenAPIContract(t *testing.T) {
@@ -17,21 +19,29 @@ func TestControlPlaneEndpointsMatchOpenAPIContract(t *testing.T) {
 		t.Fatalf("OpenAPI paths is %T, want object", spec["paths"])
 	}
 
+	const tunnelID = "example-tunnel"
+	client, err := NewTunnelServiceClient(t.Context(), &runtimeconfig.ControlPlaneConfig{
+		BaseURL: mustParseURL(t, "https://example.com"), TunnelID: tunnelID, APIKey: "test-api-key",
+	}, nil, newDiscardLogger(), &runtimeconfig.LoggingConfig{}, testMeterProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cases := []struct {
-		name       string
-		pathFormat string
-		method     string
+		name   string
+		path   string
+		method string
 	}{
-		{name: "metadata", pathFormat: metadataPathFormat, method: http.MethodGet},
-		{name: "managed_cloudflare_runtime", pathFormat: managedCloudflarePathFormat, method: http.MethodGet},
-		{name: "poll", pathFormat: pollPathFormat, method: http.MethodGet},
-		{name: "response", pathFormat: responsePathFormat, method: http.MethodPost},
+		{name: "metadata", path: client.metadataEndpoint.Path, method: http.MethodGet},
+		{name: "managed_cloudflare_runtime", path: client.managedCloudflareEndpoint.Path, method: http.MethodGet},
+		{name: "poll", path: client.pollEndpoint.Path, method: http.MethodGet},
+		{name: "response", path: client.responseEndpoint.Path, method: http.MethodPost},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			path := fmt.Sprintf(testCase.pathFormat, "{tunnel_id}")
+			path := strings.Replace(testCase.path, tunnelID, "{tunnel_id}", 1)
 			pathItem, ok := paths[path].(map[string]any)
 			if !ok {
 				t.Fatalf("client path %q is absent from docs/openapi.json", path)

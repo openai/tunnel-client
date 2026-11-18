@@ -342,6 +342,17 @@ func expandHome(path string, lookupEnv func(string) (string, bool)) (string, err
 }
 
 func validateFileConfigSyntax(c fileConfig) error {
+	if basePath := c.ControlPlane.TunnelBasePath; basePath != nil {
+		raw := strings.TrimSpace(*basePath)
+		lower := strings.ToLower(raw)
+		if strings.HasPrefix(lower, "env:") || strings.HasPrefix(lower, "file:") {
+			if err := validateConfigValueReferenceSyntax("control_plane.tunnel_base_path", basePath); err != nil {
+				return err
+			}
+		} else if _, err := NormalizeTunnelBasePath(raw); err != nil {
+			return err
+		}
+	}
 	if c.ControlPlane.Residency != nil {
 		if _, err := ParseResidency(*c.ControlPlane.Residency); err != nil {
 			return err

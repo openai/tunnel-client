@@ -106,6 +106,10 @@ type Config struct {
 	// LogLevel defaults to slog.LevelInfo. LogWriter defaults to os.Stderr.
 	LogLevel  slog.Level
 	LogWriter io.Writer
+
+	// TunnelBasePath is the runtime path appended after ControlPlaneURLPath.
+	// An empty value uses /v1/tunnels.
+	TunnelBasePath string
 }
 
 // Client owns one embedded tunnel-client runtime.
@@ -319,6 +323,10 @@ func buildConfig(cfg Config) (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tunnel-client: %w", err)
 	}
+	tunnelBasePath, err := runtimeconfig.NormalizeTunnelBasePath(cfg.TunnelBasePath)
+	if err != nil {
+		return nil, fmt.Errorf("tunnel-client: %w", err)
+	}
 	if cfg.MaxInFlightRequests < 0 {
 		return nil, errors.New("tunnel-client: max in-flight requests must be greater than zero")
 	}
@@ -353,6 +361,7 @@ func buildConfig(cfg Config) (*config.Config, error) {
 			TraceContextEnabled:   cfg.Tracing.Enabled,
 			BaseURL:               baseURL,
 			URLPath:               urlPath,
+			TunnelBasePath:        tunnelBasePath,
 			TunnelID:              types.TunnelID(tunnelID),
 			OrganizationID:        strings.TrimSpace(cfg.OrganizationID),
 			APIKey:                cfg.APIKey,

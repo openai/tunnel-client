@@ -47,6 +47,7 @@ type fileControlPlaneConfig struct {
 	Residency             *string           `yaml:"residency"`
 	BaseURL               *string           `yaml:"base_url"`
 	URLPath               *string           `yaml:"url_path"`
+	TunnelBasePath        *string           `yaml:"tunnel_base_path"`
 	TunnelID              *string           `yaml:"tunnel_id"`
 	OrganizationID        *string           `yaml:"organization_id"`
 	APIKey                *string           `yaml:"api_key"`
@@ -195,6 +196,9 @@ func loadFileConfigValues(fs *pflag.FlagSet, lookupEnv func(string) (string, boo
 	}
 
 	selectedCfg := cfg
+	if configValueOverridden(fs, lookupEnv, "control-plane.tunnel-base-path", "CONTROL_PLANE_TUNNEL_BASE_PATH") {
+		selectedCfg.ControlPlane.TunnelBasePath = nil
+	}
 	if configValueOverridden(fs, lookupEnv, "forward-request-id", "FORWARD_REQUEST_ID") {
 		selectedCfg.ForwardRequestID = yaml.Node{}
 	}
@@ -362,6 +366,11 @@ func (c fileConfig) toEnv(lookupEnv func(string) (string, bool)) (map[string]str
 	}
 	if err := setResolvedString(env, "CONTROL_PLANE_URL_PATH", "control_plane.url_path", c.ControlPlane.URLPath, lookupEnv); err != nil {
 		return nil, err
+	}
+	if basePath := c.ControlPlane.TunnelBasePath; basePath != nil && strings.TrimSpace(*basePath) != "" {
+		if err := setResolvedString(env, "CONTROL_PLANE_TUNNEL_BASE_PATH", "control_plane.tunnel_base_path", basePath, lookupEnv); err != nil {
+			return nil, err
+		}
 	}
 	setString(env, "CONTROL_PLANE_TUNNEL_ID", c.ControlPlane.TunnelID)
 	setString(env, "CONTROL_PLANE_AWS_IDENTITY_PROVIDER_ID", c.ControlPlane.AWSIdentityProviderID)

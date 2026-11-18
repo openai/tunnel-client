@@ -178,8 +178,9 @@ config_version: 1
 forward_request_id: mcp
 control_plane:
   base_url: https://api.openai.com # citadel-ignore: public endpoint example for external tunnel-client config
-  # Optional path appended before tunnel-client adds its /v1/... routes.
+  # Optional path appended before tunnel-client adds its API routes.
   url_path: /chatgpttunnelgateway/dev/us
+  # tunnel_base_path: /custom/tunnels  # Defaults to /v1/tunnels.
   tunnel_id: tunnel_0123456789abcdef0123456789abcdef
   api_key: env:CONTROL_PLANE_API_KEY
   # Optional. When configured with the default api.openai.com base URL,
@@ -467,6 +468,15 @@ endpoints must still match the selected residency.
     - Example base URL: `https://gateway.example.com`
     - Example URL path: `/workspace/dev/us`
     - Effective poll URL: `https://gateway.example.com/workspace/dev/us/v1/tunnels/<tunnel_id>/poll`
+- **Tunnel runtime base path**
+  - Set `--control-plane.tunnel-base-path`, `CONTROL_PLANE_TUNNEL_BASE_PATH`, or
+    `control_plane.tunnel_base_path` in YAML or a profile, in that order of
+    precedence. In the Go SDK, set `Config.TunnelBasePath`.
+  - Supply an absolute URL path such as `/custom/tunnels`. An empty value uses
+    the default `/v1/tunnels`. A trailing slash is optional.
+  - This path follows `control_plane.url_path` for runtime requests. For example,
+    with the gateway prefix `/workspace/dev/us` and base path `/custom/tunnels`,
+    the client polls `/workspace/dev/us/custom/tunnels/<tunnel_id>/poll`.
 - **Tunnel ID**
   - Flag: `--control-plane.tunnel-id`
   - Env: `CONTROL_PLANE_TUNNEL_ID`
